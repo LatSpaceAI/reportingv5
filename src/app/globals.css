@@ -1,0 +1,24 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #__next { height: 100%; }
+
+body {
+  @apply bg-white text-gray-800;
+  font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+.response-box:focus-within {
+  @apply ring-2 ring-brand/30 border-brand;
+}
+
+/* Grid background pattern for data sections */
+.grid-bg {
+  background-image:
+    linear-gradient(to right, #e5e7eb 1px, transparent 1px),
+    linear-gradient(to bottom, #e5e7eb 1px, transparent 1px);
+  background-size: 16px 16px;
+}
