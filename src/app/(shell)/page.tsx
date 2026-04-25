@@ -67,15 +67,22 @@ export default function LandingPage() {
             key={f.id}
             f={f}
             onExport={async () => {
-              if (f.id !== "cbam") {
-                show(`Export for ${f.shortName} is coming soon.`);
-                return;
-              }
               try {
-                show(`Generating ${f.shortName} export…`);
-                const { exportCbamFilled } = await import("@/lib/cbamExport/export");
-                await exportCbamFilled();
-                show("Export ready — download starting.");
+                if (f.id === "cbam") {
+                  show(`Generating ${f.shortName} export…`);
+                  const { exportCbamFilled } = await import("@/lib/cbamExport/export");
+                  await exportCbamFilled();
+                  show("Export ready — download starting.");
+                  return;
+                }
+                if (f.id === "rco") {
+                  show(`Generating ${f.shortName} export…`);
+                  const { exportRcoFilled } = await import("@/lib/rcoExport/export");
+                  await exportRcoFilled();
+                  show("Export ready — download starting.");
+                  return;
+                }
+                show(`Export for ${f.shortName} is coming soon.`);
               } catch (e) {
                 console.error(e);
                 show("Export failed. See console for details.");
@@ -159,11 +166,19 @@ function Row({ f, onExport }: { f: FrameworkSummary; onExport: () => void }) {
   return (
     <div className="grid grid-cols-[2fr_3fr_1.2fr_1fr_0.8fr] items-center border-b border-slate-100 px-5 py-4 last:border-b-0 hover:bg-slate-50/60">
       <div className="flex items-center gap-3">
-        <div
-          className={`h-10 w-10 shrink-0 rounded-md grid place-items-center text-[10px] font-bold ${f.logoColor}`}
-        >
-          {f.logoInitials}
-        </div>
+        {f.logoSrc ? (
+          <img
+            src={f.logoSrc}
+            alt={`${f.shortName} logo`}
+            className="h-10 w-10 shrink-0 rounded-md object-contain bg-white border border-slate-100"
+          />
+        ) : (
+          <div
+            className={`h-10 w-10 shrink-0 rounded-md grid place-items-center text-[10px] font-bold ${f.logoColor}`}
+          >
+            {f.logoInitials}
+          </div>
+        )}
         <div className="min-w-0">
           {isActive ? (
             <Link href={`/report/${f.id}`} className="font-medium text-slate-900 hover:underline">

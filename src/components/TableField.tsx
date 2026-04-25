@@ -1,12 +1,13 @@
 "use client";
 
-import type { TableQuestion } from "@/lib/cbamSections";
+import type { ComputeContext, TableQuestion } from "@/lib/frameworkTypes";
 import { FieldRenderer, type RowValues, isFilled, type FieldValue } from "./Fields";
 
 interface Props {
   q: TableQuestion;
   rows: RowValues[];
   onChange: (rows: RowValues[]) => void;
+  computeCtx?: ComputeContext;
 }
 
 function emptyRow(q: TableQuestion): RowValues {
@@ -15,7 +16,7 @@ function emptyRow(q: TableQuestion): RowValues {
   return r;
 }
 
-export function TableField({ q, rows, onChange }: Props) {
+export function TableField({ q, rows, onChange, computeCtx }: Props) {
   const data = rows.length === 0 ? Array.from({ length: q.minRows }, () => emptyRow(q)) : rows;
 
   function updateCell(rowIdx: number, colId: string, value: FieldValue) {
@@ -85,6 +86,7 @@ export function TableField({ q, rows, onChange }: Props) {
                       siblings={row}
                       onChange={(v) => updateCell(i, c.id, v)}
                       compact
+                      computeCtx={computeCtx}
                     />
                   </td>
                 ))}

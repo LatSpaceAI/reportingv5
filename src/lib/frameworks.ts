@@ -1,5 +1,8 @@
-import { sections as cbamSections, type Section } from "./cbamSections";
-import { CBAM_ANSWERS_KEY, readAnswers, type Answers } from "./storage";
+import { sections as cbamSections } from "./cbamSections";
+import { sections as rcoSections } from "./rcoSections";
+import { sections as cctsSections } from "./cctsSections";
+import type { Section } from "./frameworkTypes";
+import { CBAM_ANSWERS_KEY, RCO_ANSWERS_KEY, CCTS_ANSWERS_KEY, readAnswers, type Answers } from "./storage";
 
 export type FrameworkStatus = "active" | "coming-soon";
 export type FrameworkCategory = "Climate" | "Sustainability" | "Regulatory";
@@ -16,6 +19,7 @@ export interface FrameworkSummary {
   sections?: Section[];
   logoInitials: string;
   logoColor: string;
+  logoSrc?: string;
 }
 
 export const frameworks: FrameworkSummary[] = [
@@ -32,54 +36,37 @@ export const frameworks: FrameworkSummary[] = [
     sections: cbamSections,
     logoInitials: "EU",
     logoColor: "bg-blue-100 text-blue-700",
+    logoSrc: "/EU-logo.png",
   },
   {
-    id: "cdp",
-    name: "Carbon Disclosure Project",
-    shortName: "CDP Climate Change 2024",
+    id: "rco",
+    name: "Renewable Consumption Obligation",
+    shortName: "RCO — DCs with CPP & Open Access",
     description:
-      "Global environmental disclosure system that enables companies to measure and manage climate impact.",
-    cadence: "Annual",
-    category: "Climate",
-    status: "coming-soon",
-    logoInitials: "CDP",
-    logoColor: "bg-rose-50 text-rose-600",
+      "MoP RCO compliance return for Designated Consumers operating Captive Power Plants and consuming Open-Access power.",
+    cadence: "Quarterly",
+    category: "Regulatory",
+    status: "active",
+    storageKey: RCO_ANSWERS_KEY,
+    sections: rcoSections,
+    logoInitials: "RCO",
+    logoColor: "bg-emerald-100 text-emerald-700",
+    logoSrc: "/bee-logo.jpg",
   },
   {
-    id: "brsr",
-    name: "Business Responsibility & Sustainability Report",
-    shortName: "BRSR",
+    id: "ccts",
+    name: "Carbon Credit Trading Scheme — Cement Pro-Forma",
+    shortName: "CCTS Pro-Forma (Cement Sector)",
     description:
-      "Mandatory sustainability reporting framework for top 1000 listed companies in India under SEBI.",
+      "BEE Cement-Sector pro-forma capturing production and energy consumption for CCTS baseline / target-year reporting (Form-Sb).",
     cadence: "Annual",
     category: "Regulatory",
-    status: "coming-soon",
-    logoInitials: "BRSR",
-    logoColor: "bg-indigo-50 text-indigo-700",
-  },
-  {
-    id: "gresb",
-    name: "Global Real Estate Sustainability Benchmark",
-    shortName: "GRESB",
-    description:
-      "Leading ESG benchmark for real estate and infrastructure investments.",
-    cadence: "Annual",
-    category: "Sustainability",
-    status: "coming-soon",
-    logoInitials: "GR",
-    logoColor: "bg-emerald-50 text-emerald-700",
-  },
-  {
-    id: "tcfd",
-    name: "Task Force on Climate-related Financial Disclosures",
-    shortName: "TCFD",
-    description:
-      "Framework for climate-related financial risk disclosure, now superseded by IFRS S2.",
-    cadence: "Annual",
-    category: "Climate",
-    status: "coming-soon",
-    logoInitials: "TCFD",
-    logoColor: "bg-sky-50 text-sky-700",
+    status: "active",
+    storageKey: CCTS_ANSWERS_KEY,
+    sections: cctsSections,
+    logoInitials: "CC",
+    logoColor: "bg-amber-100 text-amber-700",
+    logoSrc: "/bee-logo.jpg",
   },
 ];
 

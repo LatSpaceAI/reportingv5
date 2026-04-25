@@ -20,66 +20,19 @@ import {
   yesNo,
 } from "./codeLists";
 
-export type FieldKind =
-  | "text"
-  | "longtext"
-  | "number"
-  | "date"
-  | "email"
-  | "tel"
-  | "select"
-  | "selectCountry"
-  | "selectGood"
-  | "selectDependent"
-  | "boolean";
+export type {
+  FieldKind,
+  BaseField,
+  Field,
+  QuestionKind,
+  FieldsQuestion,
+  TableQuestion,
+  Question,
+  Section,
+  ComputeContext,
+} from "./frameworkTypes";
 
-export interface BaseField {
-  id: string;
-  label: string;
-  required?: boolean;
-  unit?: string;
-  help?: string;
-}
-
-export type Field =
-  | (BaseField & { kind: "text" | "longtext" | "email" | "tel" })
-  | (BaseField & { kind: "number"; min?: number; max?: number; step?: number })
-  | (BaseField & { kind: "date" })
-  | (BaseField & { kind: "boolean" })
-  | (BaseField & { kind: "select"; options: readonly string[] })
-  | (BaseField & { kind: "selectCountry" })
-  | (BaseField & { kind: "selectGood" })
-  | (BaseField & { kind: "selectDependent"; dependsOn: string; map: Record<string, readonly string[]>; fallback: readonly string[] });
-
-export type QuestionKind = "fields" | "table";
-
-export interface FieldsQuestion {
-  id: string;
-  label: string;
-  description?: string;
-  kind: "fields";
-  fields: Field[];
-}
-
-export interface TableQuestion {
-  id: string;
-  label: string;
-  description?: string;
-  kind: "table";
-  columns: Field[];
-  minRows: number;
-  maxRows?: number;
-  rowLabel?: (i: number) => string;
-}
-
-export type Question = FieldsQuestion | TableQuestion;
-
-export interface Section {
-  id: string;
-  title: string;
-  sheetRef: string;
-  questions: Question[];
-}
+import type { Section } from "./frameworkTypes";
 
 const goodToRoutes = { ...productionRoutesByGood };
 

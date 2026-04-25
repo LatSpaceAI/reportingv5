@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Questionnaire } from "@/components/Questionnaire";
+import { Questionnaire, type QuestionnaireConfig } from "@/components/Questionnaire";
 import { getFramework } from "@/lib/frameworks";
 
 export default function ReportPage({ params }: { params: { id: string } }) {
@@ -11,7 +11,7 @@ export default function ReportPage({ params }: { params: { id: string } }) {
   const q = searchParams.get("q") ?? undefined;
   const fw = getFramework(id);
 
-  if (!fw || fw.status !== "active") {
+  if (!fw || fw.status !== "active" || !fw.sections || !fw.storageKey) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="max-w-md text-center">
@@ -34,5 +34,37 @@ export default function ReportPage({ params }: { params: { id: string } }) {
     );
   }
 
-  return <Questionnaire initialQuestionId={q} />;
+  const config: QuestionnaireConfig = {
+    sections: fw.sections,
+    storageKey: fw.storageKey,
+    frameworkId: fw.id,
+    frameworkName: fw.shortName,
+    version:
+      fw.id === "cbam"
+        ? "v2.1.1"
+        : fw.id === "rco"
+        ? "30-Sep-2025"
+        : fw.id === "ccts"
+        ? "BEE Cement PPC Pro-Forma"
+        : undefined,
+    onExport:
+      fw.id === "cbam"
+        ? async () => {
+            const { exportCbamFilled } = await import("@/lib/cbamExport/export");
+            await exportCbamFilled();
+          }
+        : fw.id === "rco"
+        ? async () => {
+            const { exportRcoFilled } = await import("@/lib/rcoExport/export");
+            await exportRcoFilled();
+          }
+        : fw.id === "ccts"
+        ? async () => {
+            const { exportCctsFilled } = await import("@/lib/cctsExport/export");
+            await exportCctsFilled();
+          }
+        : undefined,
+  };
+
+  return <Questionnaire config={config} initialQuestionId={q} />;
 }

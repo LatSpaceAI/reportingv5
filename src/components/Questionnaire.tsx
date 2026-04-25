@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { sections, type Question, type FieldsQuestion, type TableQuestion } from "@/lib/cbamSections";
+import type { ComputeContext, FieldsQuestion, Question, Section } from "@/lib/frameworkTypes";
 import { FieldHelp, FieldLabel, FieldRenderer, isFilled, isValid, type RowValues } from "@/components/Fields";
 import { TableField } from "@/components/TableField";
+import { initials, mockUsers, readAssignees, writeAssignees, type Assignees } from "@/lib/storage";
 
 type Status = "not-started" | "in-progress" | "completed";
 
@@ -27,8 +28,16 @@ const statusDot: Record<Status, string> = {
   completed: "bg-emerald-500",
 };
 
-const STORAGE_KEY = "cbam-app/v1";
 const PANES_KEY = "cbam-app/panes/v1";
+
+export interface QuestionnaireConfig {
+  sections: Section[];
+  storageKey: string;
+  frameworkId: string; // used to scope assignee storage so it syncs with /table
+  frameworkName: string; // shown in the header, e.g. "CBAM Communication Template — Installations"
+  version?: string; // optional version label shown in header
+  onExport?: () => Promise<void> | void; // called by the header Export button; if absent, button is hidden
+}
 
 const LEFT_MIN = 240;
 const LEFT_MAX = 560;
@@ -82,19 +91,31 @@ function canComplete(q: Question, s: QuestionState): boolean {
   return s.rows.every((r) => q.columns.every((c) => isValid(c, r[c.id])));
 }
 
-export function Questionnaire({ initialQuestionId }: { initialQuestionId?: string }) {
+export function Questionnaire({
+  config,
+  initialQuestionId,
+}: {
+  config: QuestionnaireConfig;
+  initialQuestionId?: string;
+}) {
+  const { sections, storageKey, frameworkId, frameworkName, version, onExport } = config;
   const allQuestions = useMemo(
     () => sections.flatMap((s) => s.questions.map((q) => ({ section: s, q }))),
-    []
+    [sections]
   );
 
   const [answers, setAnswers] = useState<Record<string, QuestionState>>(() =>
     Object.fromEntries(allQuestions.map(({ q }) => [q.id, blankState(q)]))
   );
 
+  // When the framework changes (rare — happens via navigation), reset state.
+  useEffect(() => {
+    setAnswers(Object.fromEntries(allQuestions.map(({ q }) => [q.id, blankState(q)])));
+  }, [storageKey, allQuestions]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return;
     try {
       const saved = JSON.parse(raw) as Record<string, QuestionState>;
@@ -104,12 +125,52 @@ export function Questionnaire({ initialQuestionId }: { initialQuestionId?: strin
         return next;
       });
     } catch {}
-  }, [allQuestions]);
+  }, [allQuestions, storageKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(answers));
-  }, [answers]);
+    localStorage.setItem(storageKey, JSON.stringify(answers));
+  }, [answers, storageKey]);
+
+  const [assignees, setAssigneesState] = useState<Assignees>({});
+  useEffect(() => {
+    setAssigneesState(readAssignees(frameworkId));
+  }, [frameworkId]);
+  const setAssigned = useCallback(
+    (questionId: string, userIds: string[]) => {
+      setAssigneesState((prev) => {
+        const next = { ...prev, [questionId]: userIds };
+        writeAssignees(frameworkId, next);
+        return next;
+      });
+    },
+    [frameworkId]
+  );
+
+  // Build a ComputeContext that the renderers use to resolve formula-driven
+  // field values. `get(qId, fId)` walks into the question's `values` map; if
+  // the target question is a table, the same id resolves the first row's
+  // value (sufficient for RCO's row-1 summary fields).
+  const computeCtx: ComputeContext = useMemo(
+    () => ({
+      get: (qId: string, fId: string) => {
+        const a = answers[qId];
+        if (!a) return null;
+        if (a.values && fId in a.values) return a.values[fId];
+        if (a.rows && a.rows[0] && fId in a.rows[0]) return a.rows[0][fId];
+        return null;
+      },
+      num: (v: unknown) => {
+        if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+        if (typeof v === "string" && v.trim() !== "") {
+          const n = Number(v);
+          return Number.isFinite(n) ? n : 0;
+        }
+        return 0;
+      },
+    }),
+    [answers]
+  );
 
   const [panes, setPanes] = useState<PanesState>(panesDefault);
   const dragRef = useRef<{ side: "left" | "right"; startX: number; startWidth: number } | null>(null);
@@ -223,7 +284,13 @@ export function Questionnaire({ initialQuestionId }: { initialQuestionId?: strin
 
   return (
     <div className="flex h-full flex-col">
-      <QuestionnaireHeader overallPct={overallPct} activeId={activeId} />
+      <QuestionnaireHeader
+        overallPct={overallPct}
+        activeId={activeId}
+        frameworkName={frameworkName}
+        version={version}
+        onExport={onExport}
+      />
       <div className="flex flex-1 overflow-hidden">
         {panes.leftCollapsed ? (
           <CollapsedRail
@@ -260,10 +327,13 @@ export function Questionnaire({ initialQuestionId }: { initialQuestionId?: strin
           onValues={(values) => patch(active.q.id, { values })}
           onRows={(rows) => patch(active.q.id, { rows })}
           onComment={(comment) => patch(active.q.id, { comment })}
+          assigned={assignees[active.q.id] ?? []}
+          onAssignedChange={(ids) => setAssigned(active.q.id, ids)}
           onStatusChange={(s) => setStatus(active.q.id, s)}
           onComplete={() =>
             canComplete(active.q, answers[active.q.id]) && setStatus(active.q.id, "completed")
           }
+          computeCtx={computeCtx}
         />
         {panes.rightCollapsed ? (
           <CollapsedRail
@@ -335,14 +405,25 @@ function CollapsedRail({
   );
 }
 
-function QuestionnaireHeader({ overallPct, activeId }: { overallPct: number; activeId: string }) {
+function QuestionnaireHeader({
+  overallPct,
+  activeId,
+  frameworkName,
+  version,
+  onExport,
+}: {
+  overallPct: number;
+  activeId: string;
+  frameworkName: string;
+  version?: string;
+  onExport?: () => Promise<void> | void;
+}) {
   const [busy, setBusy] = useState(false);
-  const onExport = async () => {
-    if (busy) return;
+  const handleExport = async () => {
+    if (busy || !onExport) return;
     setBusy(true);
     try {
-      const { exportCbamFilled } = await import("@/lib/cbamExport/export");
-      await exportCbamFilled();
+      await onExport();
     } catch (e) {
       console.error(e);
       alert("Export failed. See browser console for details.");
@@ -360,25 +441,28 @@ function QuestionnaireHeader({ overallPct, activeId }: { overallPct: number; act
           <span className="text-lg leading-none">‹</span> Back
         </a>
         <div className="flex items-baseline gap-2">
-          <span className="text-sm font-medium text-slate-900">
-            CBAM Communication Template — Installations
-          </span>
+          <span className="text-sm font-medium text-slate-900">{frameworkName}</span>
           <span className="text-xs text-slate-500">{overallPct}% complete</span>
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <span className="text-xs text-slate-500">v2.1.1 · {activeId}</span>
-        <button
-          onClick={onExport}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-          title="Download the filled CBAM template"
-        >
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          {busy ? "Generating…" : "Export"}
-        </button>
+        <span className="text-xs text-slate-500">
+          {version ? `${version} · ` : ""}
+          {activeId}
+        </span>
+        {onExport && (
+          <button
+            onClick={handleExport}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            title="Download the filled template"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            {busy ? "Generating…" : "Export"}
+          </button>
+        )}
       </div>
     </header>
   );
@@ -387,7 +471,7 @@ function QuestionnaireHeader({ overallPct, activeId }: { overallPct: number; act
 function Sidebar(props: {
   width: number;
   onCollapse: () => void;
-  sections: typeof sections;
+  sections: Section[];
   answers: Record<string, QuestionState>;
   activeId: string;
   setActiveId: (id: string) => void;
@@ -407,10 +491,8 @@ function Sidebar(props: {
       style={{ width: props.width }}
     >
       <div className="border-b border-slate-200 p-4 space-y-4">
-        <div className="flex items-center gap-4 text-sm">
-          <span className="border-b-2 border-brand pb-1 font-medium text-slate-900">STANDARD</span>
-          <span className="text-slate-400">FILES</span>
-          <span className="text-slate-400">ACTIVITY</span>
+        <div className="flex items-center text-sm">
+          <span className="text-[11px] uppercase tracking-wider font-medium text-slate-500">Sections</span>
           <button
             onClick={props.onCollapse}
             title="Collapse panel"
@@ -460,21 +542,22 @@ function Sidebar(props: {
           const total = s.questions.length;
           const done = s.questions.filter((q) => props.answers[q.id]?.status === "completed").length;
           const open = props.openSections[s.id];
+          const expanded = props.search.trim() ? true : open;
           return (
             <div key={s.id} className="border-b border-slate-100">
               <button
-                onClick={() => props.setOpenSections({ ...props.openSections, [s.id]: !open })}
+                onClick={() => props.setOpenSections({ ...props.openSections, [s.id]: !expanded })}
                 className="w-full flex items-center justify-between px-4 py-3 text-sm hover:bg-slate-50"
               >
                 <span className="flex items-center gap-2">
-                  <span className={`inline-block transition-transform ${open ? "rotate-90" : ""}`}>›</span>
+                  <span className={`inline-block transition-transform ${expanded ? "rotate-90" : ""}`}>›</span>
                   <span className="font-medium text-slate-800 text-left">{s.title}</span>
                 </span>
                 <span className="text-xs text-slate-500">
                   {done}/{total}
                 </span>
               </button>
-              {open && (
+              {expanded && (
                 <ul>
                   {s.questions.map((q) => {
                     const st = props.answers[q.id]?.status ?? "not-started";
@@ -525,17 +608,23 @@ function QuestionPanel({
   onValues,
   onRows,
   onComment,
+  assigned,
+  onAssignedChange,
   onStatusChange,
   onComplete,
+  computeCtx,
 }: {
-  section: (typeof sections)[number];
+  section: Section;
   question: Question;
   state: QuestionState;
   onValues: (values: RowValues) => void;
   onRows: (rows: RowValues[]) => void;
   onComment: (comment: string) => void;
+  assigned: string[];
+  onAssignedChange: (ids: string[]) => void;
   onStatusChange: (s: Status) => void;
   onComplete: () => void;
+  computeCtx: ComputeContext;
 }) {
   const valid = canComplete(question, state);
   return (
@@ -563,6 +652,11 @@ function QuestionPanel({
           </select>
         </div>
 
+        <div className="mt-4 flex items-center gap-3">
+          <span className="text-xs uppercase tracking-wider text-slate-500">Assignees</span>
+          <AssigneePicker selected={assigned} onChange={onAssignedChange} />
+        </div>
+
         {question.description && (
           <div className="mt-4 rounded-md border border-slate-200 bg-white p-4 text-sm text-slate-600">
             {question.description}
@@ -571,9 +665,9 @@ function QuestionPanel({
 
         <div className="mt-6">
           {question.kind === "fields" ? (
-            <FieldsForm q={question} values={state.values} onChange={onValues} />
+            <FieldsForm q={question} values={state.values} onChange={onValues} computeCtx={computeCtx} />
           ) : (
-            <TableField q={question} rows={state.rows} onChange={onRows} />
+            <TableField q={question} rows={state.rows} onChange={onRows} computeCtx={computeCtx} />
           )}
         </div>
 
@@ -622,10 +716,12 @@ function FieldsForm({
   q,
   values,
   onChange,
+  computeCtx,
 }: {
   q: FieldsQuestion;
   values: RowValues;
   onChange: (v: RowValues) => void;
+  computeCtx?: ComputeContext;
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -639,11 +735,108 @@ function FieldsForm({
               value={values[f.id]}
               siblings={values}
               onChange={(v) => onChange({ ...values, [f.id]: v })}
+              computeCtx={computeCtx}
             />
             <FieldHelp field={f} />
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function AssigneePicker({
+  selected,
+  onChange,
+}: {
+  selected: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const toggle = (id: string) => {
+    if (selected.includes(id)) onChange(selected.filter((x) => x !== id));
+    else onChange([...selected, id]);
+  };
+
+  const selectedUsers = selected
+    .map((id) => mockUsers.find((u) => u.id === id))
+    .filter(Boolean) as { id: string; name: string; email: string }[];
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1 rounded-md border border-transparent px-1.5 py-1 hover:border-slate-200 hover:bg-slate-50"
+      >
+        {selectedUsers.length === 0 ? (
+          <span className="text-xs text-slate-400">+ Assign</span>
+        ) : (
+          <div className="flex -space-x-1.5">
+            {selectedUsers.slice(0, 3).map((u) => (
+              <span
+                key={u.id}
+                title={u.name}
+                className="h-6 w-6 rounded-full bg-slate-200 text-[10px] font-semibold text-slate-700 ring-2 ring-white grid place-items-center"
+              >
+                {initials(u.name)}
+              </span>
+            ))}
+            {selectedUsers.length > 3 && (
+              <span className="h-6 w-6 rounded-full bg-slate-100 text-[10px] font-semibold text-slate-500 ring-2 ring-white grid place-items-center">
+                +{selectedUsers.length - 3}
+              </span>
+            )}
+          </div>
+        )}
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-20 mt-1 w-60 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+          {mockUsers.map((u) => {
+            const checked = selected.includes(u.id);
+            return (
+              <button
+                key={u.id}
+                type="button"
+                onClick={() => toggle(u.id)}
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-slate-50"
+              >
+                <span
+                  className={`h-4 w-4 shrink-0 rounded border grid place-items-center ${
+                    checked ? "border-brand bg-brand" : "border-slate-300"
+                  }`}
+                >
+                  {checked && (
+                    <svg viewBox="0 0 24 24" className="h-3 w-3 text-white" fill="none" stroke="currentColor" strokeWidth="3">
+                      <path d="m5 13 4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </span>
+                <span className="h-6 w-6 rounded-full bg-slate-200 text-[10px] font-semibold text-slate-700 grid place-items-center">
+                  {initials(u.name)}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-medium text-slate-800">
+                    {u.name}
+                  </div>
+                  <div className="truncate text-[11px] text-slate-500">{u.email}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
