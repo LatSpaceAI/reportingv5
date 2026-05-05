@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Questionnaire, type QuestionnaireConfig } from "@/components/Questionnaire";
+import { QualitativeReport } from "@/components/qualitative/QualitativeReport";
 import { getFramework } from "@/lib/frameworks";
 
 export default function ReportPage({ params }: { params: { id: string } }) {
@@ -11,27 +12,16 @@ export default function ReportPage({ params }: { params: { id: string } }) {
   const q = searchParams.get("q") ?? undefined;
   const fw = getFramework(id);
 
-  if (!fw || fw.status !== "active" || !fw.sections || !fw.storageKey) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <div className="max-w-md text-center">
-          <h1 className="text-lg font-semibold text-slate-900">
-            {fw ? `${fw.shortName} is coming soon` : "Report not found"}
-          </h1>
-          <p className="mt-2 text-sm text-slate-500">
-            {fw
-              ? "This framework hasn't been enabled yet. Check back soon."
-              : "We couldn't find a report with that id."}
-          </p>
-          <Link
-            href="/"
-            className="mt-4 inline-block text-sm font-medium text-brand hover:underline"
-          >
-            ← Back to Disclosures &amp; Reports
-          </Link>
-        </div>
-      </div>
-    );
+  if (!fw || fw.status !== "active") {
+    return <NotAvailable name={fw?.shortName} />;
+  }
+
+  if (fw.variant === "qualitative") {
+    return <QualitativeReport frameworkId={fw.id} frameworkName={fw.shortName} />;
+  }
+
+  if (!fw.sections || !fw.storageKey) {
+    return <NotAvailable name={fw.shortName} />;
   }
 
   const config: QuestionnaireConfig = {
@@ -67,4 +57,27 @@ export default function ReportPage({ params }: { params: { id: string } }) {
   };
 
   return <Questionnaire config={config} initialQuestionId={q} />;
+}
+
+function NotAvailable({ name }: { name?: string }) {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <div className="max-w-md text-center">
+        <h1 className="text-lg font-semibold text-slate-900">
+          {name ? `${name} is coming soon` : "Report not found"}
+        </h1>
+        <p className="mt-2 text-sm text-slate-500">
+          {name
+            ? "This framework hasn't been enabled yet. Check back soon."
+            : "We couldn't find a report with that id."}
+        </p>
+        <Link
+          href="/"
+          className="mt-4 inline-block text-sm font-medium text-brand hover:underline"
+        >
+          ← Back to Disclosures &amp; Reports
+        </Link>
+      </div>
+    </div>
+  );
 }

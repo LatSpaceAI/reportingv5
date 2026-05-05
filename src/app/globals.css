@@ -22,3 +22,10 @@ body {
     linear-gradient(to bottom, #e5e7eb 1px, transparent 1px);
   background-size: 16px 16px;
 }
+
+/* Placeholder for empty contentEditable blocks in the qualitative editor. */
+[contenteditable][data-empty="true"]:not(:focus)::before {
+  content: attr(data-placeholder);
+  color: rgb(148 163 184);
+  pointer-events: none;
+}
