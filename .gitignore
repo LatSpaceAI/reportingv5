@@ -19,6 +19,13 @@ build/
 .env
 .env.*
 
+# Working checkpoint from the indexing script (not part of the runtime index)
+data/rag/.contextualized.json
+
+# NOTE: data/rag/{chunks,vectors,meta}.json is intentionally NOT ignored —
+# those files are the prebuilt RAG index and must be committed so they ship
+# with the Vercel deployment. Rebuild via `node scripts/build-index.mjs --force`.
+
 # Logs
 logs/
 *.log
