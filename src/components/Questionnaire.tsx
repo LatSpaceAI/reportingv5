@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComputeContext, FieldsQuestion, Question, Section } from "@/lib/frameworkTypes";
 import { FieldHelp, FieldLabel, FieldRenderer, isFilled, isValid, type RowValues } from "@/components/Fields";
 import { TableField } from "@/components/TableField";
+import { AssistantPane } from "@/components/qualitative/AssistantPane";
 import { initials, mockUsers, readAssignees, writeAssignees, type Assignees } from "@/lib/storage";
 
 type Status = "not-started" | "in-progress" | "completed";
@@ -342,13 +343,13 @@ export function Questionnaire({
             onExpand={() => setPanes((p) => ({ ...p, rightCollapsed: false }))}
           />
         ) : (
-          <>
-            <ResizeHandle onMouseDown={onDragStart("right")} />
-            <AssistantPane
-              width={panes.rightWidth}
-              onCollapse={() => setPanes((p) => ({ ...p, rightCollapsed: true }))}
-            />
-          </>
+          // Note: <AssistantPane> renders its own resize handle, so we don't
+          // wrap it in a <ResizeHandle> here (unlike the left pane).
+          <AssistantPane
+            width={panes.rightWidth}
+            onWidthChange={(w) => setPanes((p) => ({ ...p, rightWidth: w }))}
+            onCollapse={() => setPanes((p) => ({ ...p, rightCollapsed: true }))}
+          />
         )}
       </div>
     </div>
@@ -419,6 +420,8 @@ function QuestionnaireHeader({
   onExport?: () => Promise<void> | void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncedAt, setSyncedAt] = useState<Date | null>(null);
   const handleExport = async () => {
     if (busy || !onExport) return;
     setBusy(true);
@@ -430,6 +433,14 @@ function QuestionnaireHeader({
     } finally {
       setBusy(false);
     }
+  };
+  const handleSync = () => {
+    if (syncing) return;
+    setSyncing(true);
+    window.setTimeout(() => {
+      setSyncing(false);
+      setSyncedAt(new Date());
+    }, 900);
   };
   return (
     <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-3">
@@ -450,6 +461,31 @@ function QuestionnaireHeader({
           {version ? `${version} · ` : ""}
           {activeId}
         </span>
+        {syncedAt && !syncing && (
+          <span className="text-[11px] text-emerald-600">
+            Synced {syncedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        )}
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          title="Sync with connected source systems"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M4 12a8 8 0 0 1 14-5.3L20 9" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M20 4v5h-5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M20 12a8 8 0 0 1-14 5.3L4 15" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M4 20v-5h5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          {syncing ? "Syncing…" : "Sync"}
+        </button>
         {onExport && (
           <button
             onClick={handleExport}
@@ -841,44 +877,3 @@ function AssigneePicker({
   );
 }
 
-function AssistantPane({ width, onCollapse }: { width: number; onCollapse: () => void }) {
-  return (
-    <aside
-      className="shrink-0 border-l border-slate-200 bg-white flex flex-col"
-      style={{ width }}
-    >
-      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-        <div className="text-sm font-medium text-slate-800">AI Assistant</div>
-        <button
-          onClick={onCollapse}
-          title="Collapse panel"
-          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-        >
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="m9 18 6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-      </div>
-      <div className="px-4 py-3 border-b border-slate-200">
-        <div className="flex gap-4 text-sm">
-          <span className="border-b-2 border-brand pb-1 font-medium text-slate-900">Ask</span>
-          <span className="text-slate-400">Write</span>
-        </div>
-      </div>
-      <div className="flex-1 grid place-items-center p-6 text-center text-sm text-slate-500">
-        <div>
-          <div className="mx-auto mb-3 h-10 w-10 rounded-full bg-slate-100 grid place-items-center">🤖</div>
-          Ask questions about your data
-        </div>
-      </div>
-      <div className="border-t border-slate-200 p-3">
-        <div className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2">
-          <input placeholder="Ask a question..." className="flex-1 bg-transparent text-sm outline-none" />
-          <button className="text-brand" aria-label="send">
-            ➤
-          </button>
-        </div>
-      </div>
-    </aside>
-  );
-}

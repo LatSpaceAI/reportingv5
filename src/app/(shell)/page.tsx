@@ -2,18 +2,28 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { frameworks, computeProgress, type FrameworkSummary } from "@/lib/frameworks";
+import {
+  computeProgress,
+  frameworkEntries,
+  isGroup,
+  type FrameworkEntry,
+  type FrameworkGroup,
+  type FrameworkSummary,
+} from "@/lib/frameworks";
 import { formatUpdated } from "@/lib/storage";
 import { useToast } from "@/components/Toast";
 
 type CategoryFilter = "all" | "Climate" | "Sustainability" | "Regulatory";
 type StatusFilter = "all" | "active" | "coming-soon";
 
+const AUTOFILLED_IDS = new Set(["cbam", "ccts", "rco"]);
+
 export default function LandingPage() {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<CategoryFilter>("all");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [tick, setTick] = useState(0);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const { show } = useToast();
 
   useEffect(() => {
@@ -22,18 +32,68 @@ export default function LandingPage() {
     return () => window.removeEventListener("storage", handler);
   }, []);
 
-  const filtered = useMemo(() => {
+  function matchLeaf(f: FrameworkSummary, needle: string): boolean {
+    if (category !== "all" && f.category !== category) return false;
+    if (status !== "all" && f.status !== status) return false;
+    if (needle) {
+      const hay = `${f.name} ${f.shortName} ${f.description}`.toLowerCase();
+      if (!hay.includes(needle)) return false;
+    }
+    return true;
+  }
+
+  const { entries: filteredEntries, leafCount, totalLeafCount } = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    return frameworks.filter((f) => {
-      if (category !== "all" && f.category !== category) return false;
-      if (status !== "all" && f.status !== status) return false;
-      if (needle) {
-        const hay = `${f.name} ${f.shortName} ${f.description}`.toLowerCase();
-        if (!hay.includes(needle)) return false;
+    const total = frameworkEntries.reduce(
+      (n, e) => n + (isGroup(e) ? e.children.length : 1),
+      0,
+    );
+    const out: FrameworkEntry[] = [];
+    let count = 0;
+    for (const e of frameworkEntries) {
+      if (isGroup(e)) {
+        const matchedChildren = e.children.filter((c) => matchLeaf(c, needle));
+        if (matchedChildren.length > 0) {
+          out.push({ ...e, children: matchedChildren });
+          count += matchedChildren.length;
+        }
+      } else if (matchLeaf(e as FrameworkSummary, needle)) {
+        out.push(e);
+        count += 1;
       }
-      return true;
-    });
+    }
+    return { entries: out, leafCount: count, totalLeafCount: total };
   }, [search, category, status]);
+
+  const handleExport = async (f: FrameworkSummary) => {
+    try {
+      if (f.id === "cbam") {
+        show(`Generating ${f.shortName} export…`);
+        const { exportCbamFilled } = await import("@/lib/cbamExport/export");
+        await exportCbamFilled();
+        show("Export ready — download starting.");
+        return;
+      }
+      if (f.id === "rco") {
+        show(`Generating ${f.shortName} export…`);
+        const { exportRcoFilled } = await import("@/lib/rcoExport/export");
+        await exportRcoFilled();
+        show("Export ready — download starting.");
+        return;
+      }
+      if (f.id === "ccts") {
+        show(`Generating ${f.shortName} export…`);
+        const { exportCctsFilled } = await import("@/lib/cctsExport/export");
+        await exportCctsFilled();
+        show("Export ready — download starting.");
+        return;
+      }
+      show(`Export for ${f.shortName} is coming soon.`);
+    } catch (err) {
+      console.error(err);
+      show("Export failed. See console for details.");
+    }
+  };
 
   return (
     <div className="px-8 py-6">
@@ -46,11 +106,23 @@ export default function LandingPage() {
         setStatus={setStatus}
         onNewReport={() => show("New Report creation is coming soon.")}
       />
-      <div className="mt-6">
-        <h1 className="text-xl font-semibold text-slate-900">Available Disclosures &amp; Reports</h1>
-        <p className="text-sm text-slate-500">
-          Showing {filtered.length} of {frameworks.length} results
-        </p>
+      <div className="mt-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-900">Available Disclosures &amp; Reports</h1>
+          <p className="text-sm text-slate-500">
+            Showing {leafCount} of {totalLeafCount} results
+          </p>
+        </div>
+        <button
+          onClick={() => show("Autofill is coming soon.")}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          title="Autofill from connected data sources"
+        >
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Autofill
+        </button>
       </div>
 
       <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -62,35 +134,26 @@ export default function LandingPage() {
           <div>Export</div>
         </div>
         <div className="hidden">{tick}</div>
-        {filtered.map((f) => (
-          <Row
-            key={f.id}
-            f={f}
-            onExport={async () => {
-              try {
-                if (f.id === "cbam") {
-                  show(`Generating ${f.shortName} export…`);
-                  const { exportCbamFilled } = await import("@/lib/cbamExport/export");
-                  await exportCbamFilled();
-                  show("Export ready — download starting.");
-                  return;
+        {filteredEntries.map((entry) => {
+          if (isGroup(entry)) {
+            const forceOpen = !!search.trim();
+            const open = forceOpen || (openGroups[entry.id] ?? false);
+            return (
+              <GroupRow
+                key={entry.id}
+                group={entry}
+                open={open}
+                onToggle={() =>
+                  setOpenGroups((prev) => ({ ...prev, [entry.id]: !open }))
                 }
-                if (f.id === "rco") {
-                  show(`Generating ${f.shortName} export…`);
-                  const { exportRcoFilled } = await import("@/lib/rcoExport/export");
-                  await exportRcoFilled();
-                  show("Export ready — download starting.");
-                  return;
-                }
-                show(`Export for ${f.shortName} is coming soon.`);
-              } catch (e) {
-                console.error(e);
-                show("Export failed. See console for details.");
-              }
-            }}
-          />
-        ))}
-        {filtered.length === 0 && (
+                onExport={handleExport}
+              />
+            );
+          }
+          const f = entry as FrameworkSummary;
+          return <Row key={f.id} f={f} onExport={() => handleExport(f)} />;
+        })}
+        {filteredEntries.length === 0 && (
           <div className="px-5 py-10 text-center text-sm text-slate-500">
             No frameworks match your filters.
           </div>
@@ -160,13 +223,31 @@ function TopBar(props: {
   );
 }
 
-function Row({ f, onExport }: { f: FrameworkSummary; onExport: () => void }) {
+function Row({
+  f,
+  onExport,
+  nested = false,
+}: {
+  f: FrameworkSummary;
+  onExport: () => void;
+  nested?: boolean;
+}) {
   const { pct, lastUpdated } = computeProgress(f);
   const isActive = f.status === "active";
   return (
-    <div className="grid grid-cols-[2fr_3fr_1.2fr_1fr_0.8fr] items-center border-b border-slate-100 px-5 py-4 last:border-b-0 hover:bg-slate-50/60">
-      <div className="flex items-center gap-3">
-        {f.logoSrc ? (
+    <div
+      className={`grid grid-cols-[2fr_3fr_1.2fr_1fr_0.8fr] items-center border-b border-slate-100 px-5 py-4 last:border-b-0 hover:bg-slate-50/60 ${
+        nested ? "bg-slate-50/40" : ""
+      }`}
+    >
+      <div className={`flex items-center gap-3 ${nested ? "pl-8" : ""}`}>
+        {nested ? (
+          <span className="h-6 w-6 shrink-0 grid place-items-center text-slate-300">
+            <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M9 6v8a3 3 0 0 0 3 3h6" strokeLinecap="round" />
+            </svg>
+          </span>
+        ) : f.logoSrc ? (
           <img
             src={f.logoSrc}
             alt={`${f.shortName} logo`}
@@ -210,7 +291,12 @@ function Row({ f, onExport }: { f: FrameworkSummary; onExport: () => void }) {
         )}
       </div>
       <div className="text-sm text-slate-600">
-        {isActive ? formatUpdated(lastUpdated) : "—"}
+        {isActive ? formatUpdated(lastUpdated) : ""}
+        {AUTOFILLED_IDS.has(f.id) && (
+          <div className="mt-0.5 inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+            Autofilled on 12/02/2026
+          </div>
+        )}
       </div>
       <div>
         <button
@@ -224,6 +310,97 @@ function Row({ f, onExport }: { f: FrameworkSummary; onExport: () => void }) {
           Export
         </button>
       </div>
+    </div>
+  );
+}
+
+function GroupRow({
+  group,
+  open,
+  onToggle,
+  onExport,
+}: {
+  group: FrameworkGroup;
+  open: boolean;
+  onToggle: () => void;
+  onExport: (f: FrameworkSummary) => void;
+}) {
+  const activeChildren = group.children.filter((c) => c.status === "active");
+  const totalQ = activeChildren.reduce(
+    (n, c) => n + (c.sections?.reduce((m, s) => m + s.questions.length, 0) ?? 0),
+    0,
+  );
+  let completedQ = 0;
+  let lastUpdated: string | undefined;
+  for (const c of activeChildren) {
+    const p = computeProgress(c);
+    completedQ += p.completed;
+    if (p.lastUpdated && (!lastUpdated || p.lastUpdated > lastUpdated)) {
+      lastUpdated = p.lastUpdated;
+    }
+  }
+  const pct = totalQ === 0 ? 0 : Math.round((completedQ / totalQ) * 100);
+
+  return (
+    <div className="border-b border-slate-100 last:border-b-0">
+      <button
+        onClick={onToggle}
+        className="grid w-full grid-cols-[2fr_3fr_1.2fr_1fr_0.8fr] items-center px-5 py-4 text-left hover:bg-slate-50/60"
+      >
+        <div className="flex items-center gap-3">
+          <svg
+            viewBox="0 0 24 24"
+            className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${open ? "rotate-90" : ""}`}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
+            <path d="m9 6 6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          {group.logoSrc ? (
+            <img
+              src={group.logoSrc}
+              alt={`${group.shortName} logo`}
+              className="h-10 w-10 shrink-0 rounded-md object-contain bg-white border border-slate-100"
+            />
+          ) : (
+            <div
+              className={`h-10 w-10 shrink-0 rounded-md grid place-items-center text-[10px] font-bold ${group.logoColor}`}
+            >
+              {group.logoInitials}
+            </div>
+          )}
+          <div className="min-w-0">
+            <span className="font-medium text-slate-900">{group.shortName}</span>
+            <div className="text-xs text-slate-500">
+              {group.cadence}
+              <span className="ml-2 text-slate-400">
+                · {group.children.length} {group.children.length === 1 ? "report" : "reports"}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="pr-4 text-sm text-slate-600 line-clamp-2">{group.description}</div>
+        <div>
+          <div className="text-sm font-medium text-slate-900">{pct}%</div>
+          <div className="mt-1 h-1 w-24 rounded-full bg-slate-100 overflow-hidden">
+            <div className="h-full bg-brand" style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+        <div className="text-sm text-slate-600">
+          {formatUpdated(lastUpdated)}
+          {group.children.some((c) => AUTOFILLED_IDS.has(c.id)) && (
+            <div className="mt-0.5 inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+              Autofilled on 12/02/2026
+            </div>
+          )}
+        </div>
+        <div />
+      </button>
+      {open &&
+        group.children.map((c) => (
+          <Row key={c.id} f={c} onExport={() => onExport(c)} nested />
+        ))}
     </div>
   );
 }
