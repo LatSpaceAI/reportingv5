@@ -16,7 +16,8 @@ export function useQualitativeDoc(frameworkId: string) {
   useEffect(() => {
     const existing = readDoc(frameworkId);
     if (existing) {
-      setDocState(existing);
+      // Migrate older docs that pre-date the proposals field.
+      setDocState({ ...existing, proposals: existing.proposals ?? [] });
       return;
     }
     // Seed first-load. For frameworks other than cbam-mmd we still produce a
@@ -33,6 +34,7 @@ export function useQualitativeDoc(frameworkId: string) {
             requirements: [],
             metrics: [],
             comments: [],
+            proposals: [],
             updatedAt: new Date().toISOString(),
           } satisfies QualitativeDoc);
     setDocState(seeded);

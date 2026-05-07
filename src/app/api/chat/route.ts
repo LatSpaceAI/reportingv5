@@ -1,7 +1,12 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import { NextRequest } from "next/server";
 import { SYSTEM_PROMPT } from "@/lib/anthropic/guidance";
-import { search, type RetrievedChunk } from "@/lib/anthropic/retrieval";
+import {
+  createCbamMcpServer,
+  TOOL_SEARCH_GUIDANCE,
+  type RetrievedSource,
+} from "@/lib/anthropic/agent/tools";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,24 +20,27 @@ interface ChatRequest {
   messages: ChatMessage[];
 }
 
-const client = new Anthropic();
-
-function formatRetrievedExcerpts(chunks: RetrievedChunk[]): string {
-  // Render the retrieved chunks as a single block the model can quote from.
-  // The section number + page range are mandatory because the system prompt
-  // instructs the model to cite them.
-  return chunks
-    .map((c, i) => {
-      const pages =
-        c.firstPage === c.lastPage ? `page ${c.firstPage}` : `pages ${c.firstPage}-${c.lastPage}`;
-      const path = c.sectionPath.join(" › ");
-      return `<excerpt id="${i + 1}" section="§${c.sectionNumber}" pages="${pages}">
-Section path: ${path}
-
-${c.text}
-</excerpt>`;
-    })
-    .join("\n\n");
+// The streaming-input prompt only accepts user messages. To preserve prior
+// assistant context across our stateless route, we fold each assistant turn
+// into the *next* user turn as a bracketed note. This wastes some tokens vs.
+// resuming a session, but keeps the route stateless.
+async function* historyAsPrompt(messages: ChatMessage[]): AsyncIterable<SDKUserMessage> {
+  let pendingAssistant: string | null = null;
+  for (const m of messages) {
+    if (m.role === "assistant") {
+      pendingAssistant = m.content;
+      continue;
+    }
+    const text = pendingAssistant
+      ? `[Earlier in this conversation, you replied: ${pendingAssistant}]\n\n${m.content}`
+      : m.content;
+    pendingAssistant = null;
+    yield {
+      type: "user",
+      message: { role: "user", content: text } as MessageParam,
+      parent_tool_use_id: null,
+    };
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -45,13 +53,8 @@ export async function POST(req: NextRequest) {
   if (!body.messages?.length) {
     return new Response("messages is required", { status: 400 });
   }
-
-  // The latest user message is what we retrieve against. Earlier turns are
-  // conversation history; the model gets them verbatim. (A more elaborate
-  // pipeline would rewrite the latest user query in light of history before
-  // retrieval — defer that until evals show it's needed.)
-  const latestUser = [...body.messages].reverse().find((m) => m.role === "user");
-  if (!latestUser) {
+  const lastUser = [...body.messages].reverse().find((m) => m.role === "user");
+  if (!lastUser) {
     return new Response("No user message", { status: 400 });
   }
 
@@ -64,62 +67,90 @@ export async function POST(req: NextRequest) {
         );
       };
 
+      const abortController = new AbortController();
+
+      // Source dedupe across multiple search_guidance calls in one turn.
+      // Section+pages identifies a chunk well enough for UI purposes.
+      const seenSources = new Set<string>();
+      const onSearchHit = (sources: RetrievedSource[]) => {
+        const fresh = sources.filter((s) => {
+          const key = `${s.section}|${s.pages}`;
+          if (seenSources.has(key)) return false;
+          seenSources.add(key);
+          return true;
+        });
+        if (fresh.length) send("retrieved", fresh);
+      };
+
+      const mcpServer = createCbamMcpServer({ onSearchHit });
+
       try {
-        // 1. Retrieve.
-        const retrieved = await search(latestUser.content, { k: 6 });
-        send(
-          "retrieved",
-          retrieved.map((r) => ({
-            section: `§${r.sectionNumber}`,
-            title: r.sectionTitle,
-            pages:
-              r.firstPage === r.lastPage
-                ? `p${r.firstPage}`
-                : `p${r.firstPage}-${r.lastPage}`,
-            score: Number(r.fusedScore.toFixed(4)),
-          }))
-        );
-
-        // 2. Build the messages array. We attach the retrieved excerpts to the
-        // latest user turn only. Every turn re-retrieves, so older turns'
-        // excerpts are stale — including them would waste tokens and confuse
-        // the model with conflicting context.
-        const messages: Anthropic.MessageParam[] = body.messages.map((m, idx) => {
-          const isLatestUser = idx === body.messages.length - 1 && m.role === "user";
-          if (!isLatestUser) return { role: m.role, content: m.content };
-          const excerpts = formatRetrievedExcerpts(retrieved);
-          return {
-            role: "user",
-            content: `Here are excerpts from the CBAM guidance document retrieved for this question. Use them as your primary source.
-
-${excerpts}
-
----
-
-User question: ${m.content}`,
-          };
+        const q = query({
+          prompt: historyAsPrompt(body.messages),
+          options: {
+            model: "claude-opus-4-7",
+            systemPrompt: SYSTEM_PROMPT,
+            mcpServers: { cbam: mcpServer },
+            allowedTools: [TOOL_SEARCH_GUIDANCE],
+            tools: [], // no built-in tools (Read/Bash/etc.)
+            settingSources: [], // ignore ~/.claude and project settings
+            permissionMode: "bypassPermissions",
+            allowDangerouslySkipPermissions: true,
+            persistSession: false, // ephemeral, no JSONL on disk
+            includePartialMessages: false,
+            maxTurns: 8,
+            abortController,
+            env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: "cbam-app/1.0" },
+          },
         });
 
-        // 3. Stream the model response.
-        const sdkStream = client.messages.stream({
-          model: "claude-opus-4-7",
-          max_tokens: 8192,
-          system: SYSTEM_PROMPT,
-          messages,
-        });
+        // Track which assistant message blocks we've already streamed so we
+        // don't re-emit text on retries / duplicate sends.
+        const seenBlockText = new Map<string, number>(); // uuid -> last index
+        let toolErrorMessages: string[] = [];
 
-        for await (const event of sdkStream) {
-          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-            send("text", { text: event.delta.text });
+        for await (const msg of q) {
+          if (msg.type === "assistant") {
+            const blocks = msg.message.content ?? [];
+            const acc: string[] = [];
+            for (const b of blocks) {
+              if (b.type === "text") acc.push(b.text);
+            }
+            const fullText = acc.join("");
+            const prev = seenBlockText.get(msg.uuid) ?? 0;
+            if (fullText.length > prev) {
+              const delta = fullText.slice(prev);
+              seenBlockText.set(msg.uuid, fullText.length);
+              if (delta) send("text", { text: delta });
+            }
+          } else if (msg.type === "user" && msg.tool_use_result !== undefined) {
+            // Tool result echoed back as a user message. We capture errors
+            // here so we can surface them if the agent never recovers; the
+            // search_guidance handler already sets isError on its own.
+            const r = msg.tool_use_result as { isError?: boolean; content?: Array<{ text?: string }> } | undefined;
+            if (r?.isError) {
+              const t = r.content?.[0]?.text ?? "tool error";
+              toolErrorMessages.push(t);
+            }
+          } else if (msg.type === "result") {
+            if (msg.subtype === "success") {
+              send("done", {
+                stop_reason: msg.stop_reason,
+                usage: msg.usage,
+                cost_usd: msg.total_cost_usd,
+              });
+            } else {
+              const errs = [...(msg.errors ?? []), ...toolErrorMessages];
+              const message = errs.join(" | ") || msg.subtype;
+              send("error", { message });
+            }
           }
         }
-
-        const final = await sdkStream.finalMessage();
-        send("done", { stop_reason: final.stop_reason, usage: final.usage });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
         send("error", { message });
       } finally {
+        abortController.abort();
         controller.close();
       }
     },

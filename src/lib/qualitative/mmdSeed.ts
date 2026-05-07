@@ -199,6 +199,7 @@ export function buildMmdSeed(frameworkId: string): QualitativeDoc {
     requirements,
     metrics,
     comments,
+    proposals: [],
     updatedAt: now,
   };
 }
