@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+.env.local
+*.log
+.DS_Store
+.vscode
+.idea
+6 CBAM SEE V2.1_Example Aluminium_final.xlsx
+Hindalco_Renukoot_MMD_Draft.md
