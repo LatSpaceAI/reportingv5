@@ -22,10 +22,12 @@ import {
   Check,
   Comment as CommentIcon,
   DataIcon,
+  Diagram,
   RequirementIcon,
   Trash,
   X,
 } from "./icons";
+import { MermaidRenderer } from "./MermaidRenderer";
 
 interface Props {
   doc: QualitativeDoc;
@@ -197,6 +199,20 @@ export function DocumentEditor({
     });
   }, [activeBlockId, insertBlockAfter]);
 
+  const insertDiagram = useCallback(() => {
+    insertBlockAfter(activeBlockId, {
+      id: genId("b"),
+      kind: "diagram",
+      format: "mermaid",
+      // Starter flow that works without edits — encourages the user to tweak.
+      source: `flowchart TD
+  A[Raw materials] --> B[Production process]
+  B --> C[CBAM goods]
+  B --> D[Direct emissions]`,
+      caption: "",
+    });
+  }, [activeBlockId, insertBlockAfter]);
+
   const insertSectionMarker = useCallback(() => {
     insertBlockAfter(activeBlockId, {
       id: genId("b"),
@@ -346,6 +362,7 @@ export function DocumentEditor({
           onSetHeading={setHeading}
           onSetParagraph={setParagraph}
           onInsertTable={insertTable}
+          onInsertDiagram={insertDiagram}
           onInsertRequirementRef={openReqPicker}
           onInsertDataRef={openDataPicker}
           onInsertSectionMarker={insertSectionMarker}
@@ -643,6 +660,16 @@ function ProposalBlockPreview({ block }: { block: Proposal["blocks"][number] }) 
       </p>
     );
   }
+  if (block.kind === "diagram") {
+    return (
+      <div className="border border-emerald-200 bg-white p-2">
+        <MermaidRenderer source={block.source} cacheKey={block.id} />
+        {block.caption && (
+          <p className="mt-1 text-[11px] italic text-slate-500">{block.caption}</p>
+        )}
+      </div>
+    );
+  }
   // table
   return (
     <div className="overflow-auto border border-emerald-200 bg-white">
@@ -791,6 +818,9 @@ function BlockBody({
   }
   if (block.kind === "data-ref") {
     return <DataRefBlockView block={block} metrics={metrics} />;
+  }
+  if (block.kind === "diagram") {
+    return <DiagramBlockView block={block} onUpdate={onUpdate} />;
   }
   return <SectionMarkerBlockView block={block} onUpdate={onUpdate} />;
 }
@@ -1137,6 +1167,71 @@ function SectionMarkerBlockView({
         onChange={(e) => onUpdate({ label: e.target.value })}
         className="bg-transparent text-[11px] outline-none"
       />
+    </div>
+  );
+}
+
+// Mermaid diagram block. Defaults to rendered SVG; toggle "Edit source" to
+// reveal a textarea for hand-tuning the underlying Mermaid syntax. The
+// caption sits below in either mode.
+function DiagramBlockView({
+  block,
+  onUpdate,
+}: {
+  block: Extract<Block, { kind: "diagram" }>;
+  onUpdate: (patch: Partial<Block>) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  // Local source while editing — we commit on blur to avoid re-rendering the
+  // SVG on every keystroke (mermaid's render is async + non-trivial).
+  const [draft, setDraft] = useState(block.source);
+  useEffect(() => {
+    if (!editing) setDraft(block.source);
+  }, [block.source, editing]);
+
+  return (
+    <div className="my-3 border border-slate-200 bg-white">
+      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500">
+        <div className="flex items-center gap-2">
+          <Diagram className="h-3.5 w-3.5 text-brand" />
+          <span className="font-medium text-slate-700">Diagram</span>
+          <span className="text-slate-400">· Mermaid</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => {
+              if (editing) onUpdate({ source: draft });
+              setEditing((e) => !e);
+            }}
+            className="border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+          >
+            {editing ? "Done" : "Edit source"}
+          </button>
+        </div>
+      </div>
+      {editing ? (
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            if (draft !== block.source) onUpdate({ source: draft });
+          }}
+          spellCheck={false}
+          className="h-48 w-full resize-y bg-slate-50 px-3 py-2 font-mono text-xs text-slate-800 outline-none"
+        />
+      ) : (
+        <div className="p-3">
+          <MermaidRenderer source={block.source} cacheKey={block.id} />
+        </div>
+      )}
+      <div className="border-t border-slate-100 px-3 py-1.5">
+        <input
+          value={block.caption ?? ""}
+          onChange={(e) => onUpdate({ caption: e.target.value })}
+          placeholder="Caption (optional — good place for citations)"
+          className="w-full bg-transparent text-[12px] italic text-slate-600 outline-none placeholder:text-slate-300"
+        />
+      </div>
     </div>
   );
 }

@@ -115,6 +115,9 @@ function buildOutline(blocks: Block[]) {
       base.preview = `[requirement-ref: ${b.requirementId}]`;
     } else if (b.kind === "data-ref") {
       base.preview = `[data-ref: ${b.metricId}]`;
+    } else if (b.kind === "diagram") {
+      const firstLine = b.source.split("\n")[0]?.trim() ?? "diagram";
+      base.preview = `[diagram (mermaid): ${firstLine.length > 60 ? firstLine.slice(0, 60) + "…" : firstLine}]`;
     }
     return base;
   });
@@ -734,9 +737,14 @@ function ProposalChatCard({
     );
   }
   const summary = proposal.blocks.map((b, i) => {
-    if (b.kind === "heading") return `${i === 0 ? "" : "+ "}H${b.level} "${truncate(b.text, 40)}"`;
-    if (b.kind === "paragraph") return `${i === 0 ? "" : "+ "}¶ ${truncate(b.text, 40)}`;
-    return `${i === 0 ? "" : "+ "}Table (${b.columns.length} cols × ${b.rows.length} rows)`;
+    const prefix = i === 0 ? "" : "+ ";
+    if (b.kind === "heading") return `${prefix}H${b.level} "${truncate(b.text, 40)}"`;
+    if (b.kind === "paragraph") return `${prefix}¶ ${truncate(b.text, 40)}`;
+    if (b.kind === "diagram") {
+      const firstLine = b.source.split("\n")[0]?.trim() ?? "diagram";
+      return `${prefix}Diagram (${truncate(firstLine, 30)})`;
+    }
+    return `${prefix}Table (${b.columns.length} cols × ${b.rows.length} rows)`;
   });
   return (
     <div className="border border-emerald-300 bg-emerald-50/60 text-xs">

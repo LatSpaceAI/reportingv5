@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Block, HeadingLevel } from "@/lib/qualitative/types";
-import { ChevronDown, DataIcon, Heading1, RequirementIcon, SectionIcon, TableIcon } from "./icons";
+import { ChevronDown, DataIcon, Diagram, Heading1, RequirementIcon, SectionIcon, TableIcon } from "./icons";
 
 interface Props {
   activeBlock: Block | null;
   onSetHeading: (level: HeadingLevel) => void;
   onSetParagraph: () => void;
   onInsertTable: () => void;
+  onInsertDiagram: () => void;
   onInsertRequirementRef: () => void;
   onInsertDataRef: () => void;
   onInsertSectionMarker: () => void;
@@ -37,6 +38,7 @@ export function EditorToolbar({
   onSetHeading,
   onSetParagraph,
   onInsertTable,
+  onInsertDiagram,
   onInsertRequirementRef,
   onInsertDataRef,
   onInsertSectionMarker,
@@ -52,6 +54,7 @@ export function EditorToolbar({
       />
       <Divider />
       <ToolbarButton onClick={onInsertTable} label="Table" icon={<TableIcon className="h-4 w-4" />} />
+      <ToolbarButton onClick={onInsertDiagram} label="Diagram" icon={<Diagram className="h-4 w-4" />} />
       <Divider />
       <ToolbarButton
         onClick={onInsertRequirementRef}

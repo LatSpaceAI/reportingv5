@@ -59,13 +59,25 @@ export interface SectionMarkerBlock extends BaseBlock {
   label: string;
 }
 
+// Text-source diagram block. Source-of-truth is the `source` string in the
+// declared `format` syntax (Mermaid for v1). Renders to SVG client-side and
+// to PNG in DOCX export. The optional caption is shown beneath the diagram
+// and is the right place for citations like "Source: §6.4 (page 78)".
+export interface DiagramBlock extends BaseBlock {
+  kind: "diagram";
+  format: "mermaid";
+  source: string;
+  caption?: string;
+}
+
 export type Block =
   | HeadingBlock
   | ParagraphBlock
   | TableBlock
   | RequirementRefBlock
   | DataRefBlock
-  | SectionMarkerBlock;
+  | SectionMarkerBlock
+  | DiagramBlock;
 
 export type ResponseKind = "text" | "number" | "table";
 
@@ -138,7 +150,8 @@ export interface Comment {
 export type ProposalBlock =
   | Extract<Block, { kind: "heading" }>
   | Extract<Block, { kind: "paragraph" }>
-  | Extract<Block, { kind: "table" }>;
+  | Extract<Block, { kind: "table" }>
+  | Extract<Block, { kind: "diagram" }>;
 
 export interface Proposal {
   id: string;

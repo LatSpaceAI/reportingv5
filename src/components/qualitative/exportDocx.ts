@@ -8,6 +8,7 @@ import {
   BorderStyle,
   Document,
   HeadingLevel,
+  ImageRun,
   Packer,
   Paragraph,
   ShadingType,
@@ -17,7 +18,7 @@ import {
   TextRun,
   WidthType,
 } from "docx";
-import type { Block, QualitativeDoc, ResponseSnapshot } from "@/lib/qualitative/types";
+import type { Block, DiagramBlock, QualitativeDoc, ResponseSnapshot } from "@/lib/qualitative/types";
 
 // ---------- Style constants ----------
 
@@ -188,7 +189,168 @@ function requirementEmbed(headerText: string, snapshot: ResponseSnapshot): Table
   });
 }
 
-function blockToDocxElements(block: Block, doc: QualitativeDoc): (Paragraph | Table)[] {
+// ---------- Diagram → PNG ----------
+//
+// Mermaid renders to SVG client-side; the docx library wants PNG bytes (or
+// a small set of other raster formats). We rasterize via the browser: write
+// the SVG into a Blob URL, paint it onto a canvas at a higher pixel density
+// (so it stays crisp inside Word), then read the PNG out of the canvas.
+
+interface RenderedDiagram {
+  png: Uint8Array;
+  width: number; // CSS pixels, used for the docx layout dimensions
+  height: number;
+}
+
+const DIAGRAM_RENDER_SCALE = 2; // 2x for retina-ish output in Word
+const DIAGRAM_MAX_WIDTH = 600; // CSS px — keeps images inside 1-inch margins
+
+async function svgFromMermaid(source: string): Promise<string> {
+  const mod = await import("mermaid");
+  const m = mod.default;
+  m.initialize({
+    startOnLoad: false,
+    theme: "neutral",
+    securityLevel: "strict",
+    fontFamily: "ui-sans-serif, system-ui, sans-serif",
+  });
+  const id = `mmd-export-${Math.random().toString(36).slice(2, 8)}`;
+  const { svg } = await m.render(id, source);
+  return svg;
+}
+
+function svgIntrinsicSize(svg: string): { width: number; height: number } {
+  // Try the explicit width/height first; fall back to viewBox.
+  const widthMatch = svg.match(/<svg[^>]*\swidth="([\d.]+)(?:px)?"/);
+  const heightMatch = svg.match(/<svg[^>]*\sheight="([\d.]+)(?:px)?"/);
+  if (widthMatch && heightMatch) {
+    return { width: parseFloat(widthMatch[1]), height: parseFloat(heightMatch[1]) };
+  }
+  const viewBox = svg.match(/<svg[^>]*\sviewBox="([\d.\s-]+)"/);
+  if (viewBox) {
+    const parts = viewBox[1].split(/\s+/).map(parseFloat);
+    if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
+      return { width: parts[2], height: parts[3] };
+    }
+  }
+  return { width: 600, height: 400 };
+}
+
+async function rasterizeSvgToPng(svg: string): Promise<RenderedDiagram> {
+  const { width, height } = svgIntrinsicSize(svg);
+  const cssWidth = Math.min(width, DIAGRAM_MAX_WIDTH);
+  const scale = (cssWidth / width) * DIAGRAM_RENDER_SCALE;
+  const canvasWidth = Math.max(1, Math.round(width * scale));
+  const canvasHeight = Math.max(1, Math.round(height * scale));
+
+  const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("Failed to load SVG into <img> for export"));
+      el.src = url;
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Failed to acquire 2D canvas context for export");
+    // White background so transparency doesn't render as black in some Word
+    // versions.
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+    const pngBlob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), "image/png")
+    );
+    if (!pngBlob) throw new Error("canvas.toBlob returned null");
+    const ab = await pngBlob.arrayBuffer();
+    return {
+      png: new Uint8Array(ab),
+      width: cssWidth,
+      height: (cssWidth / width) * height,
+    };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function renderDiagramsForExport(doc: QualitativeDoc): Promise<Map<string, RenderedDiagram | Error>> {
+  const out = new Map<string, RenderedDiagram | Error>();
+  const diagrams = doc.blocks.filter((b): b is DiagramBlock => b.kind === "diagram");
+  // Render sequentially — Mermaid mutates a global config so concurrent
+  // render() calls can stomp on each other, especially in JSDOM-style envs.
+  for (const block of diagrams) {
+    try {
+      const svg = await svgFromMermaid(block.source);
+      out.set(block.id, await rasterizeSvgToPng(svg));
+    } catch (err) {
+      out.set(block.id, err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+  return out;
+}
+
+function diagramElements(
+  block: DiagramBlock,
+  rendered: Map<string, RenderedDiagram | Error>
+): (Paragraph | Table)[] {
+  const result = rendered.get(block.id);
+  const out: (Paragraph | Table)[] = [];
+  if (result instanceof Error || !result) {
+    out.push(
+      bodyParagraph(
+        `[Diagram could not be rendered: ${result instanceof Error ? result.message : "unknown error"}]`,
+        { italic: true }
+      )
+    );
+  } else {
+    out.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 80 },
+        children: [
+          new ImageRun({
+            data: result.png,
+            transformation: {
+              width: Math.round(result.width),
+              height: Math.round(result.height),
+            },
+            type: "png",
+          }),
+        ],
+      })
+    );
+  }
+  if (block.caption?.trim()) {
+    out.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: SPACING_AFTER_PARAGRAPH },
+        children: [
+          new TextRun({
+            text: block.caption,
+            italics: true,
+            size: 20, // 10pt
+            font: FONT,
+            color: "555555",
+          }),
+        ],
+      })
+    );
+  } else {
+    out.push(new Paragraph({ children: [], spacing: { after: SPACING_AFTER_PARAGRAPH } }));
+  }
+  return out;
+}
+
+function blockToDocxElements(
+  block: Block,
+  doc: QualitativeDoc,
+  diagrams: Map<string, RenderedDiagram | Error>
+): (Paragraph | Table)[] {
   if (block.kind === "heading") {
     return [headingParagraph(block.text || "(untitled)", block.level)];
   }
@@ -233,6 +395,9 @@ function blockToDocxElements(block: Block, doc: QualitativeDoc): (Paragraph | Ta
       }),
     ];
   }
+  if (block.kind === "diagram") {
+    return diagramElements(block, diagrams);
+  }
   return [];
 }
 
@@ -251,9 +416,13 @@ export async function buildDocx(doc: QualitativeDoc): Promise<Blob> {
     ],
   });
 
+  // Render every diagram block to PNG up front — docx-library is sync-only,
+  // and rendering each block lazily inside the loop would make ordering hard.
+  const diagrams = await renderDiagramsForExport(doc);
+
   const body: (Paragraph | Table)[] = [titleParagraph];
   for (const block of doc.blocks) {
-    body.push(...blockToDocxElements(block, doc));
+    body.push(...blockToDocxElements(block, doc, diagrams));
   }
 
   const document = new Document({
