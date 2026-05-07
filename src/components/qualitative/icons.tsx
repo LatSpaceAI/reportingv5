@@ -88,3 +88,12 @@ export const Search = (p: IconProps) => (
 export const Connected = (p: IconProps) => (
   <svg {...base(p)}><path d="M5 12l4 4L19 6" /></svg>
 );
+export const Diagram = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="3" y="3" width="6" height="4" />
+    <rect x="15" y="3" width="6" height="4" />
+    <rect x="9" y="17" width="6" height="4" />
+    <path d="M6 7v3h12V7" />
+    <path d="M12 10v7" />
+  </svg>
+);

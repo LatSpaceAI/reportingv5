@@ -2,10 +2,10 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { genId } from "@/lib/qualitative/storage";
-import type { Requirement } from "@/lib/qualitative/types";
+import type { Block, Proposal, Requirement } from "@/lib/qualitative/types";
 import { AssistantPane, CollapsedAssistantRail, useAssistantPane } from "./AssistantPane";
 import { DocumentEditor } from "./DocumentEditor";
-import { downloadMarkdown } from "./exportMarkdown";
+import { downloadDocx } from "./exportDocx";
 import { Connected, Download, Pencil } from "./icons";
 import { RequirementDetailPanel } from "./RequirementDetailPanel";
 import { RequirementsTable } from "./RequirementsTable";
@@ -98,6 +98,79 @@ export function QualitativeReport({ frameworkId, frameworkName }: Props) {
     setSelectedRequirementId(id);
   }, [setDoc]);
 
+  // --- AI proposals ---------------------------------------------------------
+  // Add a streamed proposal to the doc. Re-keys block ids so they don't
+  // collide with anything already in the document.
+  const addProposal = useCallback(
+    (incoming: Omit<Proposal, "id" | "createdAt" | "blocks"> & { blocks: Proposal["blocks"] }) => {
+      const proposalId = genId("p");
+      const proposal: Proposal = {
+        id: proposalId,
+        afterBlockId: incoming.afterBlockId,
+        blocks: incoming.blocks.map((b) => ({ ...b, id: genId("b") }) as Proposal["blocks"][number]),
+        rationale: incoming.rationale,
+        sources: incoming.sources,
+        createdAt: new Date().toISOString(),
+      };
+      setDoc((prev) => ({
+        ...prev,
+        proposals: [...(prev.proposals ?? []), proposal],
+      }));
+      return proposal;
+    },
+    [setDoc]
+  );
+
+  // Accept: splice the proposal's blocks into doc.blocks at the right
+  // position, then remove the proposal.
+  const acceptProposal = useCallback(
+    (proposalId: string) => {
+      setDoc((prev) => {
+        const proposals = prev.proposals ?? [];
+        const proposal = proposals.find((p) => p.id === proposalId);
+        if (!proposal) return prev;
+        const remaining = proposals.filter((p) => p.id !== proposalId);
+
+        let nextBlocks: Block[];
+        if (proposal.afterBlockId === null) {
+          // Prepend, but keep the title heading (b_title / first heading) at top
+          // when present so we don't push the doc title down.
+          nextBlocks = [...proposal.blocks, ...prev.blocks];
+        } else {
+          const idx = prev.blocks.findIndex((b) => b.id === proposal.afterBlockId);
+          if (idx < 0) {
+            // Block disappeared — fall back to appending.
+            nextBlocks = [...prev.blocks, ...proposal.blocks];
+          } else {
+            nextBlocks = prev.blocks.slice();
+            nextBlocks.splice(idx + 1, 0, ...proposal.blocks);
+          }
+        }
+        return { ...prev, blocks: nextBlocks, proposals: remaining };
+      });
+    },
+    [setDoc]
+  );
+
+  const rejectProposal = useCallback(
+    (proposalId: string) => {
+      setDoc((prev) => ({
+        ...prev,
+        proposals: (prev.proposals ?? []).filter((p) => p.id !== proposalId),
+      }));
+    },
+    [setDoc]
+  );
+
+  // Used by the chat-side card to scroll the editor to the proposal.
+  const scrollToProposal = useCallback((proposalId: string) => {
+    setTab("document");
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-proposal-id="${proposalId}"]`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, []);
+
   const syncDocumentSnapshots = useCallback(
     (requirementId: string) => {
       setDoc((prev) => {
@@ -128,7 +201,9 @@ export function QualitativeReport({ frameworkId, frameworkName }: Props) {
     );
   }
 
-  const handleExport = () => downloadMarkdown(doc);
+  const handleExport = () => {
+    void downloadDocx(doc);
+  };
 
   const openRequirementFromDoc = (id: string) => {
     setSelectedRequirementId(id);
@@ -162,6 +237,8 @@ export function QualitativeReport({ frameworkId, frameworkName }: Props) {
               doc={doc}
               setDoc={setDoc}
               onOpenRequirement={openRequirementFromDoc}
+              onAcceptProposal={acceptProposal}
+              onRejectProposal={rejectProposal}
             />
           ) : (
             <RequirementsTable
@@ -192,6 +269,11 @@ export function QualitativeReport({ frameworkId, frameworkName }: Props) {
             width={assistant.width}
             onWidthChange={(width) => setAssistant((s) => ({ ...s, width }))}
             onCollapse={() => setAssistant((s) => ({ ...s, collapsed: true }))}
+            doc={doc}
+            onAddProposal={addProposal}
+            onAcceptProposal={acceptProposal}
+            onRejectProposal={rejectProposal}
+            onScrollToProposal={scrollToProposal}
           />
         )}
       </div>

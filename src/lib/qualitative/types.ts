@@ -59,13 +59,25 @@ export interface SectionMarkerBlock extends BaseBlock {
   label: string;
 }
 
+// Text-source diagram block. Source-of-truth is the `source` string in the
+// declared `format` syntax (Mermaid for v1). Renders to SVG client-side and
+// to PNG in DOCX export. The optional caption is shown beneath the diagram
+// and is the right place for citations like "Source: §6.4 (page 78)".
+export interface DiagramBlock extends BaseBlock {
+  kind: "diagram";
+  format: "mermaid";
+  source: string;
+  caption?: string;
+}
+
 export type Block =
   | HeadingBlock
   | ParagraphBlock
   | TableBlock
   | RequirementRefBlock
   | DataRefBlock
-  | SectionMarkerBlock;
+  | SectionMarkerBlock
+  | DiagramBlock;
 
 export type ResponseKind = "text" | "number" | "table";
 
@@ -131,6 +143,28 @@ export interface Comment {
   replies: CommentReply[];
 }
 
+// AI-drafted insertion that hasn't been accepted into the document yet.
+// Rendered inline at the insertion point with a highlight + Accept/Reject UI;
+// also surfaced as a card in the assistant chat. Only insertion is supported
+// in v1 — no replacements or deletions.
+export type ProposalBlock =
+  | Extract<Block, { kind: "heading" }>
+  | Extract<Block, { kind: "paragraph" }>
+  | Extract<Block, { kind: "table" }>
+  | Extract<Block, { kind: "diagram" }>;
+
+export interface Proposal {
+  id: string;
+  // Block id that the proposal sits AFTER. null means "prepend at top".
+  afterBlockId: BlockId | null;
+  blocks: ProposalBlock[];
+  // Short rationale from the model — shown under the chat-side card.
+  rationale: string;
+  // Citations the model used (section + pages) so the user can audit.
+  sources?: { section: string; title: string; pages: string }[];
+  createdAt: string;
+}
+
 export interface QualitativeDoc {
   frameworkId: string;
   title: string;
@@ -138,5 +172,6 @@ export interface QualitativeDoc {
   requirements: Requirement[];
   metrics: Metric[];
   comments: Comment[];
+  proposals?: Proposal[];
   updatedAt: string;
 }
