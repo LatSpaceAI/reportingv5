@@ -5,7 +5,8 @@ import type { ComputeContext, FieldsQuestion, Question, Section } from "@/lib/fr
 import { FieldHelp, FieldLabel, FieldRenderer, isFilled, isValid, type RowValues } from "@/components/Fields";
 import { TableField } from "@/components/TableField";
 import { AssistantPane } from "@/components/qualitative/AssistantPane";
-import { initials, mockUsers, readAssignees, writeAssignees, type Assignees } from "@/lib/storage";
+import { CBAM_ANSWERS_KEY, initials, mockUsers, readAssignees, writeAssignees, type Assignees } from "@/lib/storage";
+import { cbamSeed } from "@/lib/cbamSeed";
 
 type Status = "not-started" | "in-progress" | "completed";
 
@@ -117,15 +118,42 @@ export function Questionnaire({
   useEffect(() => {
     if (typeof window === "undefined") return;
     const raw = localStorage.getItem(storageKey);
-    if (!raw) return;
-    try {
-      const saved = JSON.parse(raw) as Record<string, QuestionState>;
-      setAnswers((prev) => {
-        const next = { ...prev };
-        for (const { q } of allQuestions) if (saved[q.id]) next[q.id] = saved[q.id];
-        return next;
-      });
-    } catch {}
+
+    // Decide whether the saved doc has any meaningful content. An empty {}
+    // or a doc where every question is still in "not-started" with no values
+    // counts as blank — that case happens when the user previously visited
+    // the page before the seed was wired up.
+    let saved: Record<string, QuestionState> | null = null;
+    if (raw) {
+      try { saved = JSON.parse(raw) as Record<string, QuestionState>; } catch { saved = null; }
+    }
+    const hasContent = !!saved && Object.values(saved).some((s) => {
+      if (!s) return false;
+      if (s.status && s.status !== "not-started") return true;
+      const fieldFilled = s.values && Object.values(s.values).some((v) => v !== null && v !== undefined && v !== "");
+      const rowFilled = (s.rows ?? []).some((r) => Object.values(r).some((v) => v !== null && v !== undefined && v !== ""));
+      return fieldFilled || rowFilled;
+    });
+
+    if (!hasContent) {
+      if (storageKey === CBAM_ANSWERS_KEY) {
+        setAnswers((prev) => {
+          const next = { ...prev };
+          for (const { q } of allQuestions) {
+            const seeded = cbamSeed[q.id];
+            if (seeded) next[q.id] = seeded as QuestionState;
+          }
+          return next;
+        });
+      }
+      return;
+    }
+
+    setAnswers((prev) => {
+      const next = { ...prev };
+      for (const { q } of allQuestions) if (saved![q.id]) next[q.id] = saved![q.id];
+      return next;
+    });
   }, [allQuestions, storageKey]);
 
   useEffect(() => {
