@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.132",
+    "@anthropic-ai/claude-code": "^2.1.132",
+    "@anthropic-ai/claude-code-linux-x64": "^2.1.132",
     "@anthropic-ai/sdk": "^0.93.0",
     "docx": "^9.6.1",
     "exceljs": "^4.4.0",

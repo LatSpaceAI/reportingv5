@@ -1,12 +1,28 @@
 import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import { NextRequest } from "next/server";
+import path from "node:path";
 import { SYSTEM_PROMPT } from "@/lib/anthropic/guidance";
 import {
   createCbamMcpServer,
   TOOL_SEARCH_GUIDANCE,
   type RetrievedSource,
 } from "@/lib/anthropic/agent/tools";
+
+// On Linux serverless hosts (Vercel), the Agent SDK's auto-discovery of the
+// `claude` binary fails because the optional native package may not be in the
+// expected location relative to the bundled function. Pin the path explicitly
+// when the platform package is resolvable; fall back to auto-discovery locally.
+function resolveClaudeBinary(): string | undefined {
+  if (process.platform !== "linux") return undefined;
+  try {
+    const pkgJson = require.resolve("@anthropic-ai/claude-code-linux-x64/package.json");
+    return path.join(path.dirname(pkgJson), "claude");
+  } catch {
+    return undefined;
+  }
+}
+const CLAUDE_BIN = resolveClaudeBinary();
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -101,6 +117,7 @@ export async function POST(req: NextRequest) {
             maxTurns: 8,
             abortController,
             env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: "cbam-app/1.0" },
+            ...(CLAUDE_BIN ? { pathToClaudeCodeExecutable: CLAUDE_BIN } : {}),
           },
         });
 
