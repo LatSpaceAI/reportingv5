@@ -1,6 +1,7 @@
 import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import { NextRequest } from "next/server";
+import path from "node:path";
 import { WRITE_SYSTEM_PROMPT } from "@/lib/anthropic/guidance";
 import {
   createCbamMcpServer,
@@ -9,6 +10,17 @@ import {
   type ProposalBlocks,
   type RetrievedSource,
 } from "@/lib/anthropic/agent/tools";
+
+function resolveClaudeBinary(): string | undefined {
+  if (process.platform !== "linux") return undefined;
+  try {
+    const pkgJson = require.resolve("@anthropic-ai/claude-code-linux-x64/package.json");
+    return path.join(path.dirname(pkgJson), "claude");
+  } catch {
+    return undefined;
+  }
+}
+const CLAUDE_BIN = resolveClaudeBinary();
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -130,6 +142,7 @@ Search the guidance for any regulatory facts you need, then call propose_insert 
             maxTurns: 8,
             abortController,
             env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: "cbam-app/1.0" },
+            ...(CLAUDE_BIN ? { pathToClaudeCodeExecutable: CLAUDE_BIN } : {}),
           },
         });
 

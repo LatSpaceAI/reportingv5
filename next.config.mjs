@@ -1,11 +1,21 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Ensure the prebuilt RAG index is bundled with the chat route's
-  // serverless function on Vercel. Without this, runtime fs reads of
-  // data/rag/* fail in the deployed environment.
+  // Ensure the prebuilt RAG index AND the platform-native Claude Code CLI
+  // are bundled into the serverless function on Vercel. Without these,
+  // runtime fs reads of data/rag/* and the Agent SDK's spawn of the
+  // `claude` binary fail with "Native CLI binary for linux-x64 not found".
   experimental: {
     outputFileTracingIncludes: {
-      "/api/chat": ["./data/rag/**/*"],
+      "/api/chat": [
+        "./data/rag/**/*",
+        "./node_modules/@anthropic-ai/claude-code/**/*",
+        "./node_modules/@anthropic-ai/claude-code-linux-x64/**/*",
+      ],
+      "/api/write": [
+        "./data/rag/**/*",
+        "./node_modules/@anthropic-ai/claude-code/**/*",
+        "./node_modules/@anthropic-ai/claude-code-linux-x64/**/*",
+      ],
     },
   },
 };
