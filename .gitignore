@@ -19,12 +19,21 @@ build/
 .env
 .env.*
 
-# Working checkpoint from the indexing script (not part of the runtime index)
-data/rag/.contextualized.json
+# Working checkpoint + transient logs from the indexing script (not part of
+# the runtime index — and not something we want bundled into the deploy via
+# outputFileTracingIncludes globbing data/rag/**/*).
+data/rag/**/.contextualized.json
+data/rag/*-build.log
 
-# NOTE: data/rag/{chunks,vectors,meta}.json is intentionally NOT ignored —
-# those files are the prebuilt RAG index and must be committed so they ship
-# with the Vercel deployment. Rebuild via `node scripts/build-index.mjs --force`.
+# NOTE: data/rag/<framework>/{chunks,vectors,meta}.json is intentionally NOT
+# ignored — those files are the prebuilt RAG index and must be committed so
+# they ship with the Vercel deployment. Rebuild via:
+#   node scripts/build-index.mjs --framework <id> --force
+
+# Source PDFs for the RAG indices live outside source control to keep the
+# repo small and avoid licensing issues. The CBAM PDF lives in a sibling
+# folder; the CDP PDF currently sits inside the repo at "CDP resources/".
+CDP resources/
 
 # Logs
 logs/

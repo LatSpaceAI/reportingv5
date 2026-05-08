@@ -1,14 +1,16 @@
 import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import { NextRequest } from "next/server";
-import { WRITE_SYSTEM_PROMPT } from "@/lib/anthropic/guidance";
+import { getSystemPrompt } from "@/lib/anthropic/guidance";
 import {
-  createCbamMcpServer,
-  TOOL_PROPOSE_INSERT,
-  TOOL_SEARCH_GUIDANCE,
+  createAgentMcpServer,
+  toolProposeInsert,
+  toolSearchGuidance,
   type ProposalBlocks,
   type RetrievedSource,
 } from "@/lib/anthropic/agent/tools";
+import { resolveRagFramework } from "@/lib/anthropic/agent/frameworkMap";
+import { describeToolUse } from "@/lib/anthropic/agent/activity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +26,7 @@ interface OutlineItem {
 interface WriteRequest {
   instruction: string;
   outline: OutlineItem[];
+  framework?: string;
 }
 
 function formatOutline(items: OutlineItem[]): string {
@@ -54,6 +57,7 @@ export async function POST(req: NextRequest) {
     return new Response("outline is required (array)", { status: 400 });
   }
 
+  const framework = resolveRagFramework(body.framework);
   const outlineText = formatOutline(body.outline);
   const userText = `Here is the current report outline (block ids in brackets — use them as after_block_id values):
 
@@ -107,7 +111,7 @@ Search the guidance for any regulatory facts you need, then call propose_insert 
         proposal = p;
       };
 
-      const mcpServer = createCbamMcpServer({
+      const mcpServer = createAgentMcpServer(framework, {
         onSearchHit,
         outlineIds,
         onProposal,
@@ -118,10 +122,15 @@ Search the guidance for any regulatory facts you need, then call propose_insert 
           prompt: once(),
           options: {
             model: "claude-opus-4-7",
-            systemPrompt: WRITE_SYSTEM_PROMPT,
-            mcpServers: { cbam: mcpServer },
-            allowedTools: [TOOL_SEARCH_GUIDANCE, TOOL_PROPOSE_INSERT],
-            tools: [],
+            systemPrompt: getSystemPrompt(framework, "write"),
+            mcpServers: { [framework]: mcpServer },
+            allowedTools: [
+              toolSearchGuidance(framework),
+              toolProposeInsert(framework),
+              "WebSearch",
+              "WebFetch",
+            ],
+            tools: ["WebSearch", "WebFetch"],
             settingSources: [],
             permissionMode: "bypassPermissions",
             allowDangerouslySkipPermissions: true,
@@ -129,11 +138,12 @@ Search the guidance for any regulatory facts you need, then call propose_insert 
             includePartialMessages: false,
             maxTurns: 8,
             abortController,
-            env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: "cbam-app/1.0" },
+            env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: `${framework}-app/1.0` },
           },
         });
 
         const seenBlockText = new Map<string, number>();
+        const seenToolUseIds = new Set<string>();
         const toolErrorMessages: string[] = [];
 
         for await (const msg of q) {
@@ -141,7 +151,14 @@ Search the guidance for any regulatory facts you need, then call propose_insert 
             const blocks = msg.message.content ?? [];
             const acc: string[] = [];
             for (const b of blocks) {
-              if (b.type === "text") acc.push(b.text);
+              if (b.type === "text") {
+                acc.push(b.text);
+              } else if (b.type === "tool_use") {
+                if (!seenToolUseIds.has(b.id)) {
+                  seenToolUseIds.add(b.id);
+                  send("activity", describeToolUse(b.name, b.input, framework));
+                }
+              }
             }
             const fullText = acc.join("");
             const prev = seenBlockText.get(msg.uuid) ?? 0;

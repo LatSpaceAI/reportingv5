@@ -3,14 +3,16 @@
 // dense + sparse results via Reciprocal Rank Fusion.
 //
 // The index is built offline by scripts/build-index.mjs and lives in
-// data/rag/. On Vercel the data/ directory is bundled with the route via
-// outputFileTracingIncludes in next.config.mjs.
+// data/rag/<framework>/. On Vercel the data/ directory is bundled with the
+// route via outputFileTracingIncludes in next.config.mjs.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { VoyageAIClient } from "voyageai";
 
-const INDEX_DIR = join(process.cwd(), "data", "rag");
+export type Framework = "cbam" | "cdp" | "brsr";
+
+const INDEX_DIR = (framework: Framework) => join(process.cwd(), "data", "rag", framework);
 
 export interface Chunk {
   sectionNumber: string;
@@ -41,29 +43,39 @@ interface VectorsFile {
   bm25: Bm25Index;
 }
 
-let cache: {
+interface LoadedIndex {
   chunks: Chunk[];
   vectors: number[][];
   bm25: Bm25Index;
   voyage: VoyageAIClient;
-} | null = null;
+}
 
-function loadIndex() {
-  if (cache) return cache;
-  const chunks = JSON.parse(readFileSync(join(INDEX_DIR, "chunks.json"), "utf8")) as Chunk[];
-  const vectorsFile = JSON.parse(
-    readFileSync(join(INDEX_DIR, "vectors.json"), "utf8")
-  ) as VectorsFile;
+const indexCache = new Map<Framework, LoadedIndex>();
+let voyageClient: VoyageAIClient | null = null;
+
+function getVoyage(): VoyageAIClient {
+  if (voyageClient) return voyageClient;
   if (!process.env.VOYAGE_API_KEY) {
     throw new Error("VOYAGE_API_KEY is not set");
   }
-  cache = {
+  voyageClient = new VoyageAIClient({ apiKey: process.env.VOYAGE_API_KEY });
+  return voyageClient;
+}
+
+function loadIndex(framework: Framework): LoadedIndex {
+  const cached = indexCache.get(framework);
+  if (cached) return cached;
+  const dir = INDEX_DIR(framework);
+  const chunks = JSON.parse(readFileSync(join(dir, "chunks.json"), "utf8")) as Chunk[];
+  const vectorsFile = JSON.parse(readFileSync(join(dir, "vectors.json"), "utf8")) as VectorsFile;
+  const loaded: LoadedIndex = {
     chunks,
     vectors: vectorsFile.vectors,
     bm25: vectorsFile.bm25,
-    voyage: new VoyageAIClient({ apiKey: process.env.VOYAGE_API_KEY }),
+    voyage: getVoyage(),
   };
-  return cache;
+  indexCache.set(framework, loaded);
+  return loaded;
 }
 
 // Cosine similarity between unit-norm-ish vectors. Voyage already returns
@@ -163,9 +175,13 @@ export interface SearchOptions {
   candidatesPerRetriever?: number; // top-N from each retriever before fusion
 }
 
-export async function search(query: string, options: SearchOptions = {}): Promise<RetrievedChunk[]> {
+export async function search(
+  query: string,
+  framework: Framework,
+  options: SearchOptions = {}
+): Promise<RetrievedChunk[]> {
   const { k = 5, candidatesPerRetriever = 20 } = options;
-  const { chunks, vectors, bm25, voyage } = loadIndex();
+  const { chunks, vectors, bm25, voyage } = loadIndex(framework);
 
   // Run dense + sparse in parallel.
   const [queryVec, sparseTokens] = await Promise.all([
@@ -208,8 +224,8 @@ export async function search(query: string, options: SearchOptions = {}): Promis
 }
 
 // Test/eval helper — exposes the raw chunk count without forcing an embed call.
-export function indexStats(): { chunkCount: number; embedDim: number } {
-  const idx = loadIndex();
+export function indexStats(framework: Framework): { chunkCount: number; embedDim: number } {
+  const idx = loadIndex(framework);
   return {
     chunkCount: idx.chunks.length,
     embedDim: idx.vectors[0]?.length ?? 0,

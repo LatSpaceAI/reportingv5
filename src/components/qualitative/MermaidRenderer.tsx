@@ -14,6 +14,12 @@ function loadMermaid() {
         theme: "neutral",
         securityLevel: "strict",
         fontFamily: "ui-sans-serif, system-ui, sans-serif",
+        // Render labels as native SVG <text> instead of HTML in <foreignObject>.
+        // foreignObject doesn't survive raster-to-PNG (used by the DOCX
+        // exporter), so disabling htmlLabels everywhere keeps on-screen and
+        // exported diagrams visually identical.
+        flowchart: { htmlLabels: false },
+        class: { htmlLabels: false },
       });
       return m;
     });

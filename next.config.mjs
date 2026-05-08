@@ -1,11 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Ensure the prebuilt RAG index is bundled with the chat route's
-  // serverless function on Vercel. Without this, runtime fs reads of
-  // data/rag/* fail in the deployed environment.
   experimental: {
     outputFileTracingIncludes: {
-      "/api/chat": ["./data/rag/**/*"],
+      // Both AI routes call into the prebuilt RAG index (chat directly,
+      // write via the search_guidance MCP tool).
+      "/api/chat": [
+        "./data/rag/**/*",
+        "./node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/**/*",
+        "./node_modules/@anthropic-ai/claude-agent-sdk/**/*",
+      ],
+      "/api/write": [
+        "./data/rag/**/*",
+        "./node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/**/*",
+        "./node_modules/@anthropic-ai/claude-agent-sdk/**/*",
+      ],
     },
   },
 };
