@@ -39,6 +39,9 @@ export interface QuestionnaireConfig {
   frameworkName: string; // shown in the header, e.g. "CBAM Communication Template — Installations"
   version?: string; // optional version label shown in header
   onExport?: () => Promise<void> | void; // called by the header Export button; if absent, button is hidden
+  // Optional read-only "Source" text shown in the right pane, keyed by question id.
+  // When omitted, the Source bar is hidden.
+  sources?: Record<string, string>;
 }
 
 const LEFT_MIN = 240;
@@ -100,7 +103,7 @@ export function Questionnaire({
   config: QuestionnaireConfig;
   initialQuestionId?: string;
 }) {
-  const { sections, storageKey, frameworkId, frameworkName, version, onExport } = config;
+  const { sections, storageKey, frameworkId, frameworkName, version, onExport, sources } = config;
   const allQuestions = useMemo(
     () => sections.flatMap((s) => s.questions.map((q) => ({ section: s, q }))),
     [sections]
@@ -372,11 +375,17 @@ export function Questionnaire({
           />
         ) : (
           // Note: <AssistantPane> renders its own resize handle, so we don't
-          // wrap it in a <ResizeHandle> here (unlike the left pane).
+          // wrap it in a <ResizeHandle> here (unlike the left pane). The Source
+          // bar is passed via topSlot so it shares the right pane's width.
           <AssistantPane
             width={panes.rightWidth}
             onWidthChange={(w) => setPanes((p) => ({ ...p, rightWidth: w }))}
             onCollapse={() => setPanes((p) => ({ ...p, rightCollapsed: true }))}
+            topSlot={
+              sources ? (
+                <SourceBar questionId={active.q.id} value={sources[active.q.id] ?? ""} />
+              ) : undefined
+            }
           />
         )}
       </div>
@@ -899,6 +908,57 @@ function AssigneePicker({
               </button>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const SOURCE_BAR_OPEN_KEY = "cbam-app/source-bar/open/v1";
+
+function SourceBar({
+  questionId,
+  value,
+}: {
+  questionId: string;
+  value: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = localStorage.getItem(SOURCE_BAR_OPEN_KEY);
+    if (raw === "1") setOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(SOURCE_BAR_OPEN_KEY, open ? "1" : "0");
+  }, [open]);
+
+  return (
+    <div className="border-b border-slate-200">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50"
+        aria-expanded={open}
+      >
+        <span className="flex items-center gap-2">
+          <span
+            className={`inline-block text-slate-400 transition-transform ${open ? "rotate-90" : ""}`}
+          >
+            ›
+          </span>
+          <span className="text-sm font-medium text-slate-800">Source</span>
+        </span>
+        <span className="text-[11px] uppercase tracking-wider text-slate-400">
+          {questionId}
+        </span>
+      </button>
+      {open && (
+        <div className="px-4 pb-3 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">
+          {value.trim() ? value : <span className="text-slate-400">No source provided.</span>}
         </div>
       )}
     </div>

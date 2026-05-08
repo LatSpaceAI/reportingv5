@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Questionnaire, type QuestionnaireConfig } from "@/components/Questionnaire";
 import { QualitativeReport } from "@/components/qualitative/QualitativeReport";
 import { getFramework } from "@/lib/frameworks";
+import { cbamSources } from "@/lib/cbamSources";
 
 export default function ReportPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -54,6 +55,7 @@ export default function ReportPage({ params }: { params: { id: string } }) {
             await exportCctsFilled();
           }
         : undefined,
+    sources: fw.id === "cbam" ? cbamSources : undefined,
   };
 
   return <Questionnaire config={config} initialQuestionId={q} />;
