@@ -2,1002 +2,758 @@ import type { Block, Comment, Metric, QualitativeDoc, Requirement } from "./type
 
 // Stable IDs so the seed is deterministic across reloads. Anything created
 // after seeding uses genId().
-const now = new Date("2026-04-01T09:00:00.000Z").toISOString();
+const now = new Date("2026-05-08T09:00:00.000Z").toISOString();
 
 const blocks: Block[] = [
-  {
-    id: "b_title",
-    kind: "heading",
-    level: 1,
-    text: "Monitoring Methodology Document — Hindalco Renukoot Aluminium Complex",
-  },
+  { id: "b_title", kind: "heading", level: 1, text: "Monitoring Methodology Document (MMD)" },
   {
     id: "b_subtitle",
     kind: "paragraph",
-    text:
-      "CBAM Transitional Period — Aluminium Sector. Installation: Hindalco Industries Limited — Renukoot Aluminium Complex, P.O. Renukoot, District Sonbhadra, Uttar Pradesh – 231217, India. Operator: Hindalco Industries Limited (an Aditya Birla Group company). Document version: Draft v0.1. Reporting period: Indian Fiscal Year (1 April – 31 March). Implementing Regulation reference: Commission Implementing Regulation (EU) 2023/1773 of 17 August 2023.",
+    text: "Carbon Border Adjustment Mechanism (CBAM)",
   },
   {
-    id: "b_draft_note",
+    id: "b_subtitle2",
     kind: "paragraph",
-    text:
-      "DRAFT NOTE: This is a comprehensive working draft prepared on the basis of publicly available information about the Renukoot complex and the European Commission's CBAM Guidance Document for installation operators outside the EU (Ricardo / Umweltbundesamt, December 2023). Sections, equations, threshold values and structural requirements are taken from that guidance and the Implementing Regulation. All operational figures shown as illustrative placeholders must be replaced with installation-specific verified data before the MMD is used for actual reporting.",
+    text: "Aluminium Sector — Reporting Period CY'2025 (1 January 2025 to 31 December 2025)",
+  },
+  {
+    id: "b_operator",
+    kind: "paragraph",
+    text: "Hindalco Industries Limited",
+  },
+  {
+    id: "b_site",
+    kind: "paragraph",
+    text: "Renukoot Aluminium Smelter Complex",
+  },
+  {
+    id: "b_addr",
+    kind: "paragraph",
+    text: "Renukoot, District Sonbhadra, Uttar Pradesh, India",
+  },
+  {
+    id: "b_version",
+    kind: "paragraph",
+    text: "Document version: Draft 1.0 | Issue date: 8 May 2026",
   },
 
-  // ── 1. Identification ────────────────────────────────────────────────────
-  { id: "b_s1_h", kind: "heading", level: 2, text: "1. Identification of the Operator and the Installation", sectionTag: "Identification" },
+  // 1. Document Control
+  { id: "b_s1_h", kind: "heading", level: 2, text: "1. Document Control", sectionTag: "Document Control" },
+  {
+    id: "b_s1_p",
+    kind: "paragraph",
+    text:
+      "This Monitoring Methodology Document (MMD) sets out the rules, procedures and data sources used by Hindalco Industries Limited at its Renukoot integrated aluminium complex to monitor, calculate and report direct and indirect embedded emissions of CBAM goods produced at the installation, in line with Commission Implementing Regulation (EU) 2023/1773 and the European Commission's \"Guidance Document on CBAM Implementation for Installation Operators outside the EU\" (8 December 2023).",
+  },
 
-  { id: "b_s1_1_h", kind: "heading", level: 3, text: "1.1 Operator" },
+  { id: "b_s1_1_h", kind: "heading", level: 3, text: "1.1 Version history" },
   {
     id: "b_s1_1_t",
     kind: "table",
-    columns: ["Field", "Value"],
+    columns: ["Version", "Date", "Author / Reviewer", "Summary of change"],
     rows: [
-      ["Legal name", "Hindalco Industries Limited"],
-      ["Registered office", "Aditya Birla Centre, S. K. Ahire Marg, Worli, Mumbai 400 030, India"],
-      ["Corporate Identification Number (CIN)", "L27020MH1958PLC011238"],
-      ["GSTIN of installation", "[TO BE FILLED]"],
-      ["EORI number (if any)", "Not applicable — Indian operator"],
-      ["Authorised representative for CBAM", "[Name, designation, e-mail, phone]"],
-      ["Alternate contact", "[Name, designation, e-mail, phone]"],
+      ["Draft 1.0", "08/05/2026", "Energy & Sustainability Cell, Renukoot", "Initial draft of MMD covering CY'2025 reporting period."],
     ],
   },
 
-  { id: "b_s1_2_h", kind: "heading", level: 3, text: "1.2 Installation" },
+  { id: "b_s1_2_h", kind: "heading", level: 3, text: "1.2 Approvals" },
   {
     id: "b_s1_2_t",
     kind: "table",
+    columns: ["Role", "Name", "Designation", "Signature / Date"],
+    rows: [
+      ["Prepared by", "(to be filled)", "Lead — Energy & GHG Cell", ""],
+      ["Reviewed by", "(to be filled)", "Head — Operations / Smelter", ""],
+      ["Approved by", "(to be filled)", "Unit Head — Renukoot", ""],
+      ["Authorised representative", "(to be filled)", "VP — Climate Change & Sustainability", ""],
+    ],
+  },
+
+  { id: "b_s1_3_h", kind: "heading", level: 3, text: "1.3 Distribution and document management" },
+  {
+    id: "b_s1_3_p",
+    kind: "paragraph",
+    text:
+      "This MMD is the controlled \"rule book\" for all monitoring and reporting activities for CBAM at Renukoot. The current version is held electronically on the SharePoint site \"Renukoot CBAM\" with read access for all relevant operational personnel and write access restricted to the Energy & GHG Cell. Superseded versions are retained for ten (10) years in line with Implementing Regulation Annex III, Section A.7.",
+  },
+
+  // 2. Installation Identification
+  { id: "b_s2_h", kind: "heading", level: 2, text: "2. Installation Identification", sectionTag: "Installation Identification" },
+  {
+    id: "b_s2_t",
+    kind: "table",
     columns: ["Field", "Value"],
     rows: [
-      ["Installation name", "Hindalco Renukoot Aluminium Complex"],
-      ["Location", "P.O. Renukoot, Tehsil Dudhi, District Sonbhadra, Uttar Pradesh – 231217, India"],
-      ["Geographic coordinates", "24.2167° N, 83.0333° E (approximate)"],
-      ["Year of first commissioning", "1962"],
-      ["Total site area", "[TO BE FILLED]"],
-      ["Activity classification", "NACE 24.42 (equivalent) — Aluminium production"],
-      ["Industrial sector under CBAM", "Aluminium"],
-      ["UNLOCODE of nearest port of export", "INMUN (Mundra) / INNSA (Nhava Sheva) — to be confirmed per shipment"],
-    ],
-  },
-  {
-    id: "b_inst_req",
-    kind: "requirement-ref",
-    requirementId: "MMD-INST-01",
-    snapshot: { kind: "empty" },
-    snapshotAt: now,
-  },
-
-  { id: "b_s1_3_h", kind: "heading", level: 3, text: "1.3 Production capacity at the installation (nameplate)" },
-  {
-    id: "b_s1_3_t",
-    kind: "table",
-    columns: ["Unit", "Capacity", "Comment"],
-    rows: [
-      ["Alumina refinery (Renukoot)", "~700,000 t Al₂O₃ / year", "Bayer process; supplements alumina supply from Hindalco's Muri / Belagavi / Utkal refineries"],
-      ["Primary aluminium smelter", "~410,000 t Al / year (potline nameplate); ~342,000 t Al / year (current operating capacity post-Potline 3 restart)", "11 potlines, ~2,038 reduction cells, Centre-Worked Pre-Bake (CWPB) technology"],
-      ["Anode (Carbon) plant", "[TO BE FILLED] t baked anodes / year", "Horizontal flue ring-type bake furnace (Alcan Alesa Engineering technology)"],
-      ["Cast-house", "[TO BE FILLED] t / year (ingots, sows, slabs, billets)", ""],
-      ["Hot & cold rolling mill", "[TO BE FILLED] t / year", "Sheets, plates, foil-stock"],
-      ["Extrusion plant", "[TO BE FILLED] t / year", "Bars, rods, profiles"],
-      ["Wire-rod mill", "[TO BE FILLED] t / year", "EC-grade and alloy rod"],
-      ["Renusagar Captive Power Plant", "801.57 MW (10 PF-fired sub-critical units; ~742 MW operating)", "~30 km from Renukoot, dedicated 220 kV line"],
-      ["Cogeneration plant at Renukoot", "78 MW", "Provides power and process steam to smelter / refinery"],
+      ["Operator (legal entity)", "Hindalco Industries Limited"],
+      ["Group", "Aditya Birla Group"],
+      ["Installation name", "Renukoot Aluminium Smelter Complex (Unit code: RKT)"],
+      ["Address", "P.O. Renukoot, District Sonbhadra, Uttar Pradesh — 231 217, India"],
+      ["GPS coordinates (approx.)", "24°12′ N, 83°02′ E"],
+      ["UN/LOCODE", "INRNK"],
+      ["Country of installation", "India"],
+      ["Sector / NACE code", "C24.42 — Aluminium production"],
+      ["Aggregated goods categories produced", "Unwrought aluminium (CN 7601); Aluminium products (CN 7604, 7605, 7606, 7607, 7608)"],
+      ["Year of commissioning (smelter)", "1962 (subsequent capacity additions)"],
+      ["Reporting period covered by this MMD", "1 January 2025 to 31 December 2025 (CY'2025)"],
+      ["Reporting frequency", "Monthly internal compilation; quarterly emissions data communication to importers"],
+      ["Authorised representative — name", "(to be filled)"],
+      ["Authorised representative — designation", "(to be filled)"],
+      ["Authorised representative — email", "(to be filled)"],
+      ["Authorised representative — phone", "(to be filled)"],
+      ["Reference document for emissions data", "Renukoot — GHG Emission Report, 1st January 2025 to 31st December 2025"],
     ],
   },
 
-  // ── 2. Description ───────────────────────────────────────────────────────
-  { id: "b_s2_h", kind: "heading", level: 2, text: "2. Description of the Installation", sectionTag: "Installation overview" },
-  { id: "b_s2_1_h", kind: "heading", level: 3, text: "2.1 Narrative description" },
+  // 3. Description of the Installation
+  { id: "b_s3_h", kind: "heading", level: 2, text: "3. Description of the Installation", sectionTag: "Installation Description" },
   {
-    id: "b_s2_1_p",
+    id: "b_s3_p1",
     kind: "paragraph",
     text:
-      "Hindalco's Renukoot complex is a vertically integrated primary aluminium installation. Bauxite is sourced from Hindalco's captive mines in Jharkhand, Odisha, Chhattisgarh and Maharashtra, supplemented by Hindalco's own alumina refineries at Muri, Belagavi and Utkal where required. Alumina is produced on-site via the low-temperature Bayer process. Calcined petroleum coke (CPC) and coal-tar pitch are received from external suppliers and converted into pre-baked carbon anodes at the on-site Carbon Plant. Alumina, anodes, cryolite (sodium hexafluoroaluminate) and aluminium fluoride are charged to the Centre-Worked Pre-Bake (CWPB) Hall–Héroult electrolysis cells. Liquid aluminium is tapped to the cast-house where it is alloyed and cast as sows, ingots, slabs, billets or rolled in-line. Downstream operations comprise a hot/cold rolling mill, extrusion plant and wire-rod mill, all on the same Renukoot site.",
+      "Renukoot is a fully integrated primary aluminium complex with on-site captive power generation. The installation produces unwrought aluminium (ingots, sows, slabs, billets, wire-rod) from alumina via the Hall–Héroult electrolytic reduction route, and operates downstream Flat Rolled Products (FRP) and Extrusion lines using metal sourced both from Renukoot and from other Hindalco units. The complex includes the following major plants:",
   },
-  {
-    id: "b_s2_1_p2",
-    kind: "paragraph",
-    text:
-      "Electricity is supplied from two auto-produced sources: the Renusagar Captive Power Plant (~742 MW operating, 10 sub-critical pulverised-coal units) located ~30 km from Renukoot and connected by a dedicated 220 kV transmission line — the primary electricity source for the smelter — and the on-site Renukoot Cogeneration Plant (78 MW), supplying power and process steam.",
-  },
+  { id: "b_s3_p2", kind: "paragraph", text: "• Captive Power Plant (Renusagar Power Division) — coal-fired thermal units supplying steam-based electricity, with a small solar component." },
+  { id: "b_s3_p3", kind: "paragraph", text: "• Cogeneration plant (CHP) — coal + HSD + biomass-briquette boilers supplying steam to the Alumina refinery and electricity to the smelter." },
+  { id: "b_s3_p4", kind: "paragraph", text: "• Alumina refinery — Bayer process (excluded from CBAM smelter boundary; alumina is treated as a raw material with zero embedded emissions per Section 7.4.2 of the EC Guidance)." },
+  { id: "b_s3_p5", kind: "paragraph", text: "• Smelter — two potlines (Plant-1 Reduction-I PFPB Legacy; Plant-2 Reduction-II Centre-Worked Pre-Bake type), each with dedicated rectifier substations, dry-scrubbing systems (DSS-I, DSS-II), pot-room auxiliaries and compressed-air supply." },
+  { id: "b_s3_p6", kind: "paragraph", text: "• Carbon plant — green-anode plant (GAP), anode-baking furnaces (ABF #1–6), anode-rodding shop (ARS), cathode sealing shop. Anodes are consumed in the smelter; carbon plant emissions are accounted in the smelter via the consumption-based method (IPCC 2006, Eq. 4.21–4.23)." },
+  { id: "b_s3_p7", kind: "paragraph", text: "• Cast house — pig casting, new ICM, EC wire-rod (Properzi WRM), DC slab and billet casters (Plant-1 and new Plant-2), alloy-rod line." },
+  { id: "b_s3_p8", kind: "paragraph", text: "• FRP rolling mill — hot mill, caster, new cold-mill and finishline." },
+  { id: "b_s3_p9", kind: "paragraph", text: "• Extrusion plant — Extrusion presses 7, 8 and 9." },
+  { id: "b_s3_p10", kind: "paragraph", text: "• Auxiliaries — compressor houses 1 and 2, ETP, water-supply, sewage treatment plant, domestic colony, project office, vanadium plant. Domestic colony, ARW, BPC, water and sewage treatment loads are excluded from the CBAM boundary (see Section 4)." },
 
-  { id: "b_s2_2_h", kind: "heading", level: 3, text: "2.2 Process flow (high level)" },
-  {
-    id: "b_s2_2_d",
-    kind: "diagram",
-    format: "mermaid",
-    source: `flowchart TD
-  Bauxite[Bauxite — captive mines] --> Bayer[Bayer Refinery — Renukoot]
-  Bayer --> Alumina[Alumina Al₂O₃]
-  CPC[CPC + Coal-tar pitch] --> AnodePlant[Anode Plant: Green-mill, Bake Furnace, Rodding]
-  AnodePlant --> Anodes[Pre-baked anodes]
-  Alumina --> Pots[11 Potlines — CWPB]
-  Anodes --> Pots
-  AlF3[AlF₃ + Cryolite] --> Pots
-  Pots --> LiquidAl[Liquid aluminium]
-  LiquidAl --> CastHouse[Cast-house]
-  CastHouse --> Forms[Ingots / Sows / Slabs / Billets / Wire-rod]
-  Forms --> Rolling[Rolling]
-  Forms --> Extrusion[Extrusion]
-  Forms --> WireRod[Wire-rod]
-  Forms --> Sales[Sales / Export — CN 7601]
-  Renusagar[Renusagar 742 MW coal] -->|220 kV| Pots
-  Cogen[Renukoot Cogen 78 MW coal] -->|on-site| Pots
-  Cogen -.steam.-> Bayer
-  Cogen -.steam.-> AnodePlant
-  Cogen -.steam.-> CastHouse`,
-    caption: "High-level process flow. A detailed P&ID-style diagram with measurement instrument tag numbers is given in Annex A.",
-  },
-
-  { id: "b_s2_3_h", kind: "heading", level: 3, text: "2.3 Installations technically connected" },
-  {
-    id: "b_s2_3_p",
-    kind: "paragraph",
-    text:
-      "For CBAM purposes, Renusagar Captive Power Plant is directly technically connected via a dedicated transmission line and operated by the same operator — treated as part of the installation for attributing direct fuel emissions of electricity to the smelter (auto-producer rules, Annex III Section D). The Renukoot 78 MW Cogeneration Plant sits inside the installation boundary; CHP allocation rules of Annex III Section D apply. Hindalco Muri / Belagavi / Utkal alumina refineries are separate installations; alumina received from them is treated as a precursor with zero embedded emissions (Annex II §3.17).",
-  },
-
-  // ── 3. System boundaries ─────────────────────────────────────────────────
-  { id: "b_s3_h", kind: "heading", level: 2, text: "3. System Boundaries, Production Processes and Reporting Period", sectionTag: "System boundary" },
-  { id: "b_s3_1_h", kind: "heading", level: 3, text: "3.1 Reporting period" },
+  { id: "b_s3_1_h", kind: "heading", level: 3, text: "3.1 Process flow overview" },
   {
     id: "b_s3_1_p",
     kind: "paragraph",
     text:
-      "The reporting period adopted is the Indian fiscal year (1 April to 31 March), in line with Hindalco's statutory financial accounts and the Bureau of Energy Efficiency (BEE) Perform-Achieve-Trade (PAT) cycle reporting. This period exceeds the three-month minimum permitted under §4.3.3 of the CBAM Guidance and is justified by the additional rigour of statutory financial audit and PAT M&V verification.",
+      "Bauxite-derived alumina from the on-site refinery feeds the smelter pot-rooms, where it is reduced to molten aluminium with carbon anodes (manufactured on-site in the carbon plant). Hot metal is transferred to the cast house where it is converted into ingots, sows, slabs, billets, wire-rod and alloy-rod (collectively \"unwrought aluminium\"). A portion of slabs and billets is consumed in the FRP and Extrusion processes; the balance, together with metal sourced from other Hindalco units (Hirakud, Taloja, Mahan, HALL, Kuppam, Bellur), is processed into rolled and extruded products. Electricity is supplied by the Renusagar CPP (steam + small solar), the on-site Cogen, and grid imports from UPPCL/Open-Access; HSD and LSHS (FO) are used as auxiliary fuels in the cast house and anode-baking furnaces.",
   },
 
-  { id: "b_s3_2_h", kind: "heading", level: 3, text: "3.2 Aggregated goods categories produced" },
+  // 4. System Boundaries and Production Processes
+  { id: "b_s4_h", kind: "heading", level: 2, text: "4. System Boundaries and Production Processes", sectionTag: "System Boundaries" },
   {
-    id: "b_s3_2_t",
-    kind: "table",
-    columns: ["Aggregated goods category", "CN codes produced at Renukoot", "Production route"],
-    rows: [
-      ["Unwrought aluminium", "7601 (in particular 7601 10 — non-alloyed; 7601 20 — alloyed)", "Primary aluminium — electrolytic smelting (CWPB pre-baked anode route)"],
-      ["Aluminium products", "7604 (bars, rods, profiles); 7605 (wire); 7606 (plates, sheets, strip > 0.2 mm); 7607 (foil ≤ 0.2 mm); other CN codes within 7603–7616 as applicable", "Forming — rolling, extrusion, wire-rod drawing, casting"],
-    ],
+    id: "b_s4_p",
+    kind: "paragraph",
+    text:
+      "In line with Section 6.3 of the EC Guidance and Annex II of the Implementing Regulation, the installation is divided into production processes corresponding to the aggregated goods categories produced. Renukoot has elected to use the \"bubble approach\" allowed under Section 7.4.1.2 of the Guidance for the unwrought-aluminium category (since no intermediate is sold or transferred outside the installation between the smelter and the cast house). Separate production processes are defined for the rolling and extrusion lines because slabs/billets are sold/transferred as intermediate goods to/from other Hindalco installations.",
   },
 
-  { id: "b_s3_3_h", kind: "heading", level: 3, text: "3.3 Production processes" },
-  {
-    id: "b_s3_3_p1",
-    kind: "paragraph",
-    text:
-      "Production Process 1 (PP1) — Unwrought aluminium. System boundary (per IR Annex II §3.17, primary smelting route): CO₂ from consumption of pre-baked anodes during electrolysis; CO₂ from any fuels used (drying, pre-heating of raw materials, heating of cells, casting fuels); CO₂ from flue-gas treatment (e.g. soda ash / limestone if used); PFC emissions (CF₄, C₂F₆) caused by anode effects, monitored per IR Annex III Section B.7; indirect emissions from electricity consumed in PP1. Inside the boundary: raw-material storage; pot-feed and crust-breaker systems; the 11 potlines; gas-treatment centres (GTC); fume-treatment scrubbers; the cast-house including holding furnaces, alloying, and casting machines.",
-  },
-  {
-    id: "b_s3_3_p2",
-    kind: "paragraph",
-    text:
-      "Outside the system boundary (treated separately): on-site anode production at the Carbon Plant — anodes are raw materials with zero embedded emissions, monitored only on a voluntary basis for completeness in Part 2 of the data communication; the Bayer alumina refinery on the same site, treated as a separate installation, with alumina as a zero-emissions raw material; and Renusagar CPP, whose direct fuel emissions are attributed to the electricity consumed by PP1 / PP2 via the auto-producer EF (§8 of this MMD).",
-  },
-  {
-    id: "b_s3_3_p3",
-    kind: "paragraph",
-    text:
-      "Production Process 2 (PP2) — Aluminium products. System boundary covers all forming steps occurring at Renukoot for products under CN 7604 / 7605 / 7606 / 7607 etc.: CO₂ from fuels used in re-heat / homogenising / annealing / holding furnaces in the rolling mill, extrusion plant and wire-rod mill (stationary plant only — vehicles excluded); CO₂ from production of measurable heat consumed (e.g. cogen steam used in homogenising); indirect emissions from electricity consumed in PP2. The precursor of PP2 is unwrought aluminium produced in PP1 (and any externally purchased ingots, if used).",
-  },
-  {
-    id: "b_bound_req",
-    kind: "requirement-ref",
-    requirementId: "MMD-BND-01",
-    snapshot: { kind: "empty" },
-    snapshotAt: now,
-  },
-
-  { id: "b_s3_4_h", kind: "heading", level: 3, text: "3.4 Bubble approach" },
-  {
-    id: "b_s3_4_p",
-    kind: "paragraph",
-    text:
-      "Per §7.4.1.2 of the Guidance, an installation producing both unwrought aluminium and aluminium products may declare a single joint production process (a 'bubble') for both, provided no intermediate product is sold or transferred out of the installation. DECISION REQUIRED: Renukoot routinely sells unwrought aluminium ingots and sows on the open market in addition to feeding the on-site rolling/extrusion mills. Therefore the bubble approach is not available, and PP1 and PP2 are reported separately. This decision is recorded here and revisited annually.",
-  },
-  {
-    id: "b_bubble_req",
-    kind: "requirement-ref",
-    requirementId: "MMD-BUBBLE-01",
-    snapshot: { kind: "empty" },
-    snapshotAt: now,
-  },
-
-  { id: "b_s3_5_h", kind: "heading", level: 3, text: "3.5 Out-of-scope activities at the same site" },
-  {
-    id: "b_s3_5_p",
-    kind: "paragraph",
-    text:
-      "Out of scope: loading / unloading and on-site logistics — diesel HEMM, locomotives and forklifts are excluded as mobile units (§7.4.1.1); office buildings, township, hospital and schools — non-process emissions; effluent / sewage treatment plant — excluded unless using carbonate-based reagents for flue-gas treatment.",
-  },
-
-  // ── 4. Source streams ────────────────────────────────────────────────────
-  { id: "b_s4_h", kind: "heading", level: 2, text: "4. Source Streams and Emission Sources", sectionTag: "Source streams" },
-  {
-    id: "b_s4_intro",
-    kind: "paragraph",
-    text:
-      "The methodology is calculation-based for all source streams. CEMS is not used for any combustion source (CEMS is mandatory only for N₂O in the fertiliser sector and is voluntary elsewhere — §6.5.2).",
-  },
-
-  { id: "b_s4_1_h", kind: "heading", level: 3, text: "4.1 Source streams — Production Process 1 (Unwrought aluminium)" },
+  { id: "b_s4_1_h", kind: "heading", level: 3, text: "4.1 Aggregated goods categories and production processes" },
   {
     id: "b_s4_1_t",
     kind: "table",
-    columns: ["ID", "Source stream", "Type", "Method", "Activity-data unit", "Calculation factor source"],
+    columns: ["Process #", "Aggregated goods category", "CN codes covered", "Physical units within boundary"],
     rows: [
-      ["SS1.01", "Pre-baked carbon anodes consumed in electrolysis", "Process material", "Standard methodology", "tonnes net carbon consumed", "EF = 3.664 t CO₂ / t C; carbon content from anode COA"],
-      ["SS1.02", "Anode butts returned (recycled)", "Process material (deduction from SS1.01)", "Mass balance on anode flow", "tonnes", "—"],
-      ["SS1.03", "Cryolite (Na₃AlF₆) make-up", "Process material", "Negligible CO₂ from carbonate; tracked for completeness", "tonnes", "—"],
-      ["SS1.04", "Aluminium fluoride (AlF₃) make-up", "Process material", "No CO₂ from this stream", "tonnes", "—"],
-      ["SS1.05", "Soda ash (Na₂CO₃) used in dry / semi-dry GTC scrubbing", "Process material", "Standard methodology, process emissions", "tonnes Na₂CO₃", "EF = 0.4149 t CO₂ / t Na₂CO₃ (stoichiometric)"],
-      ["SS1.06", "Limestone (if used in scrubber)", "Process material", "Standard methodology, process emissions", "tonnes CaCO₃", "EF = 0.4397 t CO₂ / t CaCO₃"],
-      ["SS1.07", "Natural gas / LPG / FO used in cast-house holding furnaces", "Combustion fuel", "Standard methodology, combustion emissions", "tonnes (or Nm³ × density)", "NCV and EF: Annex VIII IR / IPCC 2006 Vol 2 Table 1.4"],
-      ["SS1.08", "HSD / LDO used for pot pre-heat / start-up", "Combustion fuel", "Standard methodology, combustion", "kL", "Annex VIII IR"],
-      ["SS1.09", "Pet coke / coal used in anode bake furnace (voluntary)", "Combustion fuel — voluntary", "Standard methodology", "tonnes", "Annex VIII IR"],
+      ["PP-1", "Unwrought aluminium (UA)", "7601 10, 7601 20", "Smelter pot-rooms (Reduction-I & II), rectifiers, DSS-I & II, pot-room auxiliaries (excl. alumina handling), compressor houses 1 & 2 (potline share), cast house (pig casting, new ICM, EC wire-rod / Properzi, DC slab, billet, alloy rod), Carbon plant emissions accounted via anode consumption."],
+      ["PP-2", "Aluminium products — FRP", "7606, 7607", "Hot mill, caster, new cold-mill, finish line."],
+      ["PP-3", "Aluminium products — Extrusion", "7604, 7608", "Extrusion presses 7, 8 and 9."],
     ],
   },
+
+  { id: "b_s4_2_h", kind: "heading", level: 3, text: "4.2 Items \"Not to include\" / \"Exclude\" within the smelter boundary" },
   {
-    id: "b_s4_1_pfc",
+    id: "b_s4_2_p",
     kind: "paragraph",
     text:
-      "Emission source for PFCs (PP1): ES1.01 — all 11 potlines (CWPB), anode-effect events; GHGs CF₄ and C₂F₆; method: Calculation Method A — Slope (IR Annex III §B.7.1).",
+      "In line with the boundary definitions in the Implementing Regulation Annex II Section 3.17–3.18 and the smelter energy-balance review documented in the workbook \"Renukoot CBAM (working) Final (CY'2025).xlsx\" — sheet \"Smelter Energy Balance CY25\" — the following loads are excluded from the smelter system boundary:",
   },
-
-  { id: "b_s4_2_h", kind: "heading", level: 3, text: "4.2 Source streams — Production Process 2 (Aluminium products)" },
   {
     id: "b_s4_2_t",
     kind: "table",
-    columns: ["ID", "Source stream", "Type", "Method", "Unit"],
+    columns: ["Item", "CBAM tag", "Justification / treatment"],
     rows: [
-      ["SS2.01", "Natural gas / LPG / RLNG used in re-heat & homogenising furnaces (rolling)", "Combustion", "Standard", "tonnes / Nm³"],
-      ["SS2.02", "Natural gas / LPG used in billet pre-heat & ageing ovens (extrusion)", "Combustion", "Standard", "tonnes / Nm³"],
-      ["SS2.03", "Natural gas / LPG used in casting / annealing furnaces (wire-rod)", "Combustion", "Standard", "tonnes / Nm³"],
-      ["SS2.04", "Soda ash / limestone in any flue-gas treatment of the above furnaces", "Process", "Standard", "tonnes"],
-      ["SS2.05", "Aluminium scrap re-melted in cast-house / mill (if any)", "Mass tracked; no fuel-CO₂ from scrap; fuel covered under SS2.01–SS2.03", "—", "tonnes"],
+      ["Alumina handling", "Exclude", "Alumina is a raw material with zero embedded emissions (Section 7.4.2)."],
+      ["ETP (Effluent Treatment Plant)", "Exclude", "Not a production process for CBAM goods."],
+      ["CSS (Cathode Sealing Shop)", "Exclude", "Auxiliary to anode/cathode replacement, not within the production process for unwrought aluminium."],
+      ["220 kV Transmission losses CPP→Rectifier", "Not to include", "Transmission losses outside the smelter electrolysis boundary."],
+      ["132 kV Switchyard losses (Rectifier S/S)", "Not to include", "Reported separately as transmission losses (Sheet \"Rectifier CY25\")."],
+      ["ABF (Anode Baking Furnace), ARS (Rodding Shop), GAP (Green Anode Plant)", "Not to include (separately accounted)", "Anode-related emissions captured in PP-1 via anode consumption (IPCC Eq. 4.21) and via packing-coke and pitch-volatile equations (Eq. 4.22, 4.23) — Sheet \"Carbon-HIL Anodes FY25\"."],
+      ["Domestic colony, ARW, BPC, water supply, sewage treatment, project office", "Exclude", "Non-production loads outside CBAM boundary."],
     ],
   },
 
-  { id: "b_s4_3_h", kind: "heading", level: 3, text: "4.3 Indirect emission sources" },
+  { id: "b_s4_3_h", kind: "heading", level: 3, text: "4.3 Items \"Include\" within the smelter boundary" },
+  { id: "b_s4_3_p1", kind: "paragraph", text: "• Pot Room AC energy (inward meter reading, all rectifier substations) — sheet \"Smelter Energy Balance CY25\" Row 9; CY'25 actual = 5 736 485 MWh." },
+  { id: "b_s4_3_p2", kind: "paragraph", text: "• Pot-Room Auxiliaries (excluding alumina handling) — Row 10; CY'25 actual = 17 222 MWh." },
+  { id: "b_s4_3_p3", kind: "paragraph", text: "• Pot-Room Auxiliaries (Dry Scrubbing System DSS) — Row 11; CY'25 actual = 103 448 MWh." },
+  { id: "b_s4_3_p4", kind: "paragraph", text: "• Cast House loads: New ICM, ICM, new ingot casting Plant-2, new billet casting Plant-2, Properzi (WRM), Caster, DC casting (Rows 12–17)." },
+  { id: "b_s4_3_p5", kind: "paragraph", text: "• Compressor House 1 & 2 (potline share, excluding carbon plant and rodding shop) — Rows 19–20." },
   {
-    id: "b_s4_3_t",
+    id: "b_s4_3_p6",
+    kind: "paragraph",
+    text:
+      "Total smelter AC power consumption within CBAM boundary for CY'2025 = 5 892 525 MWh; total attributable AC energy to potline (after netting cast-house, compressors etc.) = 5 884 634 MWh (sheet Smelter Energy Balance, Rows 28–32).",
+  },
+
+  // 5. Source Streams and Emission Sources
+  { id: "b_s5_h", kind: "heading", level: 2, text: "5. Source Streams and Emission Sources", sectionTag: "Source Streams" },
+  {
+    id: "b_s5_p",
+    kind: "paragraph",
+    text:
+      "This section lists every source stream contributing to CBAM-relevant direct emissions, the emission source it relates to, and the production process(es) to which it is attributed. All source streams are monitored using the calculation-based standard methodology unless noted otherwise. No measurement-based methodologies (CEMS) are used at Renukoot for CBAM monitoring.",
+  },
+  {
+    id: "b_s5_t",
     kind: "table",
-    columns: ["ID", "Source", "Method"],
+    columns: ["#", "Source stream / emission source", "Allocated to PP", "Methodology", "Tier classification (per Section 6.5.1.4 of EC Guidance)"],
     rows: [
-      ["ES-I.01", "Electricity drawn by PP1 (smelter pots + rectifiers + GTC + cast-house)", "Auto-producer EF from Renusagar CPP + Renukoot Cogen weighted average"],
-      ["ES-I.02", "Electricity drawn by PP2 (rolling + extrusion + wire-rod + auxiliaries)", "Same auto-producer EF"],
-      ["ES-I.03", "Marginal grid imports (if any, during CPP outage)", "India national grid default EF as published by the European Commission"],
-    ],
-  },
-  {
-    id: "b_data_req",
-    kind: "requirement-ref",
-    requirementId: "MMD-DATA-01",
-    snapshot: { kind: "empty" },
-    snapshotAt: now,
-  },
-
-  { id: "b_s4_4_h", kind: "heading", level: 3, text: "4.4 Heat flows" },
-  {
-    id: "b_s4_4_t",
-    kind: "table",
-    columns: ["ID", "Heat flow", "Source", "Sink"],
-    rows: [
-      ["HT1", "Process steam from Renukoot Cogen", "Cogeneration plant", "Bayer digestion, anode-bake recuperation, cast-house pre-heat, rolling mill homogenising"],
-      ["HT2", "Recovered waste heat from potline gas treatment", "Pots → GTC → economiser", "District / process water heating"],
+      ["1", "Coal (Indian, Type-1) at CPP", "PP-1, PP-2, PP-3 (via electricity attribution)", "Calculation — standard", "AD: legal-metrological weighbridge (Tier 4); EF & NCV: Type I standard values + plant lab analyses (Tier 4 / lab analysis outside operator's control)"],
+      ["2", "HSD (High Speed Diesel) at CPP", "Indirect via electricity", "Calculation — standard", "AD: invoiced volumes; EF: Type I (DEFRA 2025); NCV: lab analysis"],
+      ["3", "LDO (Light Diesel Oil) at CPP", "Indirect via electricity", "Calculation — standard", "Type I (DEFRA 2025, GHG Protocol, IPCC AR5)"],
+      ["4", "Biomass — wood pellets at CPP", "Indirect via electricity", "Calculation — standard (zero rated for fossil CO2)", "Biomass fraction = 100%; CO2 reported as memo item (DEFRA 2025 average value)"],
+      ["5", "Coal at Cogen (CHP)", "PP-1 (heat for alumina excluded; electricity allocated per CHP attribution)", "Calculation — standard with CHP attribution per CBAM Annex IX", "Type I (CEA Database v22 Nov'25)"],
+      ["6", "HSD at Cogen", "PP-1 (electricity share)", "Calculation — standard", "Type I (DEFRA 2025)"],
+      ["7", "Biomass briquettes at Cogen", "Memo only", "Zero rated for fossil CO2", "DEFRA 2025"],
+      ["8", "Imported steam (alumina waste-heat recovery into Cogen)", "Memo / waste-heat", "Boiler efficiency 85%; treated as waste-heat per CBAM Annex IX", "Operator data"],
+      ["9", "Pre-baked anode consumption — net of stumps, S, ash", "PP-1", "Calculation per IPCC 2006 Eq. 4.21", "AD: smelter MIS; S, ash content: monthly lab analyses"],
+      ["10", "PFC emissions — CF4 and C2F6 from anode effects", "PP-1", "Slope Method (Method A) per Implementing Regulation Annex III B.7.1", "Tier-2: technology-specific SEF & FC2F6 from Table 7-20 (PFPB-L)"],
+      ["11", "Soda ash (Na2CO3) consumption in pot-room", "PP-1", "Calculation — standard", "Type I (CBAM Guidance p.250: 0.415 t CO2/t carbonate)"],
+      ["12", "LSHS / FO at anode-baking furnaces", "PP-1 (via anode consumption)", "Calculation — standard", "Type I (DEFRA 2025: 3.2289 kg CO2/kg)"],
+      ["13", "Pitch volatile combustion in baking furnaces", "PP-1", "Calculation per IPCC 2006 Eq. 4.22 (Hw, Wt = 0.5% green anode)", "Type I"],
+      ["14", "Bake furnace packing coke combustion", "PP-1", "Calculation per IPCC 2006 Eq. 4.23", "AD: monthly inventory; S, ash: lab"],
+      ["15", "Propane at cast house Plant-2 (new billet, slab) and Extrusion 7/8/9", "PP-1 (cast house portion); PP-3 (extrusion portion)", "Calculation — standard", "AD: cylinder count × tare weight; NCV: 11 856 kcal/kg (lab); EF: DEFRA 2025"],
+      ["16", "LPG at cast house Plant-1 (billet, Properzi)", "PP-1", "Calculation — standard", "AD: 47.5 kg cylinder × count; NCV: 11 800 kcal/kg; EF: DEFRA 2025"],
+      ["17", "Refrigerants (R22, R134A, R407, R410)", "Fugitive — installation level", "Refilling-based estimate (currently zero-rated, see §11)", "Operator inventory"],
+      ["18", "Diesel — DG sets and on-site mobile equipment", "Excluded (mobile equipment) per Section 7.4.1.1 of EC Guidance", "n/a", "n/a"],
     ],
   },
 
-  { id: "b_s4_5_h", kind: "heading", level: 3, text: "4.5 De-minimis / minor source streams" },
-  {
-    id: "b_s4_5_p",
-    kind: "paragraph",
-    text:
-      "Source streams contributing less than 2 % to total emissions of the production process, but never more than 20,000 t CO₂/yr cumulatively, may be classified as de-minimis and monitored to a lower tier (e.g. supplier defaults). Currently de-minimis: SS1.06, SS1.08 (subject to annual confirmation). Cumulative de-minimis emissions are tracked separately and the threshold checked each reporting period.",
-  },
-
-  // ── 5. Direct emissions ──────────────────────────────────────────────────
-  { id: "b_s5_h", kind: "heading", level: 2, text: "5. Monitoring Methodology — Direct Emissions", sectionTag: "Direct emissions" },
-  {
-    id: "b_s5_p1",
-    kind: "paragraph",
-    text:
-      "General formula (IR Annex III Equation 4): Em_Inst = Σ Em_calc,i + Σ Em_meas,j + Σ Em_other,k. For Renukoot, all source streams use the calculation-based standard methodology (IR Annex III §B.4 and B.5). No measurement-based (CEMS) source is currently in use; no 'other' non-EU method is invoked except the IPCC 2006 default values where Annex VIII of the Implementing Regulation refers back to IPCC.",
-  },
-
-  { id: "b_s5_1_h", kind: "heading", level: 3, text: "5.1 Standard methodology — combustion emissions" },
-  {
-    id: "b_s5_1_p",
-    kind: "paragraph",
-    text:
-      "Per source stream: Em = AD × NCV × EF_preliminary × OF, where AD is activity data (mass or volume of fuel consumed), NCV is the net calorific value (TJ/t or TJ/Nm³), EF_preliminary is the preliminary emission factor (t CO₂ / TJ), and OF is the oxidation factor (default 1, per §6.5.1.1.1 of Guidance).",
-  },
-
-  { id: "b_s5_2_h", kind: "heading", level: 3, text: "5.2 Standard methodology — process emissions (anodes, soda ash, limestone)" },
-  {
-    id: "b_s5_2_p",
-    kind: "paragraph",
-    text:
-      "Per source stream: Em = AD × CC × CF × 3.664, where AD is the mass of material consumed, CC is the carbon content (t C / t material; for anodes derived from supplier COA cross-checked with in-house analysis), CF is the conversion factor (default 1), and 3.664 is the molar ratio CO₂/C.",
-  },
-
-  { id: "b_s5_3_h", kind: "heading", level: 3, text: "5.3 Activity data — measurement instruments and tier requirements" },
-  {
-    id: "b_s5_3_t",
-    kind: "table",
-    columns: ["Source stream", "Primary AD source", "Corroborating AD source", "Instrument tag(s)", "Permissible uncertainty (target)"],
-    rows: [
-      ["SS1.01 Anode net consumption", "Anode mass-balance: (anodes set to pots) − (butts returned) on a daily basis, weighed on calibrated weighbridge", "Anode-cycle counter × average weight; potline rectifier MWh × Faraday consumption check", "WB-CB-01, WB-CB-02", "≤ 1.5 %"],
-      ["SS1.05 Soda ash", "Daily issue from stores via calibrated weigh hopper", "Purchase invoice + monthly stock measurement", "WH-GTC-01", "≤ 2.5 %"],
-      ["SS1.07 NG / LPG / FO at cast-house", "Custody-transfer flow meter (Coriolis for LPG; orifice + temp/press compensation for NG)", "Supplier invoice; daily log", "FM-CH-01..05", "≤ 1.5 %"],
-      ["SS2.01–SS2.03 Fuel at rolling/extrusion/wire-rod", "Custody-transfer flow meters per furnace", "Tank-dip and supplier invoice", "FM-RM-xx", "≤ 1.5 %"],
-    ],
-  },
-  {
-    id: "b_s5_3_p",
-    kind: "paragraph",
-    text:
-      "Calibration plan: every meter is calibrated annually by a NABL-accredited agency or in-house against a standard traceable to the National Physical Laboratory (NPL), New Delhi. Calibration records are kept for ten years per IR Article 11.",
-  },
-
-  { id: "b_s5_4_h", kind: "heading", level: 3, text: "5.4 Calculation factors" },
-  {
-    id: "b_s5_4_t",
-    kind: "table",
-    columns: ["Parameter", "Source stream", "Method", "Frequency", "Accredited lab"],
-    rows: [
-      ["Carbon content of anodes", "SS1.01", "Lab analysis per ISO 17499 (S and ash) and ISO 17431 (calcined coke C); EF derived as (1 − ash − S − impurities) × 3.664", "One sample per anode batch; 12 monthly composites", "Hindalco R&D Centre, Belur (NABL ISO/IEC 17025)"],
-      ["Sulphur and ash of anodes", "SS1.01", "ISO 12980 / ISO 8005", "Per batch", "As above"],
-      ["NCV of natural gas", "SS1.07, SS2.01–03", "Supplier COA cross-checked with monthly composite analysis (ISO 6976 / ASTM D 3588)", "Daily supplier value; monthly composite", "GAIL / supplier + Renukoot lab"],
-      ["EF of natural gas", "SS1.07, SS2.01–03", "Standard value: 56.1 t CO₂ / TJ (Annex VIII IR / 2006 IPCC)", "Annual review", "n/a"],
-      ["NCV of LPG", "various", "Supplier COA", "Per delivery", "n/a"],
-      ["EF of LPG", "various", "63.1 t CO₂ / TJ (Annex VIII IR)", "Annual review", "n/a"],
-      ["NCV of HSD", "SS1.08", "Supplier COA", "Per delivery", "n/a"],
-      ["EF of HSD", "SS1.08", "74.1 t CO₂ / TJ (Annex VIII IR)", "Annual review", "n/a"],
-      ["EF of soda ash", "SS1.05", "Stoichiometric: 0.4149 t CO₂ / t Na₂CO₃", "Constant", "n/a"],
-      ["EF of limestone", "SS1.06", "Stoichiometric: 0.4397 t CO₂ / t CaCO₃", "Constant", "n/a"],
-    ],
-  },
-  {
-    id: "b_s5_4_p",
-    kind: "paragraph",
-    text:
-      "Standard values are sourced in priority order: (i) Annex VIII of IR; (ii) IPCC 2006 Guidelines Volume 2 (Energy) Tables; (iii) values published by the European Commission for the CBAM transitional period; (iv) values from India's national GHG inventory (Biennial Update Report submitted to the UNFCCC) where the above are not applicable.",
-  },
-
-  { id: "b_s5_5_h", kind: "heading", level: 3, text: "5.5 Emissions calculation example (illustrative — placeholders)" },
-  {
-    id: "b_s5_5_p",
-    kind: "paragraph",
-    text:
-      "Annual primary aluminium production (PrAl, PP1): 342,000 t (assumption). Net anode consumption rate: 0.42 t C / t Al (typical CWPB). Annual carbon consumption: 342,000 × 0.42 = 143,640 t C. Direct CO₂ from anodes: 143,640 × 3.664 = 526,300 t CO₂. Soda ash consumed: 1,800 t/yr. Direct CO₂ from soda ash: 1,800 × 0.4149 = 747 t CO₂. Cast-house NG consumption: 15 million Nm³/yr; at NCV 0.0357 GJ/Nm³ and EF 56.1 t CO₂ / TJ → 30,040 t CO₂. PFC emissions: see §6.",
-  },
-  {
-    id: "b_method_req",
-    kind: "requirement-ref",
-    requirementId: "MMD-MTH-01",
-    snapshot: { kind: "empty" },
-    snapshotAt: now,
-  },
-
-  // ── 6. PFC ───────────────────────────────────────────────────────────────
-  { id: "b_s6_h", kind: "heading", level: 2, text: "6. Monitoring Methodology — PFC Emissions", sectionTag: "PFC emissions" },
+  // 6. Electricity — Indirect Emissions Monitoring
+  { id: "b_s6_h", kind: "heading", level: 2, text: "6. Electricity — Indirect Emissions Monitoring", sectionTag: "Indirect Emissions" },
   {
     id: "b_s6_p",
     kind: "paragraph",
     text:
-      "PFCs (CF₄ and C₂F₆) are formed during anode-effect events and expressed as t CO₂-eq using GWP-AR4 values (Annex VIII §3 IR): GWP CF₄ = 7,390; GWP C₂F₆ = 12,200.",
+      "Per Section 7.4.1.1 of the EC Guidance, indirect emissions from purchased and self-generated electricity must be reported separately during the transitional period. Renukoot's electricity supply is a mix of self-generated power from the Renusagar captive plant (predominantly coal-fired steam plus small solar), self-generated power from the on-site Cogen, and grid imports from UPPCL plus Open Access Renewable. The combined emission factor is built from each source's emission factor weighted by its contribution to the smelter's total electricity consumption.",
   },
 
-  { id: "b_s6_1_h", kind: "heading", level: 3, text: "6.1 Method selection" },
+  { id: "b_s6_1_h", kind: "heading", level: 3, text: "6.1 Sources, meters and CY'2025 quantities" },
   {
-    id: "b_s6_1_p",
-    kind: "paragraph",
-    text:
-      "Method A — Slope Method (IR Annex III §B.7.1) is selected for Renukoot because the pot-control system records anode-effect occurrences and durations on every pot via the Pot Process Control System (PPCS), and anode-effect overvoltage integration (required for Method B) is not currently implemented on every potline.",
-  },
-  {
-    id: "b_pfc_req",
-    kind: "requirement-ref",
-    requirementId: "MMD-PFC-01",
-    snapshot: { kind: "empty" },
-    snapshotAt: now,
+    id: "b_s6_1_t",
+    kind: "table",
+    columns: ["Source", "CY'25 MWh", "EF (t CO2/MWh)", "Reference / methodology"],
+    rows: [
+      ["Renusagar CPP — sent-out (steam)", "6 156 545", "1.086", "Calculated from coal, HSD, biomass and net sent-out power. Sheet \"Emission Intensity CPP CY25\". Compared to CY'24 = 1.0777."],
+      ["Renusagar — solar (PV onsite)", "770", "0", "Zero rated (renewable, on-site PV)."],
+      ["Cogen (CHP) — exported to smelter", "283 325", "0.7575", "Per Annex IX of EC Guidance — heat/electricity attribution: ηheat = 0.481, ηel = 0.105; FCHP,heat = 0.7075; FCHP,el = 0.2925 → EFCHP,el = 0.7575 t CO2/MWh @ 860 kCal/kWh. Sheet \"Cogen CY25\"."],
+      ["Grid — UPPCL imports (DISCOM)", "155 187", "0.71", "CEA CO2 Baseline Database, Version 22, November 2025, Table S — weighted average emission factor including renewable energy sources."],
+      ["Grid — conventional Open Access", "0", "Specific plant data", "No conventional OA in CY'25."],
+      ["Grid — renewable Open Access", "0", "0", "No renewable OA in CY'25."],
+      ["Combined emission factor (weighted)", "—", "1.0631", "Renukoot computed weighted average; sheet \"Elect. Emission Factor CY25\". CY'23 = 1.0461; CY'25 = 1.0533 (1.0631 = combined incl. cogen export)."],
+    ],
   },
 
-  { id: "b_s6_2_h", kind: "heading", level: 3, text: "6.2 Equations (Method A)" },
+  { id: "b_s6_2_h", kind: "heading", level: 3, text: "6.2 Combined Heat and Power (Cogen) — attribution method" },
   {
     id: "b_s6_2_p",
     kind: "paragraph",
     text:
-      "CF4 emissions [t] = AEM × (SEFCF4 / 1000) × PrAl (Eq. 21). C2F6 emissions [t] = CF4 emissions × FC2F6 (Eq. 22). AEM = frequency × average duration (Eq. 23). For CWPB technology, SEF_CF4 = 0.143 (kg CF₄ / t Al) / (AE-min / cell-day) (IR Table 7-20 / Annex III Table 1) and F_C2F6 = 0.121 t C₂F₆ / t CF₄. These technology-specific factors are the minimum requirement; recommended improvement is to establish installation-specific SEFs by intermittent stack measurement at least every 3 years per the International Aluminium Institute Best Practice Guidelines on PFC Measurement (currently not yet implemented).",
+      "The Cogen plant supplies steam to the Alumina refinery (which is outside the CBAM boundary) and electricity to the smelter (within the CBAM boundary). Per Section 6.7.4 of the EC Guidance and Annex IX of the Implementing Regulation, total CHP emissions are attributed between heat and electricity using the harmonised reference efficiencies (ηref,heat = 0.83 for coal steam, ηref,el = 0.442 for coal). The actual computed efficiencies for CY'25 (Sheet \"Cogen CY25\", Rows 71–82) are:",
   },
-
-  { id: "b_s6_3_h", kind: "heading", level: 3, text: "6.3 Activity data — anode-effect monitoring" },
   {
-    id: "b_s6_3_t",
+    id: "b_s6_2_t",
     kind: "table",
-    columns: ["Parameter", "Source", "Frequency"],
+    columns: ["Parameter", "CY'25 value", "Source / formula"],
     rows: [
-      ["Number of AE events per cell", "PPCS event log (continuous)", "Continuous"],
-      ["Duration of each AE event (minutes)", "PPCS event log; clock from start of cell-voltage rise above target to extinction", "Per event"],
-      ["Number of operating cell-days", "Pot status master (operating cells × calendar days)", "Daily"],
-      ["PrAl (tonnes Al)", "Cast-house weighing (sows + ingots + DC slabs + billets + wire-rod) cross-checked against rectifier MWh × Faraday CE", "Daily; monthly close"],
+      ["Total energy input Ein (TJ)", "9 675.23", "Sum of Ein,coal + Ein,HSD + Ein,biomass + Ein,waste-heat (sheet rows 52–57)"],
+      ["Net heat produced Qnet (TJ)", "4 656.44", "From steam mass × enthalpy difference (rows 13, 14, 24, 59)"],
+      ["Net electricity produced Eel (TJ)", "1 020.15", "Power exported × 860 kcal/kWh (row 21, 62)"],
+      ["Total CHP emissions Em,CHP (t CO2)", "876 359", "Coal 862 052 + HSD 1 028 + Biomass 74 + waste-heat 13 205 (rows 65–69)"],
+      ["ηheat (actual)", "0.481", "Qnet / Ein"],
+      ["ηel (actual)", "0.105", "Eel / Ein"],
+      ["FCHP,heat (attribution to heat)", "0.7075", "ηref,heat × ηheat / [(ηref,heat × ηheat) + (ηref,el × ηel)]"],
+      ["FCHP,el (attribution to electricity)", "0.2925", "1 − FCHP,heat"],
+      ["EFCHP,heat", "133.15 t CO2e/TJ", "Em,CHP × FCHP,heat / Qnet"],
+      ["EFCHP,el", "210.43 t CO2e/TJ = 0.7575 t CO2/MWh", "Em,CHP × FCHP,el / Eel"],
     ],
   },
+
+  { id: "b_s6_3_h", kind: "heading", level: 3, text: "6.3 Smelter electricity meter map" },
   {
     id: "b_s6_3_p",
     kind: "paragraph",
     text:
-      "Cell-day (per IAI definition): one cell operating for one calendar day. Cells in early start-up or cold-start phase are excluded for the first 14 days (Hindalco internal procedure WP-PPCS-04).",
+      "AC energy entering the rectifier yard is metered at the inward meter on the 132 kV switchyard. From the rectifier output, DC energy to pot-rooms is computed as AC inward × rectifier conversion efficiency. All other in-boundary loads (pot-room aux, DSS, cast house, compressors) are metered at HT feeders. The complete monthly map of meter readings is captured in sheet \"powe breakup CY25\" (47-row matrix) and reconciled to the captive supply in sheet \"power balance CY25\". Reconciliation factors are not currently applied because the inward smelter meter is treated as the most reliable instrument; sub-meters are used as corroborating data sources only.",
   },
 
-  { id: "b_s6_4_h", kind: "heading", level: 3, text: "6.4 Fugitive PFC corrections" },
+  // 7. Calculation Factors, Sampling and Lab Analyses
+  { id: "b_s7_h", kind: "heading", level: 2, text: "7. Calculation Factors, Sampling and Lab Analyses", sectionTag: "Calculation Factors" },
   {
-    id: "b_s6_4_p",
+    id: "b_s7_p",
     kind: "paragraph",
     text:
-      "Where stack measurements of CF₄ are conducted (recommended, every 3 years), fugitive emissions from cell-room ventilation are accounted for using the GTC collection efficiency η: PFC total = PFC measured at duct / η (Eq. 20). Currently η is taken as 98 % (IAI typical value pending site-specific measurement).",
+      "Calculation factors (NCV, EF, oxidation factor, S and ash content of anodes, density of liquid fuels) are determined either from Type-I/Type-II standard values in Annex VIII of the Implementing Regulation, or from in-house laboratory analyses. The choice for each source stream is documented below.",
   },
-
-  { id: "b_s6_5_h", kind: "heading", level: 3, text: "6.5 Illustrative PFC calculation" },
   {
-    id: "b_s6_5_p",
-    kind: "paragraph",
-    text:
-      "Cell-days per year: 2,038 cells × 365 = 743,870 cell-days. AE frequency: 0.10 events / cell-day → 74,387 events. Average AE duration: 1.2 min/event. AEM = 0.10 × 1.2 = 0.12 AE-min / cell-day. CF₄ = 0.12 × (0.143 / 1000) × 342,000 = 5,869 kg = 5.87 t. C₂F₆ = 5.87 × 0.121 = 0.71 t. Direct PFC in CO₂-eq = 5.87 × 7,390 + 0.71 × 12,200 = 43,376 + 8,662 = 52,038 t CO₂-eq.",
+    id: "b_s7_t",
+    kind: "table",
+    columns: ["Source stream", "Factor", "Method", "Frequency", "CY'25 average", "Standard / source"],
+    rows: [
+      ["CPP coal", "GCV", "Lab analysis (lot basis at unloading)", "Daily composite per train rake (≈ every 2 500 t)", "3 925 kcal/kg", "ASTM D5865"],
+      ["CPP coal", "EF (CO2)", "Type-I from CEA", "Annual review", "90.6 g CO2/MJ (GCV)", "CEA CO2 Baseline Database v22, Nov'25, App. B Table A"],
+      ["CPP coal", "Oxidation factor", "Type-I", "Annual review", "0.98", "CEA v22 / IPCC 2006"],
+      ["HSD", "Density", "Lab", "Per delivery", "0.8238 kg/L", "Lab report"],
+      ["HSD", "GCV", "Lab", "Per delivery", "10 956 kcal/kg", "Lab report"],
+      ["HSD", "EF", "Type-I", "Annual", "3.2039 kg CO2/kg", "DEFRA 2025"],
+      ["LSHS / FO", "Density", "Lab", "Per delivery", "0.9274 kg/L", "Lab report"],
+      ["LSHS / FO", "EF", "Type-I", "Annual", "3.2289 kg CO2/kg", "DEFRA 2025"],
+      ["Net anode", "Sulphur in baked anode (Sa)", "Lab analysis", "Per shift composite, monthly average", "2.38 % wt", "Internal lab — baked anode analysis"],
+      ["Net anode", "Ash in baked anode (Asha)", "Lab analysis", "Per shift composite, monthly average", "0.58 % wt", "Internal lab"],
+      ["Packing coke", "S, Ash", "Lab analysis", "Per delivery", "S 1.12 %, Ash 1.21 %", "ABF Packing coke lab report"],
+      ["Soda ash", "EF", "Type-I", "Annual", "0.415 t CO2/t Na2CO3", "EC CBAM Guidance p.250"],
+      ["PFCs (CF4, C2F6)", "SEF, FC2F6", "Type-I (technology-specific)", "Annual", "0.122; 0.097", "Implementing Reg. Annex III, Table 7-20 (PFPB-Legacy)"],
+      ["PFCs", "GWP", "IPCC AR4 (CBAM Annex VIII §3)", "Static", "CF4 = 6 630; C2F6 = 11 100", "Implementing Reg. Annex VIII §3"],
+      ["Propane", "GCV", "Lab", "Per delivery", "11 856 kcal/kg", "Supplier certificate"],
+      ["Propane", "NCV", "IPCC", "Annual", "47.3 GJ/t", "IPCC 2006"],
+      ["LPG", "GCV", "Lab", "Per delivery", "11 800 kcal/kg", "Supplier certificate"],
+      ["Biomass (wood pellets, briquettes)", "EF", "Type-I", "Annual", "0.0482 t/t (memo)", "DEFRA 2025"],
+      ["Grid electricity", "EF", "Type-I", "Annual", "0.71 t CO2/MWh", "CEA v22 Table S"],
+    ],
   },
 
-  // ── 7. Heat ──────────────────────────────────────────────────────────────
-  { id: "b_s7_h", kind: "heading", level: 2, text: "7. Monitoring Methodology — Measurable Heat", sectionTag: "Measurable heat" },
-  { id: "b_s7_1_h", kind: "heading", level: 3, text: "7.1 Heat flows monitored" },
+  { id: "b_s7_1_h", kind: "heading", level: 3, text: "7.1 Sampling plan summary" },
   {
     id: "b_s7_1_p",
     kind: "paragraph",
     text:
-      "Per §6.7.2 of the Guidance, 'measurable heat' means heat transported via a medium (steam, hot water, etc.) where flow can be metered. Heat used directly inside a burner / kiln (e.g. anode-bake furnace direct heating) is not monitored as a heat flow — its emissions are determined from the fuel consumption of that burner.",
+      "In line with Section 6.5.1.4 of the EC Guidance and Annex III B.5.4 of the Implementing Regulation, minimum analysis frequencies are:",
   },
   {
     id: "b_s7_1_t",
     kind: "table",
-    columns: ["Heat flow", "Producer", "Consumer(s)", "Heat meter"],
+    columns: ["Material", "Frequency at Renukoot"],
     rows: [
-      ["Process steam — saturated, ~10 bar(g)", "Renukoot Cogen 78 MW", "Bayer digestion (Refinery), anode-bake recuperator, cast-house pre-heat, rolling-mill homogenising furnace pre-heat", "HM-CG-01 / 02 / 03 (orifice + RTD + saturation correction)"],
-      ["Recovered waste heat (potline GTC)", "Potline GTC scrubber", "Process water heating", "Optional, voluntary"],
+      ["Solid commercial fuel (coal)", "Composite of every rake unloading (≈ every 2 500 t at CPP) — exceeds CBAM minimum of every 20 000 t"],
+      ["Liquid commercial fuel (HSD, LSHS)", "Per delivery (typical lots 25–250 kL) — exceeds minimum 10 000 t"],
+      ["Baked anode (S, Ash)", "Daily composite, monthly average reported — exceeds CBAM \"≥ four times a year\""],
+      ["Packing coke", "Per delivery composite, lot-based"],
+      ["Propane / LPG", "Supplier certificate per cylinder batch"],
     ],
   },
 
-  { id: "b_s7_2_h", kind: "heading", level: 3, text: "7.2 Net heat calculation" },
+  { id: "b_s7_2_h", kind: "heading", level: 3, text: "7.2 Laboratory accreditation" },
   {
     id: "b_s7_2_p",
     kind: "paragraph",
     text:
-      "Heat content per IR Annex III Section C: Q_net = ṁ × (h_supply − h_return), where ṁ is mass flow rate and h is specific enthalpy at measured T, p, and saturation. Returned condensate flow and temperature are metered separately.",
+      "Coal, HSD/LSHS and anode analyses are carried out in the Renukoot in-house laboratory. Although not currently ISO/IEC 17025 accredited, the laboratory operates under an ISO 9001-certified Quality Management System and participates in inter-comparison rounds with external NABL-accredited laboratories on a quarterly basis (split-sample basis). Justification for use of a non-accredited laboratory is recorded under the criteria of Section 6.5.1.4 of the EC Guidance — in particular economic independence (lab reports to QA Head, not to plant operations), competence of personnel, and regular quality assurance through proficiency testing. A planned improvement (Section 12) is to obtain ISO/IEC 17025 accreditation by end-CY'2026.",
   },
 
-  { id: "b_s7_3_h", kind: "heading", level: 3, text: "7.3 Heat emission factor" },
+  // 8. PFC Emissions — Slope Method (Method A)
+  { id: "b_s8_h", kind: "heading", level: 2, text: "8. PFC Emissions — Slope Method (Method A)", sectionTag: "PFC Emissions" },
   {
-    id: "b_s7_3_p",
+    id: "b_s8_p",
     kind: "paragraph",
     text:
-      "Heat-related emissions are attributed to the heat consumer (each PP) per the heat-EF approach (§6.7.2.2 of Guidance): EF_heat = Em_cogen, attributable to heat / Q_heat_produced. For Renukoot Cogen (CHP), allocation between heat and electricity is performed by the 'alternative method' (efficiency-based allocation, IR Annex III §C.2 / D.2.1.4), η_heat / (η_heat + η_elec_ref), with reference efficiencies η_elec_ref = 0.525 and η_heat_ref = 0.80 (Implementing Regulation Annex IX).",
+      "In line with Annex III Section B.7 of the Implementing Regulation and Section 7.4.1.2 of the EC Guidance, Renukoot uses the calculation-based Slope Method to determine perfluorocarbon emissions from anode effects. Anode-effect frequency (AEF) and average duration (AED) are recorded automatically at the cell-supervisory level for both Reduction-I (PFPB-Legacy) and Reduction-II (Centre-Worked Pre-Bake) potlines. Technology-specific emission factors from Table 7-20 of the EC Guidance are used.",
   },
 
-  // ── 8. Indirect ──────────────────────────────────────────────────────────
-  { id: "b_s8_h", kind: "heading", level: 2, text: "8. Monitoring Methodology — Indirect Emissions (Electricity)", sectionTag: "Indirect emissions" },
-  { id: "b_s8_1_h", kind: "heading", level: 3, text: "8.1 Sources of electricity" },
-  {
-    id: "b_s8_1_t",
-    kind: "table",
-    columns: ["Path", "Annual share (illustrative)", "Treatment"],
-    rows: [
-      ["Renusagar CPP (auto-produced)", "~85 %", "Auto-producer EF (§8.2)"],
-      ["Renukoot Cogen (auto-produced, electrical part of CHP)", "~14 %", "Auto-producer EF, with CHP allocation (§8.3)"],
-      ["UPPCL grid import (back-up)", "~1 %", "India grid default EF published by EU Commission"],
-    ],
-  },
+  { id: "b_s8_1_h", kind: "heading", level: 3, text: "8.1 Equations applied" },
+  { id: "b_s8_1_p1", kind: "paragraph", text: "AEM = AEF × AED (anode-effect minutes per cell-day)" },
+  { id: "b_s8_1_p2", kind: "paragraph", text: "E_CF4 [kg] = AEM × SEF_CF4 × Pr_Al × 1 (where Pr_Al in t)" },
+  { id: "b_s8_1_p3", kind: "paragraph", text: "E_C2F6 [kg] = E_CF4 × F_C2F6" },
+  { id: "b_s8_1_p4", kind: "paragraph", text: "E_PFC [t CO2e] = (E_CF4 × GWP_CF4 + E_C2F6 × GWP_C2F6) / 1 000" },
 
-  { id: "b_s8_2_h", kind: "heading", level: 3, text: "8.2 Auto-producer emission factor — Renusagar CPP" },
-  {
-    id: "b_s8_2_p",
-    kind: "paragraph",
-    text:
-      "Renusagar is operated by Hindalco and is directly technically connected to Renukoot via a dedicated 220 kV transmission line. Per §6.7.3 of the Guidance, electricity from such an installation may be attributed at the actual EF of the power plant (treated as if it were on-site auto-production). EF_elec = Em_cpp / E_net_delivered, where Em_cpp is direct CO₂ emissions of Renusagar CPP — calculated by the standard methodology applied to coal (and any back-up oil) consumed — and E_net_delivered is the net electricity delivered to Renukoot at the receiving 220 kV bus (generation − auxiliaries − transmission loss).",
-  },
+  { id: "b_s8_2_h", kind: "heading", level: 3, text: "8.2 CY'2025 PFC inputs and outputs" },
   {
     id: "b_s8_2_t",
     kind: "table",
-    columns: ["Parameter", "Method", "Source"],
+    columns: ["Parameter", "CY'25 value", "Source"],
     rows: [
-      ["Coal consumption", "Belt-weighers on each unit's coal feeder (M&V calibrated 6-monthly)", "Renusagar daily Generation Report"],
-      ["GCV / NCV of coal", "Daily composite sample, bomb calorimeter (ASTM D 5865 / IS 1350)", "Renusagar lab (NABL accredited)"],
-      ["Carbon content of coal", "Ultimate analysis (ASTM D 3176 / IS 1350-Pt 4), monthly composite", "Renusagar lab"],
-      ["Oxidation factor", "1.00 (default; ash carbon content < 1 %)", "per IR §B.5"],
-      ["EF of coal (calculation)", "EF = C × 3.664 / NCV", "Calculated"],
-      ["HSD/FO for unit start-up", "Tank-dip, monthly", "Renusagar fuel ledger"],
-      ["Net electricity exported to Renukoot", "220 kV revenue meter at Renukoot end (bi-directional, ABT-class 0.2s)", "UPPCL/Hindalco joint metering"],
-      ["Auxiliary consumption", "Unit aux meters", "Renusagar"],
+      ["AEF (anode effects per cell-day)", "0.152", "Smelter Tech / pot-line SCADA"],
+      ["AED (minutes per AE)", "2.059", "Smelter Tech / pot-line SCADA"],
+      ["AEM (min per cell-day)", "0.313", "AEF × AED"],
+      ["Pr_Al (hot metal, t)", "407 602", "Smelter MIS"],
+      ["SEF_CF4 (kg CF4 per t Al per AEM)", "0.122", "Table 7-20, PFPB-Legacy"],
+      ["F_C2F6 (t C2F6 / t CF4)", "0.097", "Table 7-20, PFPB-Legacy"],
+      ["GWP_CF4 / GWP_C2F6", "6 630 / 11 100", "CBAM Annex VIII §3"],
+      ["E_CF4 (kg)", "15 567", "Calculated"],
+      ["E_C2F6 (kg)", "1 510", "Calculated"],
+      ["E_PFC (t CO2e)", "119 972", "Calculated"],
     ],
   },
   {
-    id: "b_renusagar_req",
-    kind: "requirement-ref",
-    requirementId: "MMD-RENUSAGAR-01",
-    snapshot: { kind: "empty" },
-    snapshotAt: now,
+    id: "b_s8_2_note",
+    kind: "paragraph",
+    text:
+      "Note: the workbook also evaluates an alternative case using IPCC 2006 default Tier-2 factors (SEF_CF4 = 0.143; F_C2F6 = 0.121) which yields E_PFC = 145 484 t CO2e. The CBAM-compliant figure used for SEE reporting is the technology-specific value of 119 972 t CO2e in line with Table 7-20.",
   },
 
-  { id: "b_s8_3_h", kind: "heading", level: 3, text: "8.3 Auto-producer emission factor — Renukoot Cogen 78 MW (CHP)" },
+  { id: "b_s8_3_h", kind: "heading", level: 3, text: "8.3 Recommended improvement (per EC Guidance §7.4.1.2)" },
   {
     id: "b_s8_3_p",
     kind: "paragraph",
     text:
-      "CHP allocation per IR Annex III §D.2 is required because the same fuel produces both heat (PP1, PP2) and electricity (PP1, PP2). Steps: (1) direct emissions of cogen = AD_coal × NCV × EF_coal; (2) allocate to electricity and heat by their respective reference efficiencies; (3) EF_elec_cogen = Em_allocated_to_elec / E_net_delivered_cogen; (4) EF_heat = Em_allocated_to_heat / Q_net_delivered. The combined auto-producer EF for the smelter is the energy-weighted average of EF_renusagar and EF_elec_cogen.",
+      "Establish installation-specific SEF_CF4 and F_C2F6 through continuous or intermittent in-stack measurement campaigns at least every three (3) years. This is included in the improvement plan under Section 12, item I-3.",
   },
 
-  { id: "b_s8_4_h", kind: "heading", level: 3, text: "8.4 Grid imports (back-up)" },
+  // 9. Direct Process Emissions from Anode Consumption
+  { id: "b_s9_h", kind: "heading", level: 2, text: "9. Direct Process Emissions from Anode Consumption", sectionTag: "Anode Emissions" },
   {
-    id: "b_s8_4_p",
+    id: "b_s9_p",
     kind: "paragraph",
     text:
-      "For any kWh imported from the UPPCL grid (e.g. during a CPP outage), the India default emission factor published by the European Commission for the CBAM transitional period is used (currently the IEA-derived value, ~0.95 t CO₂ / MWh for India, to be set per the latest EU publication). The volume is metered at the 220 kV import meter.",
+      "Pre-baked anodes manufactured in the on-site carbon plant are consumed in the smelter pot-rooms. Anode-related emissions are accounted in Process Process 1 (Unwrought Aluminium) using three IPCC 2006 equations:",
   },
 
-  { id: "b_s8_5_h", kind: "heading", level: 3, text: "8.5 Allocation to production processes" },
+  { id: "b_s9_1_h", kind: "heading", level: 3, text: "9.1 From anode consumption (Eq. 4.21)" },
+  { id: "b_s9_1_p", kind: "paragraph", text: "E_CO2(AO) = NAC × MP × [(100 − Sa − Asha) / 100] × (44/12)" },
   {
-    id: "b_s8_5_p",
+    id: "b_s9_1_p2",
     kind: "paragraph",
     text:
-      "Electricity drawn by the smelter (PP1) is metered separately from the rolling mill / extrusion / wire-rod (PP2) through dedicated 11 kV / 33 kV feeders. Auxiliary electricity not attributable to a single PP is allocated pro-rata to PP1 and PP2 by their primary electricity share.",
+      "Where NAC = net anode consumption per tonne of aluminium, MP = aluminium production [t], Sa, Asha = mass% sulphur and ash in baked anode.",
   },
   {
-    id: "b_s8_5_t",
+    id: "b_s9_1_t",
     kind: "table",
-    columns: ["Sub-meter ID", "Process", "Application"],
+    columns: ["Parameter", "CY'25 value", "Source"],
     rows: [
-      ["EM-PP1-01..04", "PP1", "Rectifier substations (potlines 1–11), pot-room services, GTC, cast-house"],
-      ["EM-PP2-01..03", "PP2", "Hot rolling mill, cold rolling mill, extrusion press hall, wire-rod mill"],
-      ["EM-AUX-01", "Auxiliary", "Refinery, anode plant, water treatment — allocated by the rules of §6.7.3.2"],
+      ["MP (hot metal, t)", "407 602", "Smelter MIS"],
+      ["Net Anode Consumption (NAC, t/t)", "0.4304", "Smelter Tech"],
+      ["Sa (sulphur, %)", "2.38", "Lab analysis monthly average"],
+      ["Asha (ash, %)", "0.58", "Lab analysis monthly average"],
+      ["E_CO2 (Anode Consumption, t CO2)", "624 134", "Calculated"],
     ],
   },
 
-  { id: "b_s8_6_h", kind: "heading", level: 3, text: "8.6 Renewable PPA electricity" },
-  {
-    id: "b_s8_6_p",
-    kind: "paragraph",
-    text:
-      "If, during the reporting period, any electricity is sourced under a renewable Power Purchase Agreement, the operator may apply EF = 0 only if all conditions of IR Annex III §D.4 and Annex IV §6 are met (PPA is long-term, traceable, additional, with retirement of the corresponding Energy Attribute Certificates). Not currently applicable — to be re-assessed if Hindalco's group renewable PPAs are allocated to Renukoot.",
-  },
-  {
-    id: "b_ppa_req",
-    kind: "requirement-ref",
-    requirementId: "MMD-PPA-01",
-    snapshot: { kind: "empty" },
-    snapshotAt: now,
-  },
-
-  // ── 9. Precursors ────────────────────────────────────────────────────────
-  { id: "b_s9_h", kind: "heading", level: 2, text: "9. Monitoring of Precursors", sectionTag: "Precursors" },
-  { id: "b_s9_1_h", kind: "heading", level: 3, text: "9.1 Precursors of PP1 — Unwrought aluminium" },
-  {
-    id: "b_s9_1_p",
-    kind: "paragraph",
-    text:
-      "Per IR Annex II §3.17, primary aluminium from CWPB has no relevant precursors for CBAM purposes: alumina is a raw material (zero embedded emissions); pre-baked anodes are a raw material (zero embedded emissions) — even when produced on-site; aluminium fluoride and cryolite are raw materials (zero embedded emissions); fuels are not precursors. Therefore PP1 has no embedded-emissions contribution from precursors — only its own direct + indirect emissions.",
-  },
-
-  { id: "b_s9_2_h", kind: "heading", level: 3, text: "9.2 Precursors of PP2 — Aluminium products" },
+  { id: "b_s9_2_h", kind: "heading", level: 3, text: "9.2 From bake furnace packing coke (Eq. 4.23)" },
   {
     id: "b_s9_2_p",
     kind: "paragraph",
     text:
-      "The relevant precursor of PP2 is unwrought aluminium. The bulk is internal (PP1). Where externally-purchased ingots / sows are used, the supplier-communicated specific embedded emissions (SEE_direct, SEE_indirect) are obtained per §6.8.2 of the Guidance.",
-  },
-  {
-    id: "b_s9_2_t",
-    kind: "table",
-    columns: ["Source of unwrought aluminium", "Quantity (t/yr)", "SEE_direct (t CO₂ / t)", "SEE_indirect (t CO₂ / t)", "Source of data"],
-    rows: [
-      ["Internal (PP1)", "[TO BE FILLED]", "Calculated from this MMD", "Calculated from this MMD", "This MMD"],
-      ["External (Indian smelters – e.g. Vedanta, NALCO)", "[if any]", "From supplier's data communication or default value", "Same", "Communication template per §6.11"],
-      ["External (imported ingots)", "[if any]", "From supplier or default", "Same", "Communication template"],
-    ],
-  },
-  {
-    id: "b_s9_2_p2",
-    kind: "paragraph",
-    text:
-      "If a supplier does not provide data, the European Commission's default value for unwrought aluminium (transitional period) is applied only as a last resort and the reason is recorded in the data communication.",
-  },
-  {
-    id: "b_prc_req",
-    kind: "requirement-ref",
-    requirementId: "MMD-PRC-01",
-    snapshot: { kind: "empty" },
-    snapshotAt: now,
+      "CY'25 packing coke consumption = 0.0141 t / t baked anode; baked anode production = 218 644 t. Resulting E_CO2 (PM) = 11 067 t CO2 (sheet \"Carbon-HIL Anodes FY25\", row 40).",
   },
 
-  { id: "b_s9_3_h", kind: "heading", level: 3, text: "9.3 Receipt and verification of precursor data" },
+  { id: "b_s9_3_h", kind: "heading", level: 3, text: "9.3 From pitch volatiles (Eq. 4.22)" },
   {
     id: "b_s9_3_p",
     kind: "paragraph",
     text:
-      "Precursor data is requested from external suppliers via the European Commission's 'Communication template — operator to importer' (Annex IV IR), adapted as a 'supplier-to-Hindalco' template. Data is received quarterly and reviewed by the Carbon Cell. Where the supplier has its own carbon price (e.g. an EU ETS supplier), the carbon-price information is collected per §12 below.",
+      "Hw = Wt = 0.5% of green anode weight. Green anode CY'25 = 231 654 t → Hw = Wt = 1 158 t. Resulting E_CO2 (PV) = 42 069 t CO2.",
   },
 
-  { id: "b_s9_4_h", kind: "heading", level: 3, text: "9.4 Alumina from off-site Hindalco refineries (Muri / Belagavi / Utkal)" },
+  { id: "b_s9_4_h", kind: "heading", level: 3, text: "9.4 LSHS combustion in baking furnaces" },
   {
     id: "b_s9_4_p",
     kind: "paragraph",
     text:
-      "Although the off-site Bayer refineries are part of the same parent company, alumina is treated as a raw material with zero embedded emissions under the primary-aluminium system boundary (IR Annex II §3.17 footnote and Guidance §5.7.3.1). No precursor monitoring is required. For full transparency, the upstream alumina-production emissions are reported voluntarily in Part 2 (optional) of the data communication.",
+      "LSHS consumption = 14 382 kL × density 0.9274 = 13 339 t. EF = 3.2289 kg CO2/kg → 43 064 t CO2.",
   },
-
-  // ── 10. Activity levels ──────────────────────────────────────────────────
-  { id: "b_s10_h", kind: "heading", level: 2, text: "10. Monitoring of Activity Levels (Production Output)", sectionTag: "Activity levels" },
-  { id: "b_s10_1_h", kind: "heading", level: 3, text: "10.1 Unwrought aluminium (PP1)" },
   {
-    id: "b_s10_1_p",
+    id: "b_s9_total",
     kind: "paragraph",
     text:
-      "Activity level = mass of unwrought aluminium produced and stockpiled or transferred out of PP1 (whether sold, transferred to PP2, or held as inventory) — per IR Annex III §F.",
-  },
-  {
-    id: "b_s10_1_t",
-    kind: "table",
-    columns: ["Output stream", "Measurement", "Frequency"],
-    rows: [
-      ["Sows / ingots dispatched as 7601", "Cast-house revenue weighbridge (calibrated, NABL traceable)", "Per cast"],
-      ["Slabs / billets transferred to PP2", "In-house weighbridge", "Per cast"],
-      ["Wire-rod cast", "In-line weigh roll", "Per coil"],
-      ["Inventory adjustment", "Monthly stock-take (sow yard, ingot bay)", "Monthly"],
-    ],
+      "Total direct process emissions of carbon-anode origin (allocated to PP-1) = 624 134 + 11 067 + 42 069 + 43 064 = 720 334 t CO2 for CY'25.",
   },
 
-  { id: "b_s10_2_h", kind: "heading", level: 3, text: "10.2 Aluminium products (PP2)" },
+  // 10. Soda Ash (Na2CO3) Emissions Control
+  { id: "b_s10_h", kind: "heading", level: 2, text: "10. Soda Ash (Na2CO3) Emissions Control", sectionTag: "Soda Ash" },
   {
-    id: "b_s10_2_t",
-    kind: "table",
-    columns: ["CN code", "Product", "Measurement"],
-    rows: [
-      ["7604", "Bars, rods, profiles (extrusion)", "Press-line weigh and dispatch weighbridge"],
-      ["7605", "Aluminium wire", "Drawing-line weigh"],
-      ["7606", "Plates, sheets, strip (>0.2 mm)", "Coil weigh on each rolling mill"],
-      ["7607", "Foil (≤0.2 mm)", "Coil weigh on foil mill"],
-    ],
-  },
-
-  { id: "b_s10_3_h", kind: "heading", level: 3, text: "10.3 Stock measurement and reconciliation" },
-  {
-    id: "b_s10_3_p",
+    id: "b_s10_p",
     kind: "paragraph",
     text:
-      "Monthly stock balance is performed for unwrought aluminium and for each product CN code. Differences in excess of the procedural tolerance (1 % of monthly throughput) trigger a corrective-action review.",
+      "Soda ash is dosed into the dry-scrubbing system for acid flue-gas neutralisation. Consumption is metered from the daily dosing log (Smelter Tech). For CY'2025: 1 446.87 t Na2CO3 × 0.415 t CO2 / t = 600.45 t CO2 — allocated to PP-1.",
   },
 
-  { id: "b_s10_4_h", kind: "heading", level: 3, text: "10.4 Treatment of scrap" },
+  // 11. Fugitive Emissions
+  { id: "b_s11_h", kind: "heading", level: 2, text: "11. Fugitive Emissions", sectionTag: "Fugitive Emissions" },
   {
-    id: "b_s10_4_p",
+    id: "b_s11_p",
     kind: "paragraph",
     text:
-      "Per Guidance §7.4.1.3 the operator must report tonnes of scrap used per tonne of unwrought aluminium product, the percentage which is pre-consumer (run-around / process scrap), and the alloy content where total non-Al elements exceed 1 %. Renukoot is a primary aluminium producer; scrap usage in PP1 is limited to internal cast-house run-around (clean commercial scrap added to holding furnace) which is by definition pre-consumer (100 %). Per Guidance footnote 50, where alloy content > 5 %, the alloying mass is treated as if it were primary unwrought aluminium for SEE purposes.",
+      "Refrigerants (R22, R134A, R407, R410) and SF6 in switch-gear are tracked at installation level (Sheet \"ODS\"). In line with the EC Guidance §7.4.1.1, fugitive emissions of refrigerants are not within the CBAM monitoring scope for the aluminium sector and are therefore reported as zero in CBAM Section A. They are nevertheless monitored for internal Scope-1 reporting and ISO 14064 inventories.",
   },
 
-  // ── 11. Sector parameters ────────────────────────────────────────────────
-  { id: "b_s11_h", kind: "heading", level: 2, text: "11. Sector-Specific Reporting Parameters", sectionTag: "Sector parameters" },
-  {
-    id: "b_s11_t",
-    kind: "table",
-    columns: ["Parameter", "PP1 (Unwrought aluminium)", "PP2 (Aluminium products)"],
-    rows: [
-      ["Tonnes of scrap used per tonne of product", "Tracked monthly", "Tracked monthly"],
-      ["% of scrap that is pre-consumer", "100 % (cast-house run-around)", "Tracked monthly"],
-      ["Alloy content (only if non-Al elements > 1 %)", "Per heat / per alloy COA", "Per heat / per alloy COA"],
-    ],
-  },
-
-  // ── 12. Carbon price ─────────────────────────────────────────────────────
-  { id: "b_s12_h", kind: "heading", level: 2, text: "12. Carbon Price Information", sectionTag: "Carbon price" },
+  // 12. Precursor Monitoring
+  { id: "b_s12_h", kind: "heading", level: 2, text: "12. Precursor Monitoring", sectionTag: "Precursor Monitoring" },
   {
     id: "b_s12_p",
     kind: "paragraph",
     text:
-      "Per Article 7 IR and §6.10 of Guidance, the operator must report any effective carbon price due in the country of production that can be attributed to CBAM goods.",
+      "PP-2 (FRP) and PP-3 (Extrusion) consume slabs and billets sourced from PP-1 plus precursor inputs received from other Hindalco installations and external suppliers. Per Section 6.8.2 of the EC Guidance, the embedded emissions of each precursor must be obtained from the supplying installation's emissions data communication and applied with the corresponding mass ratio Mi.",
   },
-  { id: "b_s12_1_h", kind: "heading", level: 3, text: "12.1 Indian regulatory landscape (as at the date of this MMD)" },
+
+  { id: "b_s12_1_h", kind: "heading", level: 3, text: "12.1 FRP precursors (CY'2025)" },
   {
     id: "b_s12_1_t",
     kind: "table",
-    columns: ["Instrument", "Applicability to Renukoot", "CBAM-recognised?"],
+    columns: ["Precursor", "Source", "Mass (t)", "SEE direct (t CO2/t)", "SEE indirect (t CO2/t)", "Reference / vintage"],
     rows: [
-      ["Perform-Achieve-Trade (PAT), BEE — energy-saving certificates (ESCerts)", "Yes — Renusagar and Renukoot are PAT designated consumers", "Not a direct carbon price; not recognised as a carbon price for CBAM under current EU practice. Reported as zero unless the EU clarifies otherwise."],
-      ["Coal Cess / GST Compensation Cess on coal (₹400/t)", "Yes — paid on coal consumed at Renusagar / Cogen", "Not currently recognised by the EU as a 'carbon price' for CBAM purposes. Reported as zero pending guidance."],
-      ["Carbon Credit Trading Scheme (CCTS), Ministry of Power, notified June 2023", "The aluminium sector is expected to be brought under CCTS in subsequent phases", "Will be reported once a market price emerges and the EU recognises it."],
+      ["Slab Casting", "Renukoot (PP-1)", "116 777", "1.9189", "15.1976", "This MMD; computed CY'25"],
+      ["Caster — Concast Coil", "Renukoot (PP-1)", "10 722", "1.9189", "15.1976", "This MMD"],
+      ["Hirakud — HRC", "Hirakud Smelter (FRP)", "2 371", "2.816", "14.362", "Hirakud emissions data communication, dated 20 Jun'24"],
+      ["Taloja — CRC", "Taloja", "703", "2.57", "12.82", "Taloja emissions data communication, dated 20 Jun'24"],
+      ["Bellur — HRC", "Bellur", "27.87", "2.36", "8.14", "Default values (CBAM website) — supplier-reported data not yet available"],
     ],
   },
+
+  { id: "b_s12_2_h", kind: "heading", level: 3, text: "12.2 Extrusion precursors (CY'2025)" },
   {
-    id: "b_s12_1_p",
+    id: "b_s12_2_t",
+    kind: "table",
+    columns: ["Precursor", "Source", "Mass (t)", "SEE direct (t CO2/t)", "SEE indirect (t CO2/t)", "Reference / vintage"],
+    rows: [
+      ["Renukoot Billet", "Renukoot (PP-1)", "57 207", "1.9189", "15.1976", "This MMD"],
+      ["HAAL Billet", "Hindalco Almatti (HALL)", "77.15", "1.337", "8.116", "HALL emissions data, 20 Jun'24"],
+      ["Allupuram Billet", "Allupuram", "138.69", "2.232", "11.216", "Default — under verification with Allupuram"],
+      ["Mahan Billet", "Hindalco Mahan", "4 104", "1.562", "13.506", "Mahan emissions data, 20 Jun'24"],
+      ["Kuppam Billet", "Kuppam", "0", "2.232", "11.216", "Default values — no consumption in CY'25"],
+      ["CRM Green Technology", "External", "970", "2.86", "9.25", "Default UA values pending supplier data"],
+    ],
+  },
+
+  { id: "b_s12_3_h", kind: "heading", level: 3, text: "12.3 Quality of precursor data" },
+  {
+    id: "b_s12_3_p",
     kind: "paragraph",
     text:
-      "DECISION REQUIRED: a position note shall be prepared by Hindalco Legal & Sustainability functions confirming the treatment of (i) coal cess and (ii) any prospective CCTS price under Article 9 of the CBAM Regulation. Until that position is finalised, the carbon price due reported to importers is zero (€ / t CO₂) with a footnote stating the reason.",
-  },
-  {
-    id: "b_carbonprice_req",
-    kind: "requirement-ref",
-    requirementId: "MMD-CARBONPRICE-01",
-    snapshot: { kind: "empty" },
-    snapshotAt: now,
+      "Precursor SEE values dated \"20 Jun'24\" or \"28 Apr'25\" (Sheet \"Factors\") are taken from the latest available emissions data communications received from the corresponding sister-installation operators. Where actual data is not yet available (Bellur, Allupuram, Kuppam, CRM Green Technology), the CBAM default values published on the European Commission's CBAM website are applied, in line with Section 6.9.1 of the EC Guidance. A standing procedure is in place to update the Factors register at the start of every reporting period.",
   },
 
-  { id: "b_s12_2_h", kind: "heading", level: 3, text: "12.2 Carbon price on precursors" },
+  // 13. Calculation of Embedded Emissions
+  { id: "b_s13_h", kind: "heading", level: 2, text: "13. Calculation of Embedded Emissions", sectionTag: "Embedded Emissions" },
   {
-    id: "b_s12_2_p",
+    id: "b_s13_p",
     kind: "paragraph",
     text:
-      "As per §6.10, if a precursor of PP2 (i.e. external unwrought aluminium) was produced under a recognised carbon price, the supplier must communicate that price. If the supplier does not provide the information, the carbon price for that precursor is assumed zero (Guidance §6.10).",
+      "Embedded emissions are calculated separately for direct and indirect categories, normalised to one tonne of CBAM good produced, in line with Section 6.2.2 of the EC Guidance and the formulae in Annex III F of the Implementing Regulation.",
   },
 
-  // ── 13. Data flow & QA/QC ────────────────────────────────────────────────
-  { id: "b_s13_h", kind: "heading", level: 2, text: "13. Data Flow, Written Procedures and Control System", sectionTag: "QA / QC" },
-  { id: "b_s13_1_h", kind: "heading", level: 3, text: "13.1 Data flow diagram" },
+  { id: "b_s13_1_h", kind: "heading", level: 3, text: "13.1 Process 1 — Unwrought Aluminium (\"bubble approach\")" },
   {
-    id: "b_s13_1_d",
-    kind: "diagram",
-    format: "mermaid",
-    source: `flowchart TD
-  Field[Field instruments — DCS, SCADA, weighbridges, pot-control, lab LIMS]
-  Hist[Plant Historian PI/OSI — minute-level archival]
-  MES[Daily / monthly aggregation in MES]
-  WB[CBAM Calculation Workbook — version-controlled]
-  Recon[Quarterly reconciliation by Carbon Cell — 4-eye review]
-  Comm[Communication template per EU importer]
-  Review[Annual review and improvement plan]
-  Field --> Hist --> MES --> WB --> Recon --> Comm --> Review`,
-    caption: "End-to-end data flow from field instruments to importer communication.",
+    id: "b_s13_1_t",
+    kind: "table",
+    columns: ["Term", "CY'25 value", "Source / formula"],
+    rows: [
+      ["Hot metal production AL_PP1 (t)", "407 602", "Smelter MIS"],
+      ["Direct emissions — anode CO2 (t)", "624 134", "Eq. 4.21 (§9.1)"],
+      ["Direct — PFC (t CO2e)", "119 972", "Slope Method (§8)"],
+      ["Direct — soda ash (t)", "600", "§10"],
+      ["Direct — packing coke (t)", "11 067", "Eq. 4.23 (§9.2)"],
+      ["Direct — pitch volatile (t)", "42 069", "Eq. 4.22 (§9.3)"],
+      ["Direct — LSHS in ABF (t)", "43 064", "§9.4"],
+      ["Total Em,direct,PP1 (t CO2e)", "744 707 (excl. anode-prod fuels) / 840 906 incl.", "Sum"],
+      ["Direct SEE_dir,PP1 (t CO2/t)", "1.9189 (incl. cast-house fuels) / 1.827 (smelter only)", "Em,direct / AL"],
+      ["Indirect emissions Em,indir,PP1 (t)", "6 154 274 (smelter) + 40 320 (cast house) = 6 194 593", "AC energy × combined EF + cast-house electricity × combined EF"],
+      ["Indirect SEE_indir,PP1 (t CO2/t)", "15.1976", "Em,indir / AL"],
+      ["Total SEE_PP1 (t CO2/t)", "17.1165", "Sum direct + indirect"],
+    ],
   },
 
-  { id: "b_s13_2_h", kind: "heading", level: 3, text: "13.2 Risk assessment" },
+  { id: "b_s13_2_h", kind: "heading", level: 3, text: "13.2 Process 2 — Aluminium Products (FRP)" },
+  {
+    id: "b_s13_2_p",
+    kind: "paragraph",
+    text:
+      "Mass-balance: 123 939.92 t precursor input → 81 433.06 t rolled product output (rolled recovery 66.08%, scrap 5.68%, hot-mill recovery 94.32%). Mass ratio Mi = 1.5223. Process-step emissions added at the rolling step: 1 769 t direct + 81 504 t indirect.",
+  },
   {
     id: "b_s13_2_t",
     kind: "table",
-    columns: ["Node", "Risk", "Severity (L × I)", "Control"],
+    columns: ["Term", "CY'25 value", "Source"],
     rows: [
-      ["Anode net consumption — manual butt-weight log", "Mis-keying, transposition", "M × H = High", "Daily 4-eye sign-off; weekly variance check vs. rectifier MWh-implied consumption"],
-      ["PPCS anode-effect log", "Sensor loss / time-stamp error", "L × H = Medium", "Heart-beat alarm; daily PPCS export reviewed"],
-      ["Weighbridge calibration drift", "Under-/over-reporting AD", "M × M = Medium", "Quarterly calibration with reference weights; cross-check vs. supplier dispatch slip"],
-      ["Cogen heat-meter saturation drift", "Mis-allocation between heat & electricity", "M × M = Medium", "Monthly steam-table verification"],
-      ["Coal sampling at Renusagar", "Sampling not representative of as-fired", "M × H = High", "Mechanical sampler at silo + manual cross-check"],
+      ["Precursor mix SEE_dir (t CO2/t)", "1.2812", "Mass-weighted from precursor table"],
+      ["Precursor mix SEE_indir (t CO2/t)", "9.9525", "Mass-weighted from precursor table"],
+      ["Rolling step direct (t CO2 / t product)", "0.0217", "1 769 / 81 433"],
+      ["Rolling step indirect (t CO2 / t product)", "1.0009", "81 504 / 81 433"],
+      ["FRP product SEE_dir (t CO2/t)", "1.9721", "Mi × 1.2812 + 0.0217"],
+      ["FRP product SEE_indir (t CO2/t)", "16.1519", "Mi × 9.9525 + 1.0009"],
+      ["FRP product SEE total (t CO2/t)", "18.124", "Sum"],
     ],
   },
 
-  { id: "b_s13_3_h", kind: "heading", level: 3, text: "13.3 Quality assurance and control measures" },
+  { id: "b_s13_3_h", kind: "heading", level: 3, text: "13.3 Process 3 — Aluminium Products (Extrusion)" },
   {
-    id: "b_s13_3_p",
-    kind: "paragraph",
-    text:
-      "Per §6.4.6 of Guidance: every primary instrument is calibrated annually with calibration certificates filed and traceable to NPL; historian access is role-controlled and the CBAM workbook is version-controlled in SharePoint with change log; data entry, validation and approval are performed by three different individuals; annual GHG monitoring training is delivered by an external accredited body, with at least one internal trainer holding ISO 14064-1 / ISO 14065 lead-verifier qualification; monthly time-series consistency checks (specific energy intensity, specific anode consumption, AEM trend, specific NG consumption per t Al product) are performed; non-conformances are logged in the Hindalco SAP-EHS module with root-cause analysis within 30 days; outsourced lab analyses (IS 1350 coal, ASTM D 5865 GCV, ISO 12980 anodes) are performed only at NABL-accredited labs with documented chain-of-custody; records are kept for 10 years (IR Article 11).",
-  },
-  {
-    id: "b_qaqc_req",
-    kind: "requirement-ref",
-    requirementId: "MMD-QAQC-01",
-    snapshot: { kind: "empty" },
-    snapshotAt: now,
+    id: "b_s13_3_t",
+    kind: "table",
+    columns: ["Term", "CY'25 value", "Source"],
+    rows: [
+      ["Precursor input (t)", "61 527", "Sheet \"outside material CY25\""],
+      ["Extrusion product output (t)", "40 583", "Sheet \"outside material CY25\""],
+      ["Mass ratio Mi", "1.54", "Input/output"],
+      ["Precursor mix SEE_dir (t CO2/t)", "1.2116", "Mass-weighted"],
+      ["Precursor mix SEE_indir (t CO2/t)", "9.6539", "Mass-weighted"],
+      ["Extrusion step direct (t CO2/t)", "0.0382", "1 552 / 40 583"],
+      ["Extrusion step indirect (t CO2/t)", "1.2264", "49 773 / 40 583"],
+      ["Extrusion product SEE_dir (t CO2/t)", "1.9041", "Mi × 1.2116 + 0.0382"],
+      ["Extrusion product SEE_indir (t CO2/t)", "16.0934", "Mi × 9.6539 + 1.2264"],
+      ["Extrusion product SEE total (t CO2/t)", "17.998", "Sum"],
+    ],
   },
 
-  { id: "b_s13_4_h", kind: "heading", level: 3, text: "13.4 Sampling plan" },
+  { id: "b_s13_4_h", kind: "heading", level: 3, text: "13.4 Treatment of scrap and alloying elements" },
   {
     id: "b_s13_4_p",
     kind: "paragraph",
     text:
-      "A sampling plan (controlled document SP-CBAM-01) is maintained for: anode lots — one composite per batch, 12 monthly composites; coal — ASME PTC 4 mechanical sampler at silo, daily composite, monthly cross-laboratory comparison; natural gas — monthly grab sample for Wobbe / NCV cross-check against supplier COA; soda ash — certificate of analysis per consignment plus quarterly in-house verification.",
+      "Per Section 7.4.1.3 of the EC Guidance, scrap is reported as zero embedded emissions. CY'25 internal scrap remelted within the boundary: 42 535 t (FRP) + 21 914 t (Extrusion). Pre-consumer scrap percentage is 100% (all internal). Alloying-element content is below 5% by mass for all primary aluminium grades produced; therefore the standard SEE applies without adjustment for alloying elements.",
   },
 
-  { id: "b_s13_5_h", kind: "heading", level: 3, text: "13.5 Estimation method for data gaps" },
-  {
-    id: "b_s13_5_p",
-    kind: "paragraph",
-    text:
-      "Where activity data is missing for a period of less than 30 days, the missing value is replaced by a 12-month rolling average of the same parameter, or by a directly correlated parameter (e.g. rectifier MWh × Faraday-equivalent C-consumption for anode AD). The estimation is conservative (i.e. results in equal or higher emissions) per Guidance §6.4.4. All gaps and substitutions are logged in the CBAM workbook with rationale.",
-  },
+  // 14. Roles, Responsibilities and Data Flow
+  { id: "b_s14_h", kind: "heading", level: 2, text: "14. Roles, Responsibilities and Data Flow", sectionTag: "Roles & Data Flow" },
 
-  { id: "b_s13_6_h", kind: "heading", level: 3, text: "13.6 Improvements" },
+  { id: "b_s14_1_h", kind: "heading", level: 3, text: "14.1 Roles and responsibilities" },
   {
-    id: "b_s13_6_p",
-    kind: "paragraph",
-    text:
-      "Annual improvement review identifies opportunities such as: roll-out of overvoltage logging on remaining potlines (switch from PFC Method A to Method B); installation-specific PFC slope-factor measurement campaign every 3 years; smart sub-metering on rolling-mill furnaces to remove pro-rata allocation; a dedicated MRV software in place of the Excel workbook.",
-  },
-
-  // ── 14. Roles ────────────────────────────────────────────────────────────
-  { id: "b_s14_h", kind: "heading", level: 2, text: "14. Roles, Responsibilities and Competency", sectionTag: "Roles" },
-  {
-    id: "b_s14_t",
+    id: "b_s14_1_t",
     kind: "table",
-    columns: ["Role", "Responsible person", "Key duty"],
+    columns: ["Role", "Responsibility"],
     rows: [
-      ["Data Owner — overall MMD", "[VP Operations, Renukoot]", "Approval of MMD and any modifications"],
-      ["Carbon Cell Lead", "[Head, Carbon & Sustainability]", "Day-to-day MMD ownership; quarterly emissions calculation"],
-      ["Process Data Steward — PP1", "[DGM, Smelter Process]", "Anode flow, AE log, smelter activity levels"],
-      ["Process Data Steward — PP2", "[DGM, Downstream]", "Fuel flow, product weights, scrap"],
-      ["Power & Heat Steward", "[Head, Renusagar] / [Head, Cogen]", "Coal AD, NCV, EF calculation; heat-flow data"],
-      ["Lab Manager", "[Head, R&D / QC]", "Anode and coal analyses"],
-      ["Internal Auditor", "[Head, Internal Audit]", "Annual independent review of the data flow and control system"],
-      ["Document Controller", "[DC, Renukoot]", "Version control; distribution; archival"],
-    ],
-  },
-  {
-    id: "b_s14_p",
-    kind: "paragraph",
-    text:
-      "Competency requirements: each role-holder shall have completed the Hindalco Internal CBAM Training (8 hours) and at least one external course on ISO 14064-1 / ISO 14065 within 24 months.",
-  },
-
-  // ── 15. Document management ──────────────────────────────────────────────
-  { id: "b_s15_h", kind: "heading", level: 2, text: "15. Document Management and Review Cycle", sectionTag: "Document management" },
-  {
-    id: "b_s15_p",
-    kind: "paragraph",
-    text:
-      "This MMD is a controlled document — only the latest approved version is used. Distribution is on a 'need-to-know' basis via the Hindalco SharePoint controlled-document library. Routine review is annual, by 31 May for the prior FY. A triggered review is initiated on any of: change of installation technology; change of fuel mix > 5 %; addition of a new CN code; change in CBAM regulation; change of EU default values. A revision log is maintained on the cover page.",
-  },
-  {
-    id: "b_s15_t",
-    kind: "table",
-    columns: ["Version", "Date", "Author", "Approver", "Description"],
-    rows: [
-      ["0.1", "[draft date]", "Carbon Cell", "—", "Initial draft for internal review"],
-      ["1.0", "[TBD]", "Carbon Cell", "VP Operations", "First approved version"],
+      ["Unit Head — Renukoot", "Overall accountability for CBAM compliance and approval of MMD."],
+      ["Lead — Energy & GHG Cell", "Custodianship of MMD; data compilation; quarterly emissions data communication; precursor SEE updates; verification interface."],
+      ["Head — Operations (Smelter, Cast House, Carbon Plant)", "Provide AEF, AED, hot-metal production, anode consumption, soda-ash consumption, fuel consumption."],
+      ["Head — Power Generation (Renusagar / Cogen)", "Provide coal, HSD, biomass, sent-out power, auxiliary consumption; monthly emission factor."],
+      ["Head — Quality (Lab)", "Sampling, lab analyses (S, Ash, GCV, density); proficiency testing; non-accredited-lab justification documents."],
+      ["Head — Instrumentation", "Calibration of meters, weighbridges, flow meters; uncertainty register."],
+      ["Head — Procurement", "Supplier emission-data communications for precursor goods (Hirakud, Mahan, HALL etc.)."],
+      ["Authorised representative (VP — Sustainability)", "Sign-off and external communication with importers / declarants / verifier."],
     ],
   },
 
-  // ── 16. Annexes ──────────────────────────────────────────────────────────
-  { id: "b_s16_h", kind: "heading", level: 2, text: "16. Annexes", sectionTag: "Annexes" },
+  { id: "b_s14_2_h", kind: "heading", level: 3, text: "14.2 Data flow" },
+  {
+    id: "b_s14_2_p",
+    kind: "paragraph",
+    text:
+      "Primary data is captured at metering points and entered into plant systems (CPP MIS, Smelter MIS, RPD systems, Lab LIMS). On the 5th working day of each month the Energy & GHG Cell pulls the previous month's data into the master workbook \"Renukoot CBAM (working) Final (CY'YYYY).xlsx\". The workbook performs the calculations described in Sections 8–13 and produces the SEE values, which are then used to populate the European Commission's electronic emissions-data communication template for transmission to importers / reporting declarants on a quarterly basis. All raw data, lab certificates, calibration records and the workbook are retained for ten (10) years per Implementing Regulation Annex III A.7.",
+  },
+
+  // 15. Quality Assurance and Control
+  { id: "b_s15_h", kind: "heading", level: 2, text: "15. Quality Assurance and Control", sectionTag: "Quality Assurance" },
+  { id: "b_s15_p1", kind: "paragraph", text: "• Four-eyes principle: every monthly compilation is reviewed by a second member of the Energy & GHG Cell before sign-off." },
+  { id: "b_s15_p2", kind: "paragraph", text: "• Calibration: weighbridges every six months; flow meters and electricity meters annually; lab balances monthly." },
+  { id: "b_s15_p3", kind: "paragraph", text: "• Reconciliation: inward-meter readings cross-checked against feeder-level sub-meter sums monthly. Acceptable tolerance: ±1.5% (large source streams), ±7.5% (small)." },
+  { id: "b_s15_p4", kind: "paragraph", text: "• Data-gap procedure: in case of meter failure, the substitute estimation method is the average of the three immediately preceding equivalent monthly values, scaled to the actual production for the affected period; all data substitutions are documented." },
+  { id: "b_s15_p5", kind: "paragraph", text: "• Internal audit: annual self-audit of the MMD and underlying data trails by Aditya Birla Sustainability Cell." },
+  { id: "b_s15_p6", kind: "paragraph", text: "• Lab proficiency testing: quarterly inter-laboratory comparison with one NABL-accredited lab on coal GCV, anode S/Ash." },
+  { id: "b_s15_p7", kind: "paragraph", text: "• Document control: master MMD held in version-controlled SharePoint; supersedes notice circulated within 5 working days of any material change." },
+
+  // 16. Improvement Plan
+  { id: "b_s16_h", kind: "heading", level: 2, text: "16. Improvement Plan", sectionTag: "Improvement Plan" },
   {
     id: "b_s16_p",
     kind: "paragraph",
     text:
-      "Annex A — Detailed process flow diagram with measurement instrument tag numbers (P&ID extract), separately controlled. Annex B — Master list of measurement instruments, their make/model, range, accuracy class, calibration agency, last-calibration date, next-due date. Annex C — List of standard values used (NCV, EF, GWP) with their source (Annex VIII IR / IPCC 2006 / EU Commission default). Annex D — Communication template to EU importers (the European Commission's voluntary 'Operator-to-Importer' Excel workbook), populated for each reporting period. Annex E — Risk register and control-measure log. Annex F — Sampling plan SP-CBAM-01. Annex G — Glossary of CBAM terms (per IR Article 3 and Annex IV definitions). Annex H — Worked example for a representative reporting period (mirrors Guidance §7.4.2 example structure, populated with Renukoot data).",
+      "In line with Section 6.4.2 of the EC Guidance, the following improvements are planned to enhance monitoring quality:",
+  },
+  {
+    id: "b_s16_t",
+    kind: "table",
+    columns: ["Item", "Improvement action", "Target date", "Responsible"],
+    rows: [
+      ["I-1", "Obtain ISO/IEC 17025 accreditation for the in-house laboratory for coal GCV, anode S, ash and FO/HSD calorific value.", "Q4 CY'2026", "Head — Quality"],
+      ["I-2", "Replace 132 kV inward-meter at smelter switchyard with Class 0.2S meter for tighter uncertainty (target: ≤ 1.0%).", "Q2 CY'2026", "Head — Instrumentation"],
+      ["I-3", "Carry out installation-specific in-stack PFC measurement campaign (CF4, C2F6) for both potlines to derive plant-specific SEF values.", "By end CY'2027 (≤ 3-year cycle)", "Head — Operations & external lab"],
+      ["I-4", "Move from Excel-based monthly compilation to a digital MIS with tamper-evident data flow (lower 'data-flow risk' per §6.4.4).", "Q4 CY'2026", "Lead — Energy & GHG Cell"],
+      ["I-5", "Obtain emissions data communication for Bellur, Allupuram, Kuppam, CRM Green Technology so that default values can be replaced with actual SEE for these precursors.", "Ongoing — quarterly", "Head — Procurement"],
+      ["I-6", "Engage an accredited GHG verifier for voluntary verification ahead of the CBAM definitive period (1 January 2026).", "Q1 CY'2026", "Authorised representative"],
+      ["I-7", "Clean up and migrate workbook to remove residual #REF! errors in \"gas cons CY25\" and \"ODS\" sheets.", "Immediate", "Lead — Energy & GHG Cell"],
+    ],
+  },
+
+  // 17. Effective Carbon Price Due
+  { id: "b_s17_h", kind: "heading", level: 2, text: "17. Effective Carbon Price Due", sectionTag: "Carbon Price" },
+  {
+    id: "b_s17_p1",
+    kind: "paragraph",
+    text:
+      "As of CY'2025, India does not operate a national emissions trading system applicable to the Renukoot installation. The Perform-Achieve-Trade (PAT) scheme administered by the Bureau of Energy Efficiency under the National Mission for Enhanced Energy Efficiency (NMEEE) is an energy-efficiency trading mechanism rather than a direct carbon-price instrument and does not meet the definition in Section 6.10 of the EC Guidance. Accordingly, the carbon price due for CY'2025 is reported as zero (€0/tCO2). This will be revisited annually.",
+  },
+  {
+    id: "b_s17_p2",
+    kind: "paragraph",
+    text:
+      "If/when the Indian Carbon Market (CCTS — Carbon Credit Trading Scheme, MoEFCC) becomes operative for the aluminium sector, this section will be updated to reflect the applicable rules, free-allocation, surrender obligation and net price due.",
+  },
+
+  // 18. Summary of Embedded Emissions for CY'2025
+  { id: "b_s18_h", kind: "heading", level: 2, text: "18. Summary of Embedded Emissions for CY'2025", sectionTag: "Summary" },
+  {
+    id: "b_s18_t",
+    kind: "table",
+    columns: ["Aggregated goods category", "SEE direct (t CO2e/t)", "SEE indirect (t CO2e/t)", "Total SEE (t CO2e/t)"],
+    rows: [
+      ["Unwrought aluminium (PP-1)", "1.9189", "15.1976", "17.1165"],
+      ["Aluminium products — FRP (PP-2)", "1.9721", "16.1519", "18.124"],
+      ["Aluminium products — Extrusion (PP-3)", "1.9041", "16.0934", "17.998"],
+      ["CBAM default — UA", "2.36", "8.14", "10.50"],
+      ["CBAM default — Aluminium products", "2.86", "9.25", "12.11"],
+    ],
+  },
+  {
+    id: "b_s18_p",
+    kind: "paragraph",
+    text:
+      "All SEE values for Renukoot's actual goods are above the CBAM default direct values (because Renukoot is a coal-based captive-power smelter, whereas the EU defaults reflect a generic mix that includes hydropower) and well above the indirect defaults. Both direct and indirect components are reported separately to importers per Section 7.4.1 of the EC Guidance.",
+  },
+
+  // Annex A — Emission Factors
+  { id: "b_anA_h", kind: "heading", level: 2, text: "Annex A — Emission Factors and Standard Values Used", sectionTag: "Annex A" },
+  {
+    id: "b_anA_t",
+    kind: "table",
+    columns: ["Parameter", "Value", "Unit", "Reference"],
+    rows: [
+      ["Coal — EF (GCV basis)", "90.6", "g CO2/MJ", "CEA CO2 Baseline Database v22, Nov'25, App. B Table A"],
+      ["Coal — Oxidation factor", "0.98", "—", "CEA v22 / IPCC 2006"],
+      ["Coal — Delta GCV-NCV", "3.6%", "—", "IPCC 2006"],
+      ["HSD — EF", "3.2039", "kg CO2/kg", "DEFRA 2025"],
+      ["FO / LSHS — EF", "3.2289", "kg CO2/kg", "DEFRA 2025"],
+      ["LDO — EF", "3.2039", "kg CO2/kg", "DEFRA 2025; GHG Protocol; IPCC AR5"],
+      ["Biomass — EF (memo only)", "0.0482", "t CO2/t", "DEFRA 2025 (average)"],
+      ["Grid (DISCOM) — EF", "0.71", "t CO2/MWh", "CEA v22 Nov'25 Table S, weighted including RES"],
+      ["Soda ash (Na2CO3) — EF", "0.415", "t CO2/t carbonate", "CBAM Guidance p.250"],
+      ["SEF_CF4 (PFPB-Legacy)", "0.122", "(kg CF4/t Al)/(AE-min/cell-day)", "Implementing Reg. Table 7-20"],
+      ["F_C2F6 (PFPB-Legacy)", "0.097", "t C2F6/t CF4", "Implementing Reg. Table 7-20"],
+      ["GWP_CF4 (AR4)", "6 630", "—", "CBAM Annex VIII §3"],
+      ["GWP_C2F6 (AR4)", "11 100", "—", "CBAM Annex VIII §3"],
+      ["Kcal–TJ conversion", "1 TJ = 238 902 957.6 kcal", "—", "Standard"],
+      ["GJ–TJ conversion", "1 GJ = 0.001 TJ", "—", "Standard"],
+    ],
+  },
+
+  // Annex B — Reference Documents
+  { id: "b_anB_h", kind: "heading", level: 2, text: "Annex B — Reference Documents", sectionTag: "Annex B" },
+  { id: "b_anB_p1", kind: "paragraph", text: "1. Commission Implementing Regulation (EU) 2023/1773 of 17 August 2023 laying down the rules for the application of Regulation (EU) 2023/956." },
+  { id: "b_anB_p2", kind: "paragraph", text: "2. Regulation (EU) 2023/956 of the European Parliament and of the Council of 10 May 2023 establishing a carbon border adjustment mechanism." },
+  { id: "b_anB_p3", kind: "paragraph", text: "3. European Commission, DG TAXUD: Guidance Document on CBAM Implementation for Installation Operators outside the EU, Brussels, 8 December 2023." },
+  { id: "b_anB_p4", kind: "paragraph", text: "4. IPCC 2006 Guidelines for National Greenhouse Gas Inventories — Volume 3: Industrial Processes and Product Use, Chapter 4 (Metal Industry Emissions)." },
+  { id: "b_anB_p5", kind: "paragraph", text: "5. Central Electricity Authority (CEA), Government of India: CO2 Baseline Database for the Indian Power Sector, User Guide, Version 22.0, November 2025." },
+  { id: "b_anB_p6", kind: "paragraph", text: "6. UK Government Greenhouse Gas Conversion Factors (DEFRA) 2025." },
+  { id: "b_anB_p7", kind: "paragraph", text: "7. International Aluminium Institute — Best Practice Guidelines for PFC Emissions Measurement (latest)." },
+  { id: "b_anB_p8", kind: "paragraph", text: "8. Renukoot — GHG Emission Report, 1 January 2025 to 31 December 2025." },
+  { id: "b_anB_p9", kind: "paragraph", text: "9. Working spreadsheet: \"Renukoot CBAM (working) Final (CY'2025).xlsx\" (master data, calculations and audit trail for the reporting period)." },
+
+  // Annex C — Goods Produced and CN Codes
+  { id: "b_anC_h", kind: "heading", level: 2, text: "Annex C — Goods Produced and CN Codes", sectionTag: "Annex C" },
+  {
+    id: "b_anC_t",
+    kind: "table",
+    columns: ["CN Code", "Description", "Aggregated goods category"],
+    rows: [
+      ["7601 10 00", "Aluminium, not alloyed, unwrought", "Unwrought aluminium"],
+      ["7601 20", "Aluminium alloys, unwrought", "Unwrought aluminium"],
+      ["7604 (10 / 21 / 29)", "Aluminium bars, rods and profiles", "Aluminium products (Extrusion)"],
+      ["7605 (11 / 19 / 21 / 29)", "Aluminium wire", "Aluminium products"],
+      ["7606", "Aluminium plates, sheets and strip > 0.2 mm", "Aluminium products (FRP)"],
+      ["7607", "Aluminium foil ≤ 0.2 mm", "Aluminium products (FRP)"],
+      ["7608", "Aluminium tubes and pipes", "Aluminium products (Extrusion)"],
+    ],
   },
 ];
 
-const requirements: Requirement[] = [
-  {
-    id: "MMD-INST-01",
-    name: "Installation identity",
-    description:
-      "Provide legal name, registered office, CIN, GSTIN of the installation, the authorised CBAM representative, geographic coordinates and UNLOCODE of the nearest port of export for the Renukoot complex.",
-    response: null,
-    attachments: [],
-    activity: [{ id: "a1", at: now, actor: "system", message: "Requirement created from MMD template." }],
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: "MMD-BND-01",
-    name: "System boundary description",
-    description:
-      "Describe the system boundaries for PP1 (Unwrought aluminium) and PP2 (Aluminium products), including auxiliary energy flows and which on-site activities (anode plant, alumina refinery, mobile equipment) are excluded and why.",
-    response: null,
-    attachments: [],
-    activity: [{ id: "a1", at: now, actor: "system", message: "Requirement created from MMD template." }],
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: "MMD-BUBBLE-01",
-    name: "Bubble approach decision",
-    description:
-      "Confirm whether the single-process 'bubble' approach (Guidance §7.4.1.2) is available given that Renukoot sells unwrought aluminium externally in addition to feeding the on-site rolling and extrusion mills, and record the decision and rationale.",
-    response: null,
-    attachments: [],
-    activity: [{ id: "a1", at: now, actor: "system", message: "Requirement created from MMD template." }],
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: "MMD-DATA-01",
-    name: "Activity data sources",
-    description:
-      "Tabulate each activity-data stream (SS1.01–SS1.09 for PP1; SS2.01–SS2.05 for PP2; ES-I.01–ES-I.03 for indirect), the measurement instrument or invoice, the measurement frequency, the assigned uncertainty target and the calibration plan.",
-    response: null,
-    attachments: [],
-    activity: [{ id: "a1", at: now, actor: "system", message: "Requirement created from MMD template." }],
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: "MMD-MTH-01",
-    name: "Calculation methodology",
-    description:
-      "Specify the calculation approach (calculation-based standard methodology), the formulae used for combustion and process emissions, the priority order for emission factors (Annex VIII IR → IPCC 2006 → EC defaults → India BUR), and any default values applied.",
-    response: null,
-    attachments: [],
-    activity: [{ id: "a1", at: now, actor: "system", message: "Requirement created from MMD template." }],
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: "MMD-PFC-01",
-    name: "PFC method selection",
-    description:
-      "Confirm selection of PFC Method A (Slope) versus Method B (Overvoltage) for the 11 CWPB potlines, including readiness of overvoltage integration and the schedule for an installation-specific SEF measurement campaign per the IAI Best Practice Guidelines.",
-    response: null,
-    attachments: [],
-    activity: [{ id: "a1", at: now, actor: "system", message: "Requirement created from MMD template." }],
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: "MMD-RENUSAGAR-01",
-    name: "Renusagar auto-producer treatment",
-    description:
-      "Confirm with the verifier that Renusagar CPP qualifies as 'directly technically connected' to Renukoot under §6.7.3 and Annex III §D, and document the calculation of EF_elec from coal AD, NCV, carbon content and net electricity delivered at the 220 kV revenue meter.",
-    response: null,
-    attachments: [],
-    activity: [{ id: "a1", at: now, actor: "system", message: "Requirement created from MMD template." }],
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: "MMD-PPA-01",
-    name: "Renewable PPA allocation",
-    description:
-      "Re-assess whether any group renewable PPA can be allocated to Renukoot with retirement of the corresponding Energy Attribute Certificates so that EF = 0 may be applied per IR Annex III §D.4 and Annex IV §6.",
-    response: null,
-    attachments: [],
-    activity: [{ id: "a1", at: now, actor: "system", message: "Requirement created from MMD template." }],
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: "MMD-PRC-01",
-    name: "Precursor accounting",
-    description:
-      "List the precursors of PP2 (internal unwrought Al from PP1, external Indian smelters, imported ingots), how their embedded emissions are obtained (this MMD, supplier communication template, default values) and the verification process for supplier-communicated SEEs.",
-    response: null,
-    attachments: [],
-    activity: [{ id: "a1", at: now, actor: "system", message: "Requirement created from MMD template." }],
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: "MMD-CARBONPRICE-01",
-    name: "Carbon price position",
-    description:
-      "Record the position note from Hindalco Legal & Sustainability on whether (i) coal cess / GST compensation cess and (ii) any prospective CCTS price qualify as a recognised carbon price under Article 9 of the CBAM Regulation. Until finalised, the carbon price reported is zero with the reason footnoted.",
-    response: null,
-    attachments: [],
-    activity: [{ id: "a1", at: now, actor: "system", message: "Requirement created from MMD template." }],
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: "MMD-QAQC-01",
-    name: "QA / QC procedures",
-    description:
-      "Document the procedures for instrument calibration, segregation of duties, IT-system access control, monthly time-series consistency checks, non-conformance handling in SAP-EHS, outsourced-lab requirements (NABL accreditation, chain-of-custody) and 10-year record retention.",
-    response: null,
-    attachments: [],
-    activity: [{ id: "a1", at: now, actor: "system", message: "Requirement created from MMD template." }],
-    createdAt: now,
-    updatedAt: now,
-  },
-];
+const requirements: Requirement[] = [];
 
-const metrics: Metric[] = [
-  { id: "M-PRAL", name: "Primary aluminium produced (PP1)", unit: "t/yr", value: 342000, source: "Cast-house weighing (illustrative)", updatedAt: now },
-  { id: "M-ANODE-C", name: "Net anode carbon consumption", unit: "t C/yr", value: 143640, source: "Anode mass balance (illustrative)", updatedAt: now },
-  { id: "M-DIRECT-ANODE", name: "Direct CO₂ from anodes (PP1)", unit: "t CO₂/yr", value: 526300, source: "Calculation (illustrative)", updatedAt: now },
-  { id: "M-DIRECT-NG", name: "Direct CO₂ from cast-house NG", unit: "t CO₂/yr", value: 30040, source: "Flow meter + Annex VIII EF (illustrative)", updatedAt: now },
-  { id: "M-PFC-CO2E", name: "PFC emissions (CO₂-eq)", unit: "t CO₂-eq/yr", value: 52038, source: "PPCS + Method A (illustrative)", updatedAt: now },
-  { id: "M-RENUSAGAR", name: "Renusagar CPP — operating capacity", unit: "MW", value: 742, source: "Renusagar Generation Report", updatedAt: now },
-  { id: "M-COGEN", name: "Renukoot Cogen — installed capacity", unit: "MW", value: 78, source: "Plant nameplate", updatedAt: now },
-  { id: "M-CELLS", name: "Operating reduction cells", unit: "cells", value: 2038, source: "Pot status master", updatedAt: now },
-];
+const metrics: Metric[] = [];
 
 const comments: Comment[] = [];
 
 export function buildMmdSeed(frameworkId: string): QualitativeDoc {
   return {
     frameworkId,
-    title: "MMD — Hindalco Renukoot Aluminium Complex (Draft v0.1)",
+    title: "MMD — Renukoot CBAM Draft (CY'2025)",
     blocks,
     requirements,
     metrics,
