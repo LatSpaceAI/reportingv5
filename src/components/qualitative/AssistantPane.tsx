@@ -47,6 +47,10 @@ interface PaneProps {
   width: number;
   onWidthChange: (w: number) => void;
   onCollapse: () => void;
+  // Optional content rendered inside the right-pane aside, above the
+  // assistant header. Used by the Excel-style report to stack a per-question
+  // Source bar that shares the pane width.
+  topSlot?: React.ReactNode;
   // The four write-mode props are only wired in surfaces that have a
   // QualitativeDoc to insert into (the report editor). When omitted, the Write
   // tab falls back to a "not available here" state.
@@ -127,6 +131,7 @@ export function AssistantPane({
   width,
   onWidthChange,
   onCollapse,
+  topSlot,
   doc,
   onAddProposal,
   onAcceptProposal,
@@ -446,6 +451,7 @@ export function AssistantPane({
         className="flex shrink-0 flex-col border-l border-slate-200 bg-white"
         style={{ width }}
       >
+        {topSlot}
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
           <div className="text-sm font-medium text-slate-800">AI Assistant</div>
           <div className="flex items-center gap-1">
