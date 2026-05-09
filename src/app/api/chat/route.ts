@@ -145,18 +145,18 @@ export async function POST(req: NextRequest) {
 
   const framework = resolveRagFramework(body.framework);
 
-  // Buffered (non-streaming) response. Railway's edge proxy buffers
-  // text/event-stream responses end-to-end regardless of X-Accel-Buffering,
-  // so streaming is dead on this platform. We collect events into an array
-  // and return a single JSON payload; the frontend replays them through the
-  // existing handlers, preserving sources / activity / error / text events
-  // (just all at once at the end instead of incrementally).
-  const events: Array<{ event: string; data: unknown }> = [];
-  const send = (event: string, data: unknown) => {
-    events.push({ event, data });
-  };
-
+  // NDJSON streaming. Each event is a single JSON object on its own line, so
+  // the client can parse incrementally as bytes arrive. We deliberately avoid
+  // text/event-stream because Railway's edge proxy buffers SSE end-to-end;
+  // text/plain NDJSON is not buffered and works the same locally and in prod.
+  const encoder = new TextEncoder();
   const abortController = new AbortController();
+  type Ctrl = ReadableStreamDefaultController<Uint8Array>;
+  const ref: { current: Ctrl | null; closed: boolean } = { current: null, closed: false };
+  const send = (event: string, data: unknown) => {
+    if (ref.closed || !ref.current) return;
+    ref.current.enqueue(encoder.encode(JSON.stringify({ event, data }) + "\n"));
+  };
 
   // Source dedupe across multiple search_guidance calls in one turn.
   // Section+pages identifies a chunk well enough for UI purposes.
@@ -173,77 +173,105 @@ export async function POST(req: NextRequest) {
 
   const mcpServer = createAgentMcpServer(framework, { onSearchHit });
 
-  try {
-    const q = query({
-      prompt: historyAsPrompt(body.messages, body.context ?? null),
-      options: {
-        model: "claude-opus-4-7",
-        systemPrompt: getSystemPrompt(framework, "chat"),
-        mcpServers: { [framework]: mcpServer },
-        allowedTools: [toolSearchGuidance(framework), "WebSearch", "WebFetch"],
-        tools: ["WebSearch", "WebFetch"],
-        settingSources: [],
-        permissionMode: "bypassPermissions",
-        allowDangerouslySkipPermissions: true,
-        persistSession: false,
-        includePartialMessages: false,
-        maxTurns: 8,
-        abortController,
-        env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: `${framework}-app/1.0` },
-      },
-    });
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      ref.current = c;
+    },
+    async pull() {
+      // No-op: we push from the agent loop below, not on demand.
+    },
+    cancel() {
+      ref.closed = true;
+      abortController.abort();
+    },
+  });
 
-    const seenBlockText = new Map<string, number>();
-    const seenToolUseIds = new Set<string>();
-    const toolErrorMessages: string[] = [];
+  // Kick the agent loop in the background and stream events as they arrive.
+  (async () => {
+    try {
+      const q = query({
+        prompt: historyAsPrompt(body.messages, body.context ?? null),
+        options: {
+          model: "claude-opus-4-7",
+          systemPrompt: getSystemPrompt(framework, "chat"),
+          mcpServers: { [framework]: mcpServer },
+          allowedTools: [toolSearchGuidance(framework), "WebSearch", "WebFetch"],
+          tools: ["WebSearch", "WebFetch"],
+          settingSources: [],
+          permissionMode: "bypassPermissions",
+          allowDangerouslySkipPermissions: true,
+          persistSession: false,
+          includePartialMessages: false,
+          maxTurns: 8,
+          abortController,
+          env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: `${framework}-app/1.0` },
+        },
+      });
 
-    for await (const msg of q) {
-      if (msg.type === "assistant") {
-        const blocks = msg.message.content ?? [];
-        const acc: string[] = [];
-        for (const b of blocks) {
-          if (b.type === "text") {
-            acc.push(b.text);
-          } else if (b.type === "tool_use") {
-            if (!seenToolUseIds.has(b.id)) {
-              seenToolUseIds.add(b.id);
-              send("activity", describeToolUse(b.name, b.input, framework));
+      const seenBlockText = new Map<string, number>();
+      const seenToolUseIds = new Set<string>();
+      const toolErrorMessages: string[] = [];
+
+      for await (const msg of q) {
+        if (msg.type === "assistant") {
+          const blocks = msg.message.content ?? [];
+          const acc: string[] = [];
+          for (const b of blocks) {
+            if (b.type === "text") {
+              acc.push(b.text);
+            } else if (b.type === "tool_use") {
+              if (!seenToolUseIds.has(b.id)) {
+                seenToolUseIds.add(b.id);
+                send("activity", describeToolUse(b.name, b.input, framework));
+              }
             }
           }
-        }
-        const fullText = acc.join("");
-        const prev = seenBlockText.get(msg.uuid) ?? 0;
-        if (fullText.length > prev) {
-          const delta = fullText.slice(prev);
-          seenBlockText.set(msg.uuid, fullText.length);
-          if (delta) send("text", { text: delta });
-        }
-      } else if (msg.type === "user" && msg.tool_use_result !== undefined) {
-        const r = msg.tool_use_result as { isError?: boolean; content?: Array<{ text?: string }> } | undefined;
-        if (r?.isError) {
-          const t = r.content?.[0]?.text ?? "tool error";
-          toolErrorMessages.push(t);
-        }
-      } else if (msg.type === "result") {
-        if (msg.subtype === "success") {
-          send("done", {
-            stop_reason: msg.stop_reason,
-            usage: msg.usage,
-            cost_usd: msg.total_cost_usd,
-          });
-        } else {
-          const errs = [...(msg.errors ?? []), ...toolErrorMessages];
-          const message = errs.join(" | ") || msg.subtype;
-          send("error", { message });
+          const fullText = acc.join("");
+          const prev = seenBlockText.get(msg.uuid) ?? 0;
+          if (fullText.length > prev) {
+            const delta = fullText.slice(prev);
+            seenBlockText.set(msg.uuid, fullText.length);
+            if (delta) send("text", { text: delta });
+          }
+        } else if (msg.type === "user" && msg.tool_use_result !== undefined) {
+          const r = msg.tool_use_result as { isError?: boolean; content?: Array<{ text?: string }> } | undefined;
+          if (r?.isError) {
+            const t = r.content?.[0]?.text ?? "tool error";
+            toolErrorMessages.push(t);
+          }
+        } else if (msg.type === "result") {
+          if (msg.subtype === "success") {
+            send("done", {
+              stop_reason: msg.stop_reason,
+              usage: msg.usage,
+              cost_usd: msg.total_cost_usd,
+            });
+          } else {
+            const errs = [...(msg.errors ?? []), ...toolErrorMessages];
+            const message = errs.join(" | ") || msg.subtype;
+            send("error", { message });
+          }
         }
       }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      send("error", { message });
+    } finally {
+      abortController.abort();
+      if (!ref.closed && ref.current) {
+        ref.closed = true;
+        try {
+          ref.current.close();
+        } catch {}
+      }
     }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    send("error", { message });
-  } finally {
-    abortController.abort();
-  }
+  })();
 
-  return Response.json({ events });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

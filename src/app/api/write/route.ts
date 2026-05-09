@@ -79,13 +79,16 @@ Search the guidance for any regulatory facts you need, then call propose_insert 
     };
   }
 
-  // Buffered (non-streaming) response — see chat route for rationale.
-  const events: Array<{ event: string; data: unknown }> = [];
+  // NDJSON streaming — see chat route for rationale.
+  const encoder = new TextEncoder();
+  const abortController = new AbortController();
+  type Ctrl = ReadableStreamDefaultController<Uint8Array>;
+  const ref: { current: Ctrl | null; closed: boolean } = { current: null, closed: false };
   const send = (event: string, data: unknown) => {
-    events.push({ event, data });
+    if (ref.closed || !ref.current) return;
+    ref.current.enqueue(encoder.encode(JSON.stringify({ event, data }) + "\n"));
   };
 
-  const abortController = new AbortController();
   const outlineIds = new Set(body.outline.map((it) => it.id));
   const allSources: RetrievedSource[] = [];
   const seen = new Set<string>();
@@ -114,90 +117,115 @@ Search the guidance for any regulatory facts you need, then call propose_insert 
     onProposal,
   });
 
-  try {
-    const q = query({
-      prompt: once(),
-      options: {
-        model: "claude-opus-4-7",
-        systemPrompt: getSystemPrompt(framework, "write"),
-        mcpServers: { [framework]: mcpServer },
-        allowedTools: [
-          toolSearchGuidance(framework),
-          toolProposeInsert(framework),
-          "WebSearch",
-          "WebFetch",
-        ],
-        tools: ["WebSearch", "WebFetch"],
-        settingSources: [],
-        permissionMode: "bypassPermissions",
-        allowDangerouslySkipPermissions: true,
-        persistSession: false,
-        includePartialMessages: false,
-        maxTurns: 8,
-        abortController,
-        env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: `${framework}-app/1.0` },
-      },
-    });
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      ref.current = c;
+    },
+    async pull() {},
+    cancel() {
+      ref.closed = true;
+      abortController.abort();
+    },
+  });
 
-    const seenBlockText = new Map<string, number>();
-    const seenToolUseIds = new Set<string>();
-    const toolErrorMessages: string[] = [];
+  (async () => {
+    try {
+      const q = query({
+        prompt: once(),
+        options: {
+          model: "claude-opus-4-7",
+          systemPrompt: getSystemPrompt(framework, "write"),
+          mcpServers: { [framework]: mcpServer },
+          allowedTools: [
+            toolSearchGuidance(framework),
+            toolProposeInsert(framework),
+            "WebSearch",
+            "WebFetch",
+          ],
+          tools: ["WebSearch", "WebFetch"],
+          settingSources: [],
+          permissionMode: "bypassPermissions",
+          allowDangerouslySkipPermissions: true,
+          persistSession: false,
+          includePartialMessages: false,
+          maxTurns: 8,
+          abortController,
+          env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: `${framework}-app/1.0` },
+        },
+      });
 
-    for await (const msg of q) {
-      if (msg.type === "assistant") {
-        const blocks = msg.message.content ?? [];
-        const acc: string[] = [];
-        for (const b of blocks) {
-          if (b.type === "text") {
-            acc.push(b.text);
-          } else if (b.type === "tool_use") {
-            if (!seenToolUseIds.has(b.id)) {
-              seenToolUseIds.add(b.id);
-              send("activity", describeToolUse(b.name, b.input, framework));
+      const seenBlockText = new Map<string, number>();
+      const seenToolUseIds = new Set<string>();
+      const toolErrorMessages: string[] = [];
+
+      for await (const msg of q) {
+        if (msg.type === "assistant") {
+          const blocks = msg.message.content ?? [];
+          const acc: string[] = [];
+          for (const b of blocks) {
+            if (b.type === "text") {
+              acc.push(b.text);
+            } else if (b.type === "tool_use") {
+              if (!seenToolUseIds.has(b.id)) {
+                seenToolUseIds.add(b.id);
+                send("activity", describeToolUse(b.name, b.input, framework));
+              }
             }
           }
+          const fullText = acc.join("");
+          const prev = seenBlockText.get(msg.uuid) ?? 0;
+          if (fullText.length > prev) {
+            const delta = fullText.slice(prev);
+            seenBlockText.set(msg.uuid, fullText.length);
+            if (delta) send("text", { text: delta });
+          }
+        } else if (msg.type === "user" && msg.tool_use_result !== undefined) {
+          const r = msg.tool_use_result as { isError?: boolean; content?: Array<{ text?: string }> } | undefined;
+          if (r?.isError) {
+            toolErrorMessages.push(r.content?.[0]?.text ?? "tool error");
+          }
+        } else if (msg.type === "result") {
+          if (msg.subtype !== "success") {
+            const errs = [...(msg.errors ?? []), ...toolErrorMessages];
+            send("error", { message: errs.join(" | ") || msg.subtype });
+            break;
+          }
+          if (!proposal) {
+            send("error", { message: "Model did not call propose_insert." });
+            break;
+          }
+          send("proposal", {
+            after_block_id: (proposal as ProposalBlocks).after_block_id,
+            blocks: (proposal as ProposalBlocks).blocks,
+            rationale: (proposal as ProposalBlocks).rationale,
+            sources: allSources.map(({ section, title, pages }) => ({ section, title, pages })),
+          });
+          send("done", {
+            stop_reason: msg.stop_reason,
+            usage: msg.usage,
+            cost_usd: msg.total_cost_usd,
+          });
         }
-        const fullText = acc.join("");
-        const prev = seenBlockText.get(msg.uuid) ?? 0;
-        if (fullText.length > prev) {
-          const delta = fullText.slice(prev);
-          seenBlockText.set(msg.uuid, fullText.length);
-          if (delta) send("text", { text: delta });
-        }
-      } else if (msg.type === "user" && msg.tool_use_result !== undefined) {
-        const r = msg.tool_use_result as { isError?: boolean; content?: Array<{ text?: string }> } | undefined;
-        if (r?.isError) {
-          toolErrorMessages.push(r.content?.[0]?.text ?? "tool error");
-        }
-      } else if (msg.type === "result") {
-        if (msg.subtype !== "success") {
-          const errs = [...(msg.errors ?? []), ...toolErrorMessages];
-          send("error", { message: errs.join(" | ") || msg.subtype });
-          break;
-        }
-        if (!proposal) {
-          send("error", { message: "Model did not call propose_insert." });
-          break;
-        }
-        send("proposal", {
-          after_block_id: (proposal as ProposalBlocks).after_block_id,
-          blocks: (proposal as ProposalBlocks).blocks,
-          rationale: (proposal as ProposalBlocks).rationale,
-          sources: allSources.map(({ section, title, pages }) => ({ section, title, pages })),
-        });
-        send("done", {
-          stop_reason: msg.stop_reason,
-          usage: msg.usage,
-          cost_usd: msg.total_cost_usd,
-        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      send("error", { message });
+    } finally {
+      abortController.abort();
+      if (!ref.closed && ref.current) {
+        ref.closed = true;
+        try {
+          ref.current.close();
+        } catch {}
       }
     }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    send("error", { message });
-  } finally {
-    abortController.abort();
-  }
+  })();
 
-  return Response.json({ events });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
