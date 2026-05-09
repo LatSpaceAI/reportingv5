@@ -111,10 +111,12 @@ Search the guidance for any regulatory facts you need, then call propose_insert 
       allowDangerouslySkipPermissions: true,
       persistSession: false,
       includePartialMessages: false,
-      // 8 turns covers "search, refine, re-search, then propose" with
-      // headroom on Pro's 800 s function ceiling. Drop to 4 on Hobby —
-      // see DEPLOY.md plan tuning.
-      maxTurns: 8,
+      // 16 turns. Write tasks sometimes do "search, refine, search
+      // again, cross-reference with a web source, then propose, then
+      // revise after a tool error" — that's already 6+ turns. Headroom
+      // matters here because a truncated proposal is worse than a
+      // chatty one. Drop to 4 on Hobby — see DEPLOY.md plan tuning.
+      maxTurns: 16,
       abortController,
       env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: `${framework}-app/1.0` },
     },
