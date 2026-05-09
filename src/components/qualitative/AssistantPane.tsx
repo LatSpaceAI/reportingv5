@@ -343,10 +343,7 @@ export function AssistantPane({
         throw new Error(msg || `HTTP ${res.status}`);
       }
 
-      const payload = (await res.json()) as { events: Array<{ event: string; data: unknown }> };
-      for (const ev of payload.events ?? []) {
-        handleEvent(ev.event, ev.data);
-      }
+      await readNdjson(res, (ev) => handleEvent(ev.event, ev.data));
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -436,10 +433,7 @@ export function AssistantPane({
         throw new Error(msg || `HTTP ${res.status}`);
       }
 
-      const payload = (await res.json()) as { events: Array<{ event: string; data: unknown }> };
-      for (const ev of payload.events ?? []) {
-        handleWriteEvent(ev.event, ev.data);
-      }
+      await readNdjson(res, (ev) => handleWriteEvent(ev.event, ev.data));
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -1048,6 +1042,45 @@ function SourcesList({ sources }: { sources: RetrievedSource[] }) {
       </ul>
     </details>
   );
+}
+
+// Reads an NDJSON streaming response and dispatches each line as soon as it
+// arrives. The /api/chat and /api/write routes emit one JSON object per line
+// (text deltas, activity, sources, errors), so each `onEvent` callback fires
+// progressively rather than all at once at the end.
+async function readNdjson(
+  res: Response,
+  onEvent: (ev: { event: string; data: unknown }) => void
+): Promise<void> {
+  if (!res.body) return;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let nl = buffer.indexOf("\n");
+    while (nl !== -1) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (line) {
+        try {
+          onEvent(JSON.parse(line));
+        } catch {
+          // Skip malformed lines rather than aborting the whole stream.
+        }
+      }
+      nl = buffer.indexOf("\n");
+    }
+  }
+  const tail = buffer.trim();
+  if (tail) {
+    try {
+      onEvent(JSON.parse(tail));
+    } catch {}
+  }
 }
 
 export function CollapsedAssistantRail({ onExpand }: { onExpand: () => void }) {
