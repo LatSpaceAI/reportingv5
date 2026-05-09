@@ -43,7 +43,29 @@ jobs:
       - name: Build and upload tarball
         env:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
-        run: node scripts/build-runner-tarball.mjs --upload | tee build.log
+        # `set -o pipefail` ensures that if the node script exits non-zero,
+        # the step fails here — without it, `tee`'s exit code (always 0)
+        # masks the real failure and the next step blames `grep`.
+        # `set -x` echoes commands so the log shows exactly what ran.
+        run: |
+          set -eo pipefail
+          # Show that the secret reached the runner (not the value — just
+          # confirm it's non-empty). If this prints "BLOB token: missing",
+          # the repo secret isn't named exactly BLOB_READ_WRITE_TOKEN or
+          # isn't visible to this workflow.
+          if [ -n "$BLOB_READ_WRITE_TOKEN" ]; then
+            echo "BLOB token: present (${#BLOB_READ_WRITE_TOKEN} chars)"
+          else
+            echo "BLOB token: missing" >&2
+            exit 1
+          fi
+          node scripts/build-runner-tarball.mjs --upload 2>&1 | tee build.log
+
+      - name: Show build log on failure
+        if: failure()
+        run: |
+          echo "===== build.log ====="
+          cat build.log || echo "(no build.log produced)"
 
       - name: Extract tarball URL
         id: extract
@@ -51,6 +73,8 @@ jobs:
           url=$(grep -oP 'AGENT_RUNNER_TARBALL_URL=\K\S+' build.log)
           if [ -z "$url" ]; then
             echo "Failed to extract tarball URL from build.log" >&2
+            echo "===== build.log ====="
+            cat build.log
             exit 1
           fi
           echo "tarball_url=$url" >> "$GITHUB_OUTPUT"
