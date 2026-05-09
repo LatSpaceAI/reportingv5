@@ -16,7 +16,7 @@ See [Hosting the Agent SDK](https://code.claude.com/docs/en/agent-sdk/hosting) a
 ### 1. Vercel project
 
 - `vercel link` from the repo root.
-- This codebase is currently tuned for the **Hobby plan** (verification / first-look deploy). The trade-offs are documented in [§ Plan tuning](#plan-tuning) below — read that section before promoting any user-facing flow that needs longer runs.
+- This codebase is tuned for the **Pro plan**. If you need to run on Hobby (e.g. for first-look verification), see [§ Plan tuning](#plan-tuning) for the four knobs to dial down.
 - Confirm **credential brokering** is enabled on your Vercel team. The firewall uses `transform: [{ headers: ... }]` rules to inject API keys; per the [firewall docs](https://vercel.com/docs/vercel-sandbox/concepts/firewall#credentials-brokering) this requires an account permission. If it's silently no-opping, contact Vercel.
 
 ### 2. Environment variables on the Vercel project
@@ -171,7 +171,7 @@ The dominant levers:
 
 ## Plan tuning
 
-This codebase ships with knobs set for the Vercel Hobby plan. Hobby's ceilings are tighter than Pro in three places that matter:
+This codebase ships with knobs set for the Vercel Pro plan. Hobby's ceilings are tighter than Pro in the places that matter for this workload:
 
 | Limit | Hobby | Pro/Enterprise |
 |---|---|---|
@@ -180,29 +180,29 @@ This codebase ships with knobs set for the Vercel Hobby plan. Hobby's ceilings a
 | Sandbox CPU budget | **5 hr/month total** | metered, no hard cap |
 | Concurrent sandboxes | 10 | 2,000 |
 
-The dispatcher holds the response stream open for the entire agent run. So **`maxDuration` is also the hard ceiling on how long the model has to think before the user sees a truncated answer**. To stay safely inside 60 s, the runner caps `maxTurns` at 4 (was 8 in earlier drafts). One turn = one model call + the tool calls it triggers; with Opus and a regulatory question, each turn typically takes 8–20 s. Four turns is enough for "search guidance once or twice, retrieve, then answer / propose" — the load-bearing flow.
+The dispatcher holds the response stream open for the entire agent run. **`maxDuration` is also the hard ceiling on how long the model has to think before the user sees a truncated answer.** With Pro's 800 s ceiling, the runner caps `maxTurns` at 8 — enough for "search, refine query, search again, then answer or propose" with comfortable headroom. One turn = one model call + the tool calls it triggers; with Opus and a regulatory question, each turn typically takes 8–20 s.
 
-**The 5-hour CPU budget is the cliff.** Vercel only meters time the sandbox spends actively on CPU (waiting on Anthropic doesn't count), so a typical `/api/write` is 5–15 s of billable CPU. That gives ~1,500–3,500 requests per month before sandbox creation pauses until the next billing cycle. Watch the [Usage dashboard](https://vercel.com/dashboard) — when you cross ~80%, plan to upgrade.
+### Falling back to Hobby (verification only)
 
-### Promoting to Pro
-
-When you upgrade, three knobs flip back to their original values. Search the codebase for `Hobby` to find them all:
+If you need to run on Hobby (e.g. for first-look testing), four knobs need to dial down. Search the codebase for `Pro` to find them all:
 
 | File | Change |
 |---|---|
-| [vercel.json](vercel.json) | `maxDuration: 60` → `800` |
-| [src/app/api/chat/route.ts](src/app/api/chat/route.ts) and [src/app/api/write/route.ts](src/app/api/write/route.ts) | `export const maxDuration = 60` → `800` |
-| [src/lib/dispatcher/sandbox.ts](src/lib/dispatcher/sandbox.ts) | Default `timeoutMs` `90_000` → `600_000` |
-| [agent-runner/modes/chat.ts](agent-runner/modes/chat.ts) and [agent-runner/modes/write.ts](agent-runner/modes/write.ts) | `maxTurns: 4` → `8` |
+| [vercel.json](vercel.json) | `maxDuration: 800` → `60` |
+| [src/app/api/chat/route.ts](src/app/api/chat/route.ts) and [src/app/api/write/route.ts](src/app/api/write/route.ts) | `export const maxDuration = 800` → `60` |
+| [src/lib/dispatcher/sandbox.ts](src/lib/dispatcher/sandbox.ts) | Default `timeoutMs` `600_000` → `90_000` |
+| [agent-runner/modes/chat.ts](agent-runner/modes/chat.ts) and [agent-runner/modes/write.ts](agent-runner/modes/write.ts) | `maxTurns: 8` → `4` |
 
-After Pro, also consider switching `AGENT_RUNNER_TARBALL_URL` to `AGENT_RUNNER_SNAPSHOT_ID` for faster cold starts (~150 ms vs 1–3 s).
-
-### What to expect on Hobby
+Hobby caveats:
 
 - **Most chat questions answer fine.** Single-question, short-context chat usually finishes in 15–30 s.
 - **Write tasks with multiple `search_guidance` calls are tight.** Watch DevTools → Network: if you see the function close at 60 s with `done` never arriving, the agent ran out of time. Drop `maxTurns` further (to 3) or split the user's instruction.
 - **Complex compound questions may hit `maxTurns` before answering.** This is preferable to silent truncation.
 - **CPU budget runs out faster than you expect** if you have many users hitting it during testing. ~50 active users × 30 requests/month each = 1,500 requests, right at the budget edge.
+
+### Pro optimization: snapshots
+
+After verification works, switch `AGENT_RUNNER_TARBALL_URL` to `AGENT_RUNNER_SNAPSHOT_ID` for faster cold starts (~150 ms vs 1–3 s). The snapshot is built once in CI from a warm sandbox and reused on every dispatch.
 
 ---
 

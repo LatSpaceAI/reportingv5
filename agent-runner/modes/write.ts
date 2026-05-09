@@ -111,10 +111,10 @@ Search the guidance for any regulatory facts you need, then call propose_insert 
       allowDangerouslySkipPermissions: true,
       persistSession: false,
       includePartialMessages: false,
-      // Hobby plan ceiling: dispatcher route gets 60 s before Vercel kills
-      // the stream. 4 turns covers "search, maybe re-search, then propose"
-      // in most write tasks. Raise to 8 when moving to Pro.
-      maxTurns: 4,
+      // 8 turns covers "search, refine, re-search, then propose" with
+      // headroom on Pro's 800 s function ceiling. Drop to 4 on Hobby —
+      // see DEPLOY.md plan tuning.
+      maxTurns: 8,
       abortController,
       env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: `${framework}-app/1.0` },
     },
