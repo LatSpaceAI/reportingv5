@@ -1,0 +1,76 @@
+name: Publish agent-runner tarball
+
+# Builds the agent-runner tarball that ships into Vercel Sandbox at runtime,
+# uploads it to Vercel Blob, and writes the resulting URL to a GitHub Actions
+# output. The Vercel project should be configured with
+# AGENT_RUNNER_TARBALL_URL pointing at the latest published tarball.
+#
+# Triggers:
+#   - on push to main when files under agent-runner/ or scripts/build-runner-tarball.mjs change
+#   - manually via workflow_dispatch
+#
+# Required repo secrets:
+#   - BLOB_READ_WRITE_TOKEN: a Vercel Blob read/write token scoped to the
+#     project. Create at https://vercel.com/dashboard/stores → Blob → tokens.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agent-runner/**"
+      - "scripts/build-runner-tarball.mjs"
+      - ".github/workflows/publish-agent-runner.yml"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      # The build script needs @vercel/blob to upload; it's not a dep of the
+      # main project so install it on demand.
+      - name: Install build deps
+        run: npm install --no-save --no-audit --no-fund @vercel/blob
+
+      - name: Build and upload tarball
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: node scripts/build-runner-tarball.mjs --upload | tee build.log
+
+      - name: Extract tarball URL
+        id: extract
+        run: |
+          url=$(grep -oP 'AGENT_RUNNER_TARBALL_URL=\K\S+' build.log)
+          if [ -z "$url" ]; then
+            echo "Failed to extract tarball URL from build.log" >&2
+            exit 1
+          fi
+          echo "tarball_url=$url" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Tarball published::$url"
+
+      # If you want this workflow to ALSO push the new URL into the Vercel
+      # project's env vars automatically, uncomment the step below and add
+      # VERCEL_TOKEN + VERCEL_PROJECT_ID + VERCEL_TEAM_ID to repo secrets.
+      # Otherwise, copy the URL from the workflow run output and paste it
+      # into the Vercel dashboard (Project Settings → Environment Variables).
+      #
+      # - name: Update Vercel env var
+      #   env:
+      #     VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      #     VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      #     VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      #     URL: ${{ steps.extract.outputs.tarball_url }}
+      #   run: |
+      #     curl -fsSL -X POST \
+      #       "https://api.vercel.com/v10/projects/$VERCEL_PROJECT_ID/env?teamId=$VERCEL_TEAM_ID&upsert=true" \
+      #       -H "Authorization: Bearer $VERCEL_TOKEN" \
+      #       -H "Content-Type: application/json" \
+      #       --data '{"key":"AGENT_RUNNER_TARBALL_URL","value":"'"$URL"'","type":"encrypted","target":["production","preview"]}'

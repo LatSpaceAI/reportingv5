@@ -274,6 +274,7 @@ export function QualitativeReport({ frameworkId, frameworkName }: Props) {
             onAcceptProposal={acceptProposal}
             onRejectProposal={rejectProposal}
             onScrollToProposal={scrollToProposal}
+            frameworkId={frameworkId}
           />
         )}
       </div>

@@ -205,6 +205,33 @@ interface RenderedDiagram {
 const DIAGRAM_RENDER_SCALE = 2; // 2x for retina-ish output in Word
 const DIAGRAM_MAX_WIDTH = 600; // CSS px — keeps images inside 1-inch margins
 
+// Properties we copy from getComputedStyle() onto each text element. Mermaid
+// styles labels via a <style> block + CSS variables; when the SVG is rendered
+// inside an <img> for rasterization those variables don't resolve, so labels
+// disappear (or render as default white-on-white). Inlining the resolved
+// values up front sidesteps the whole CSS-variable problem.
+const INLINED_TEXT_PROPS = [
+  "fill",
+  "stroke",
+  "stroke-width",
+  "font-family",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "text-anchor",
+  "dominant-baseline",
+] as const;
+
+const INLINED_SHAPE_PROPS = [
+  "fill",
+  "stroke",
+  "stroke-width",
+  "stroke-dasharray",
+] as const;
+
+// Render a string of Mermaid into a self-contained SVG with computed styles
+// baked into every visible node. We mount the SVG into a hidden DOM container
+// so getComputedStyle can resolve Mermaid's CSS variables, then serialize.
 async function svgFromMermaid(source: string): Promise<string> {
   const mod = await import("mermaid");
   const m = mod.default;
@@ -213,10 +240,65 @@ async function svgFromMermaid(source: string): Promise<string> {
     theme: "neutral",
     securityLevel: "strict",
     fontFamily: "ui-sans-serif, system-ui, sans-serif",
+    flowchart: { htmlLabels: false },
+    class: { htmlLabels: false },
   });
   const id = `mmd-export-${Math.random().toString(36).slice(2, 8)}`;
   const { svg } = await m.render(id, source);
-  return svg;
+
+  // Mount into a detached-but-attached host so computed styles resolve. We
+  // can't use display:none — that zeros out computed sizes for some nodes.
+  // Instead position off-screen.
+  const host = document.createElement("div");
+  host.style.position = "fixed";
+  host.style.left = "-99999px";
+  host.style.top = "0";
+  host.style.width = "1200px";
+  host.style.height = "auto";
+  host.style.visibility = "hidden";
+  host.style.pointerEvents = "none";
+  host.innerHTML = svg;
+  document.body.appendChild(host);
+
+  try {
+    const svgEl = host.querySelector("svg");
+    if (!svgEl) throw new Error("Mermaid did not return an <svg> root");
+
+    // Inline computed styles onto every <text> / <tspan> / shape so the SVG is
+    // self-rendering when loaded out of context (e.g. inside an <img>).
+    const all = svgEl.querySelectorAll<SVGElement>("text, tspan, path, rect, circle, ellipse, polygon, polyline, line");
+    for (const el of Array.from(all)) {
+      const computed = window.getComputedStyle(el);
+      const isText = el.tagName.toLowerCase() === "text" || el.tagName.toLowerCase() === "tspan";
+      const props = isText ? INLINED_TEXT_PROPS : INLINED_SHAPE_PROPS;
+      for (const prop of props) {
+        const value = computed.getPropertyValue(prop);
+        if (value && value !== "none" && value !== "normal") {
+          el.style.setProperty(prop, value);
+        }
+      }
+      // Ensure text has a sane fill if Mermaid's CSS gave us nothing or white.
+      if (isText) {
+        const fill = computed.getPropertyValue("fill");
+        if (!fill || fill === "rgb(255, 255, 255)" || fill === "#ffffff" || fill === "white") {
+          el.style.setProperty("fill", "#1f2937");
+        }
+      }
+    }
+
+    // The <style> block inside the Mermaid SVG references CSS variables that
+    // don't resolve once the SVG is loaded out of the page context. Stripping
+    // it entirely is fine now that we've inlined per-element styles, and it
+    // removes a class of "browser refuses to load this SVG" failures.
+    for (const styleEl of Array.from(svgEl.querySelectorAll("style"))) {
+      styleEl.remove();
+    }
+
+    const serialized = new XMLSerializer().serializeToString(svgEl);
+    return serialized;
+  } finally {
+    host.remove();
+  }
 }
 
 function svgIntrinsicSize(svg: string): { width: number; height: number } {
@@ -236,45 +318,84 @@ function svgIntrinsicSize(svg: string): { width: number; height: number } {
   return { width: 600, height: 400 };
 }
 
-async function rasterizeSvgToPng(svg: string): Promise<RenderedDiagram> {
+// Make the SVG self-contained so the browser will load it into an <img>.
+// Mermaid's render() returns SVG that:
+//   - is missing xmlns when injected into a non-namespaced parent
+//   - has explicit width/height that don't match its viewBox aspect
+//   - contains <style> inside <foreignObject> that some browsers reject when
+//     loading the SVG via an <img> (which runs in a "secure" image mode that
+//     forbids external resources, scripts, and some HTML-in-SVG features)
+// Normalizing these makes the rasterize path reliable across browsers.
+function normalizeSvgForRaster(rawSvg: string): string {
+  let svg = rawSvg;
+
+  // 1. Ensure xmlns is present on the root <svg> tag.
+  if (!/<svg[^>]*\sxmlns=/.test(svg)) {
+    svg = svg.replace(/<svg\b/, '<svg xmlns="http://www.w3.org/2000/svg"');
+  }
+  if (!/<svg[^>]*\sxmlns:xlink=/.test(svg)) {
+    svg = svg.replace(/<svg\b/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+  }
+
+  // 2. Strip <foreignObject> blocks. Mermaid uses these for HTML-rendered
+  //    labels, but they break the <img> raster path on Chrome/Edge. The
+  //    fallback Mermaid emits underneath them is a regular <text> element
+  //    which renders fine.
+  svg = svg.replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, "");
+
+  // 3. Add an XML declaration. Some browsers refuse data: SVG without it.
+  if (!svg.trimStart().startsWith("<?xml")) {
+    svg = `<?xml version="1.0" encoding="UTF-8"?>\n${svg}`;
+  }
+
+  return svg;
+}
+
+async function rasterizeSvgToPng(rawSvg: string): Promise<RenderedDiagram> {
+  const svg = normalizeSvgForRaster(rawSvg);
   const { width, height } = svgIntrinsicSize(svg);
   const cssWidth = Math.min(width, DIAGRAM_MAX_WIDTH);
   const scale = (cssWidth / width) * DIAGRAM_RENDER_SCALE;
   const canvasWidth = Math.max(1, Math.round(width * scale));
   const canvasHeight = Math.max(1, Math.round(height * scale));
 
-  const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error("Failed to load SVG into <img> for export"));
-      el.src = url;
-    });
-    const canvas = document.createElement("canvas");
-    canvas.width = canvasWidth;
-    canvas.height = canvasHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Failed to acquire 2D canvas context for export");
-    // White background so transparency doesn't render as black in some Word
-    // versions.
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-    ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
-    const pngBlob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), "image/png")
-    );
-    if (!pngBlob) throw new Error("canvas.toBlob returned null");
-    const ab = await pngBlob.arrayBuffer();
-    return {
-      png: new Uint8Array(ab),
-      width: cssWidth,
-      height: (cssWidth / width) * height,
-    };
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  // Data URL is more reliable than Blob URL for SVG → <img>: blob: origins
+  // get treated as cross-origin, which can taint the canvas and block
+  // toDataURL/toBlob. Encode via encodeURIComponent so any quotes or # in
+  // labels survive.
+  const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    // Same-origin via data: URL — no need for crossOrigin, but setting
+    // anonymous keeps the canvas clean if the SVG references images.
+    el.crossOrigin = "anonymous";
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("Browser refused to load Mermaid SVG into <img>"));
+    el.src = dataUrl;
+  });
+
+  const canvas = document.createElement("canvas");
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Failed to acquire 2D canvas context for export");
+  // White background so transparency doesn't render as black in some Word
+  // versions.
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+  ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+
+  const pngBlob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob((b) => resolve(b), "image/png")
+  );
+  if (!pngBlob) throw new Error("canvas.toBlob returned null");
+  const ab = await pngBlob.arrayBuffer();
+  return {
+    png: new Uint8Array(ab),
+    width: cssWidth,
+    height: (cssWidth / width) * height,
+  };
 }
 
 async function renderDiagramsForExport(doc: QualitativeDoc): Promise<Map<string, RenderedDiagram | Error>> {

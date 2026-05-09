@@ -600,7 +600,7 @@ function ProposalCard({
     >
       <div className="mb-2 flex items-center justify-between gap-3 border-b border-emerald-200 pb-2">
         <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-emerald-700">
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-[10px] text-white">
+          <span className="inline-flex h-4 w-4 items-center justify-center bg-emerald-600 text-[10px] text-white">
             AI
           </span>
           Proposed insertion
@@ -1059,7 +1059,7 @@ function RequirementRefBlockView({
         <span className="font-medium text-slate-700">{req.id}</span>
         <span className="truncate text-slate-500">· {req.name}</span>
         {stale && (
-          <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+          <span className="ml-auto inline-flex items-center gap-1 bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
             Older version
           </span>
         )}

@@ -36,6 +36,10 @@ export default function ReportPage({ params }: { params: { id: string } }) {
         ? "30-Sep-2025"
         : fw.id === "ccts"
         ? "BEE Cement PPC Pro-Forma"
+        : fw.id === "brsr"
+        ? "SEBI Annexure I"
+        : fw.id === "cdp"
+        ? "CDP 2026"
         : undefined,
     onExport:
       fw.id === "cbam"
@@ -52,6 +56,16 @@ export default function ReportPage({ params }: { params: { id: string } }) {
         ? async () => {
             const { exportCctsFilled } = await import("@/lib/cctsExport/export");
             await exportCctsFilled();
+          }
+        : fw.id === "brsr"
+        ? async () => {
+            const { exportBrsrFilled } = await import("@/lib/brsrExport/export");
+            await exportBrsrFilled();
+          }
+        : fw.id === "cdp"
+        ? async () => {
+            const { exportCdpFilled } = await import("@/lib/cdpExport/export");
+            await exportCdpFilled();
           }
         : undefined,
   };

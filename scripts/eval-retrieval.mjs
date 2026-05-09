@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, "..");
 const EVAL_SET_PATH = join(__dirname, "eval-set.json");
-const INDEX_DIR = join(PROJECT_ROOT, "data", "rag");
+const INDEX_DIR = join(PROJECT_ROOT, "agent-runner", "data", "rag");
 
 const require = createRequire(import.meta.url);
 const { VoyageAIClient } = require("voyageai");
@@ -27,7 +27,7 @@ const verbose = args.includes("--verbose");
 const kArg = args.find((a) => a.startsWith("--k="));
 const k = kArg ? Number(kArg.split("=")[1]) : 5;
 
-// ---------- Tiny inlined retrieval (mirrors src/lib/anthropic/retrieval.ts) ----------
+// ---------- Tiny inlined retrieval (mirrors agent-runner/lib/retrieval.ts) ----------
 // We can't `import` the TS module from a Node script, so this re-implements
 // the cosine + BM25 + RRF logic against the same JSON files. Keep in sync.
 

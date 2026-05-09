@@ -1,13 +1,14 @@
 // In-process MCP tools exposed to the Claude Agent SDK. Each request builds
-// its own server via createCbamMcpServer() so the tool handlers can close over
-// per-request callbacks (forwarding retrieved sources / proposals to SSE).
+// its own server via createAgentMcpServer() so the tool handlers can close
+// over per-request callbacks (forwarding retrieved sources / proposals to
+// the runner's NDJSON stream) and the active framework's RAG index.
 //
 // Tool names registered here are surfaced to the agent as
-// `mcp__cbam__<tool_name>`; the route adds those to allowedTools.
+// `mcp__<framework>__<tool_name>`; the runner adds those to allowedTools.
 
 import { tool, createSdkMcpServer, type SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { search, type RetrievedChunk } from "@/lib/anthropic/retrieval";
+import { search, type Framework, type RetrievedChunk } from "../retrieval.js";
 
 export interface RetrievedSource {
   section: string;
@@ -27,16 +28,34 @@ export interface ProposalBlocks {
   rationale: string;
 }
 
-interface CbamMcpOptions {
+interface AgentMcpOptions {
   // Called once per `search_guidance` invocation with the surfaced sources, so
-  // the route can stream them to the client as a `retrieved` SSE event.
+  // the runner can stream them to the client as a `retrieved` NDJSON event.
   onSearchHit?: (sources: RetrievedSource[]) => void;
   // Write mode only. When provided, the propose_insert tool is registered.
   // Outline IDs are validated against this set; the proposal is forwarded via
-  // onProposal for the route to emit as a `proposal` SSE event.
+  // onProposal for the runner to emit as a `proposal` NDJSON event.
   outlineIds?: Set<string>;
   onProposal?: (proposal: ProposalBlocks) => void;
 }
+
+// Per-framework descriptors used to build the `search_guidance` tool's
+// description. Knowing what the agent is actually retrieving from helps the
+// model decide when to call the tool and what to query for.
+const FRAMEWORK_INFO: Record<Framework, { docName: string; sectionExample: string }> = {
+  cbam: {
+    docName: "the official EU CBAM guidance document",
+    sectionExample: "§6.4.3",
+  },
+  cdp: {
+    docName: "the official CDP 2026 questionnaire guidance document",
+    sectionExample: "§C2.2a",
+  },
+  brsr: {
+    docName: "the SEBI BRSR guidance note (Annexure II)",
+    sectionExample: "§C.P3.E.Q5",
+  },
+};
 
 function formatRetrievedExcerpts(chunks: RetrievedChunk[]): string {
   return chunks
@@ -62,10 +81,12 @@ function chunkToSource(c: RetrievedChunk): RetrievedSource {
   };
 }
 
-export function createCbamMcpServer(opts: CbamMcpOptions) {
+export function createAgentMcpServer(framework: Framework, opts: AgentMcpOptions) {
+  const info = FRAMEWORK_INFO[framework];
+
   const searchGuidance = tool(
     "search_guidance",
-    "Search the official EU CBAM guidance document and return the most relevant excerpts. Each excerpt is tagged with a section number (e.g. §6.4.3) and page range that you must cite verbatim in your reply. Call this whenever the user asks a substantive regulatory question. You may call it multiple times with different queries to cover compound questions.",
+    `Search ${info.docName} and return the most relevant excerpts. Each excerpt is tagged with a section number (e.g. ${info.sectionExample}) and page range that you must cite verbatim in your reply. Call this whenever the user asks a substantive regulatory question. You may call it multiple times with different queries to cover compound questions.`,
     {
       query: z
         .string()
@@ -82,7 +103,7 @@ export function createCbamMcpServer(opts: CbamMcpOptions) {
     async (args) => {
       try {
         const k = args.k ?? 6;
-        const chunks = await search(args.query, { k });
+        const chunks = await search(args.query, framework, { k });
         const sources = chunks.map(chunkToSource);
         opts.onSearchHit?.(sources);
         const text = chunks.length
@@ -135,7 +156,7 @@ export function createCbamMcpServer(opts: CbamMcpOptions) {
         .string()
         .optional()
         .describe(
-          "Optional caption shown beneath the diagram. Good place to put a citation like 'Source: §6.4 (page 78)'."
+          `Optional caption shown beneath the diagram. Good place to put a citation like 'Source: ${info.sectionExample} (page N)'.`
         ),
     });
 
@@ -190,12 +211,17 @@ export function createCbamMcpServer(opts: CbamMcpOptions) {
   }
 
   return createSdkMcpServer({
-    name: "cbam",
+    name: framework,
     version: "1.0.0",
     tools,
   });
 }
 
-// Tool name strings for the route's allowedTools list.
-export const TOOL_SEARCH_GUIDANCE = "mcp__cbam__search_guidance";
-export const TOOL_PROPOSE_INSERT = "mcp__cbam__propose_insert";
+// Tool name strings for the runner's allowedTools list. Framework-scoped
+// because the SDK prefixes tool names with the MCP server name.
+export function toolSearchGuidance(framework: Framework): string {
+  return `mcp__${framework}__search_guidance`;
+}
+export function toolProposeInsert(framework: Framework): string {
+  return `mcp__${framework}__propose_insert`;
+}

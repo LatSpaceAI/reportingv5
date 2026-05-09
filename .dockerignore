@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+.github
+.vscode
+.claude
+.env
+.env.*
+!.env.example
+*.log
+*.tsbuildinfo
+infra/cdk.out
+infra/node_modules
+CDP resources
+data/rag/*-build.log
+data/rag/**/.contextualized.json
+README.md
