@@ -210,6 +210,7 @@ Search the guidance for any regulatory facts you need, then call propose_insert 
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }

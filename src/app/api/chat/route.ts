@@ -256,6 +256,10 @@ export async function POST(req: NextRequest) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      // Disable proxy buffering (Railway/nginx/Cloudflare) so SSE chunks
+      // reach the browser as they're produced instead of being held until
+      // the response closes.
+      "X-Accel-Buffering": "no",
     },
   });
 }
