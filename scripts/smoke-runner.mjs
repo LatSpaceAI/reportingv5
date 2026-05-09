@@ -72,12 +72,12 @@ if (!process.env.VOYAGE_API_KEY) {
 }
 
 console.log(`==> Smoke test: mode=${mode}`);
-console.log(`Spawning: npx tsx runner.ts (in ${RUNNER_DIR})`);
+console.log(`Spawning: node --experimental-strip-types runner.ts (in ${RUNNER_DIR})`);
 
 const t0 = Date.now();
 const child = spawn(
-  process.platform === "win32" ? "npx.cmd" : "npx",
-  ["tsx", "runner.ts"],
+  process.platform === "win32" ? "node.exe" : "node",
+  ["--experimental-strip-types", "--no-warnings", "runner.ts"],
   {
     cwd: RUNNER_DIR,
     env: {

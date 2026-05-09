@@ -140,14 +140,18 @@ export async function dispatchToSandbox(opts: DispatchOptions): Promise<Response
   let cmd;
   try {
     sandbox = await Sandbox.create(buildCreateParams(timeout, env, getNetworkPolicy()));
-    // Invoke tsx directly from the local node_modules instead of via `npx`.
-    // npx can do a network lookup against registry.npmjs.org even when the
-    // binary is already installed locally; we'd then have to allowlist the
-    // npm registry in the firewall too. The tarball includes the binary at
-    // ./node_modules/.bin/tsx, so we run it directly.
+    // Use Node's native --experimental-strip-types instead of tsx. tsx's
+    // ESM resolution shim was rewriting bare-module imports incorrectly,
+    // causing voyageai's package.exports to resolve to a non-existent
+    // .jsx file (ERR_MODULE_NOT_FOUND in production logs 2026-05-09).
+    // Native Node 22 strip-types just removes type annotations and lets
+    // Node's standard resolver handle imports — which is exactly what we
+    // want for our use case (no enums, no namespaces, no fancy TS).
+    // --no-warnings suppresses Node's "experimental feature" warning that
+    // would otherwise spam stderr on every line.
     cmd = await sandbox.runCommand({
-      cmd: "./node_modules/.bin/tsx",
-      args: ["runner.ts"],
+      cmd: "node",
+      args: ["--experimental-strip-types", "--no-warnings", "runner.ts"],
       cwd: "/vercel/sandbox",
       detached: true,
     });

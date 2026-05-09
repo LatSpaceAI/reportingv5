@@ -7,7 +7,7 @@
 // and pages. `propose_insert(after_block_id, blocks, rationale)` — write mode
 // only.
 
-import type { Framework } from "./retrieval.js";
+import type { Framework } from "./retrieval.ts";
 
 export type AgentMode = "chat" | "write";
 

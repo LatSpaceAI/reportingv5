@@ -3,7 +3,7 @@
 // happening (searching guidance, running a web search, fetching a URL, etc.)
 // instead of a single static "thinking" placeholder.
 
-import type { Framework } from "../retrieval.js";
+import type { Framework } from "../retrieval.ts";
 
 export interface AgentActivity {
   // High-level kind drives the icon/color in the UI.

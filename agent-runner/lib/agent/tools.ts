@@ -8,7 +8,7 @@
 
 import { tool, createSdkMcpServer, type SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { search, type Framework, type RetrievedChunk } from "../retrieval.js";
+import { search, type Framework, type RetrievedChunk } from "../retrieval.ts";
 
 export interface RetrievedSource {
   section: string;

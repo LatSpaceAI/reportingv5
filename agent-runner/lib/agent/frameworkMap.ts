@@ -5,7 +5,7 @@
 // reports don't currently surface the AI assistant in production paths, but
 // the fallback keeps the route from 500-ing if a stray request comes through.
 
-import type { Framework } from "../retrieval.js";
+import type { Framework } from "../retrieval.ts";
 
 export function resolveRagFramework(frameworkId: string | undefined | null): Framework {
   if (!frameworkId) return "cbam";

@@ -9,7 +9,16 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { VoyageAIClient } from "voyageai";
+import { createRequire } from "node:module";
+
+// Voyage's ESM build does directory imports (e.g. `from "./api"` instead of
+// `from "./api/index.js"`) which Node's native ESM resolver rejects with
+// ERR_UNSUPPORTED_DIR_IMPORT. The CJS entry doesn't have this problem, so
+// we force CJS via createRequire — same pattern scripts/build-index.mjs
+// uses for the same reason.
+const require = createRequire(import.meta.url);
+const { VoyageAIClient } = require("voyageai") as typeof import("voyageai");
+type VoyageAIClient = InstanceType<typeof VoyageAIClient>;
 
 export type Framework = "cbam" | "cdp" | "brsr";
 
