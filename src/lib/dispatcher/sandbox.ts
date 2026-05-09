@@ -209,10 +209,20 @@ export async function dispatchToSandbox(opts: DispatchOptions): Promise<Response
       // multiple JSON lines, or half of one. We forward only complete lines
       // so the client parser never sees a split JSON object.
       let lineBuf = "";
+      let stderrBuf = "";
+      let stdoutBytes = 0;
 
       try {
         for await (const log of cmd.logs()) {
-          if (log.stream !== "stdout") continue; // stderr → server logs only
+          if (log.stream === "stderr") {
+            // Buffer stderr server-side. We don't push it to the browser
+            // (would corrupt NDJSON) but if the runner crashes before
+            // emitting anything to stdout, stderr is the only place we
+            // learn why. Logged below in the finally block.
+            stderrBuf += log.data;
+            continue;
+          }
+          stdoutBytes += log.data.length;
           lineBuf += log.data;
           let nl: number;
           while ((nl = lineBuf.indexOf("\n")) !== -1) {
@@ -221,7 +231,39 @@ export async function dispatchToSandbox(opts: DispatchOptions): Promise<Response
           }
         }
         if (lineBuf) controller.enqueue(encoder.encode(lineBuf + "\n"));
+
+        // The logs() generator returned, meaning the runner exited. Wait
+        // for the exit code (cmd is detached so we have to ask). Then,
+        // if it crashed before printing anything useful, surface the
+        // failure to the browser so the UI doesn't just hang.
+        const finished = await cmd.wait();
+        const exitCode = finished.exitCode;
+        console.log("[dispatch] runner exit", {
+          exitCode,
+          stdoutBytes,
+          stderrBytes: stderrBuf.length,
+          stderrTail: stderrBuf.slice(-2000),
+        });
+        if (exitCode !== 0 && stdoutBytes === 0) {
+          // Runner died before emitting any NDJSON. Tell the browser.
+          controller.enqueue(
+            encoder.encode(
+              JSON.stringify({
+                event: "error",
+                data: {
+                  message: `Runner exited ${exitCode} with no output. Stderr tail: ${
+                    stderrBuf.slice(-500) || "(empty)"
+                  }`,
+                },
+              }) + "\n"
+            )
+          );
+        }
       } catch (err) {
+        console.error("[dispatch] log stream / wait failed", {
+          message: err instanceof Error ? err.message : String(err),
+          stderrTail: stderrBuf.slice(-2000),
+        });
         controller.enqueue(
           encoder.encode(
             JSON.stringify({
