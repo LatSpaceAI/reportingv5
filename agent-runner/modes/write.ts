@@ -6,17 +6,17 @@
 
 import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
-import { getSystemPrompt } from "../lib/guidance.js";
+import { getSystemPrompt } from "../lib/guidance.ts";
 import {
   createAgentMcpServer,
   toolProposeInsert,
   toolSearchGuidance,
   type ProposalBlocks,
   type RetrievedSource,
-} from "../lib/agent/tools.js";
-import { resolveRagFramework } from "../lib/agent/frameworkMap.js";
-import { describeToolUse } from "../lib/agent/activity.js";
-import type { OutlineItem, WriteJob, EmitFn } from "./types.js";
+} from "../lib/agent/tools.ts";
+import { resolveRagFramework } from "../lib/agent/frameworkMap.ts";
+import { describeToolUse } from "../lib/agent/activity.ts";
+import type { OutlineItem, WriteJob, EmitFn } from "./types.ts";
 
 function formatOutline(items: OutlineItem[]): string {
   if (!items.length) return "(empty document — propose insertions with after_block_id = null)";

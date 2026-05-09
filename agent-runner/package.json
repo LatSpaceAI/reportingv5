@@ -5,12 +5,11 @@
   "type": "module",
   "main": "runner.ts",
   "scripts": {
-    "start": "tsx runner.ts"
+    "start": "node --experimental-strip-types --no-warnings runner.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.132",
     "@anthropic-ai/sdk": "^0.93.0",
-    "tsx": "^4.19.2",
     "voyageai": "^0.2.1",
     "zod": "^4.4.3"
   },

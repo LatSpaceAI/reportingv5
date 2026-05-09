@@ -15,9 +15,9 @@
 // libuv writev() calls in ways that defeat line-streaming. Use process.stdout
 // directly so each event is flushed immediately.
 
-import { handleChat } from "./modes/chat.js";
-import { handleWrite } from "./modes/write.js";
-import type { EmitFn, ChatJob, WriteJob } from "./modes/types.js";
+import { handleChat } from "./modes/chat.ts";
+import { handleWrite } from "./modes/write.ts";
+import type { EmitFn, ChatJob, WriteJob } from "./modes/types.ts";
 
 const emit: EmitFn = (event, data) => {
   process.stdout.write(JSON.stringify({ event, data }) + "\n");
