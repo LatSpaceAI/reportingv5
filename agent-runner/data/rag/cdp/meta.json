@@ -1,0 +1,12 @@
+{
+  "framework": "cdp",
+  "pdfPath": "C:\\Users\\ishan\\CBAM\\reportingv5\\CDP resources\\CDP 2026 questionnaire guidance.pdf",
+  "builtAt": "2026-05-08T18:07:01.554Z",
+  "embedModel": "voyage-3-large",
+  "contextualizerModel": null,
+  "contextualRetrieval": false,
+  "chunkCount": 281,
+  "leafSectionCount": 273,
+  "pageCount": 746,
+  "firstBodyPage": 1
+}

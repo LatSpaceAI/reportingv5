@@ -1,15 +1,17 @@
-// One-time indexing pipeline for the CBAM guidance PDF.
+// One-time indexing pipeline for a guidance PDF (CBAM, CDP, ...).
 //
 // Reads the PDF, splits it into leaf-section chunks (respecting numbered
 // headings like 1, 1.1, 1.1.1...), runs Anthropic Contextual Retrieval to
 // generate per-chunk context blurbs (prompt-cached on the document), embeds
-// each (context + body) with Voyage AI, and writes a single index file the
+// each (context + body) with Voyage AI, and writes the index files the
 // runtime route loads on cold start.
 //
 // Usage:
-//   node scripts/build-index.mjs            # incremental — skips if index exists
-//   node scripts/build-index.mjs --force    # rebuild from scratch
-//   node scripts/build-index.mjs --dry-run  # parse + chunk only, no API calls
+//   node scripts/build-index.mjs                                 # CBAM (default), incremental
+//   node scripts/build-index.mjs --framework cdp --pdf "./CDP resources/CDP 2026 questionnaire guidance.pdf"
+//   node scripts/build-index.mjs --force                         # rebuild from scratch
+//   node scripts/build-index.mjs --dry-run                       # parse + chunk only, no API calls
+//   node scripts/build-index.mjs --first-page 5                  # override skipped front-matter pages
 
 import { config as loadEnv } from "dotenv";
 loadEnv({ path: [".env.local", ".env"] });
@@ -27,24 +29,68 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, "..");
-const PDF_PATH = resolve(
-  PROJECT_ROOT,
-  "..",
-  "CBAM rsources",
-  "Guidance document on CBAM implementation for installation operators outside the EU.pdf"
-);
-const INDEX_DIR = join(PROJECT_ROOT, "data", "rag");
+
+// ---------- CLI args ----------
+
+const argv = process.argv.slice(2);
+const flagSet = new Set(argv);
+function flagValue(name) {
+  const i = argv.indexOf(name);
+  return i !== -1 && i + 1 < argv.length ? argv[i + 1] : undefined;
+}
+
+const FRAMEWORK = (flagValue("--framework") ?? "cbam").toLowerCase();
+const FORCE = flagSet.has("--force");
+const DRY_RUN = flagSet.has("--dry-run");
+const SKIP_CONTEXTUAL_FLAG = flagSet.has("--skip-contextual");
+const FIRST_BODY_PAGE_OVERRIDE = flagValue("--first-page");
+
+// Per-framework defaults. `pdfPath` is resolved relative to PROJECT_ROOT and
+// can be overridden with --pdf. `firstBodyPage` skips front-matter (cover +
+// TOC) so heading detection isn't confused by table-of-contents lines.
+// `skipContextual` disables the Anthropic Contextual Retrieval pass — used
+// for documents large enough that caching the whole PDF in Haiku's system
+// prompt blows past the input-tokens-per-minute rate limit (cache_read
+// tokens still count). With it disabled, chunks are embedded with
+// sectionPath + title + text only.
+const FRAMEWORK_DEFAULTS = {
+  cbam: {
+    pdfPath: "../CBAM rsources/Guidance document on CBAM implementation for installation operators outside the EU.pdf",
+    firstBodyPage: 7,
+    skipContextual: false,
+    headingMode: "inline",
+  },
+  cdp: {
+    pdfPath: "./CDP resources/CDP 2026 questionnaire guidance.pdf",
+    firstBodyPage: 1,
+    skipContextual: true,
+    headingMode: "standalone",
+  },
+  brsr: {
+    pdfPath: "./BRSR-guidelines.pdf",
+    firstBodyPage: 1,
+    skipContextual: false,
+    headingMode: "brsr-table",
+  },
+};
+
+const fwDefaults = FRAMEWORK_DEFAULTS[FRAMEWORK];
+if (!fwDefaults) {
+  console.error(`Unknown framework "${FRAMEWORK}". Known: ${Object.keys(FRAMEWORK_DEFAULTS).join(", ")}`);
+  process.exit(1);
+}
+
+const PDF_PATH = resolve(PROJECT_ROOT, flagValue("--pdf") ?? fwDefaults.pdfPath);
+const INDEX_DIR = join(PROJECT_ROOT, "agent-runner", "data", "rag", FRAMEWORK);
+const SKIP_CONTEXTUAL = SKIP_CONTEXTUAL_FLAG || fwDefaults.skipContextual === true;
+const HEADING_MODE = fwDefaults.headingMode ?? "inline";
 const CHUNKS_PATH = join(INDEX_DIR, "chunks.json");
 const VECTORS_PATH = join(INDEX_DIR, "vectors.json");
 const META_PATH = join(INDEX_DIR, "meta.json");
 const CONTEXTUALIZED_CHECKPOINT = join(INDEX_DIR, ".contextualized.json");
 
-const args = new Set(process.argv.slice(2));
-const FORCE = args.has("--force");
-const DRY_RUN = args.has("--dry-run");
-
 // Tunables
-const FIRST_BODY_PAGE = 7; // The PDF's "1 SUMMARY" starts here; 1-6 are cover + TOC.
+const FIRST_BODY_PAGE = FIRST_BODY_PAGE_OVERRIDE ? Number(FIRST_BODY_PAGE_OVERRIDE) : fwDefaults.firstBodyPage;
 const MAX_CHUNK_CHARS = 4000; // Roughly ~1000 tokens.
 const CHUNK_OVERLAP_CHARS = 400;
 const EMBED_MODEL = "voyage-3-large";
@@ -87,12 +133,18 @@ function sanitizeText(s) {
 
 // ---------- Step 2: Section-aware chunking ----------
 
-// A heading line in the body looks like "1 SUMMARY" or "4.3.2 What needs to be monitored..."
-// followed by a tab or whitespace. The TOC is already excluded by skipping pages 1-6.
+// CBAM-style: heading number + title on the same line, e.g. "1 SUMMARY" or
+// "4.3.2 What needs to be monitored...". The TOC is excluded by FIRST_BODY_PAGE.
 const HEADING_RE = /^(\d+(?:\.\d+){0,4})\s+(.+?)\s*$/;
 
-// Heuristic: a line matching the regex is a heading only if it's reasonably short
-// (titles aren't sentences) and the title isn't all-lowercase prose.
+// CDP-style: question code on its own line ("1.1", "7.73.1a"), then the
+// question text on the next line. The optional trailing letter handles
+// "1.4a", "C2.2a" style variants.
+const STANDALONE_CODE_RE = /^(\d+(?:\.\d+){0,4}[a-z]?)\s*$/i;
+
+// Heuristic for the same-line CBAM format: a line matching the regex is a
+// heading only if it's reasonably short (titles aren't sentences) and the
+// title isn't all-lowercase prose.
 function looksLikeHeading(line) {
   const m = line.match(HEADING_RE);
   if (!m) return null;
@@ -117,20 +169,60 @@ function looksLikeHeading(line) {
   return { number, title: title.trim() };
 }
 
-function chunkBySection(pages) {
+// CDP variant: detect "1.1\nQuestion text..." pairs. The code sits on its
+// own line; the next non-empty line is the question. We also accept a
+// trailing "*(mandatory)" decoration on the code line, which CDP uses to
+// flag mandatory questions ("1.1 *(mandatory)").
+function looksLikeCdpHeading(line, nextLine) {
+  // Strip the *(mandatory) / *(mandatory columns) decorations so they
+  // don't disqualify an otherwise-valid code line.
+  const stripped = line.replace(/\s*\*\(mandatory[^)]*\)\s*$/i, "").trim();
+  const m = stripped.match(STANDALONE_CODE_RE);
+  if (!m) return null;
+  const number = m[1];
+  const parts = number.split(".").map((s) => parseInt(s, 10));
+  // CDP modules go from 1 to ~30; reject 4-digit years and out-of-range values.
+  if (parts[0] < 1 || parts[0] > 30) return null;
+  if (parts.some((n) => Number.isNaN(n))) return null;
+  // The next line must look like a question/title — non-empty, reasonably
+  // short for a single line, and not just punctuation or a tag dump.
+  if (!nextLine) return null;
+  const title = nextLine.trim();
+  if (!title || title.length < 4 || title.length > 300) return null;
+  // Reject lines that are obviously not titles (currency codes, country
+  // names dump, comma-separated tag lines).
+  if (/^[A-Z]{3}$/.test(title)) return null;
+  return { number, title };
+}
+
+function chunkBySection(pages, headingMode = "inline") {
   // Walk every line, splitting on detected headings. Each section accumulates
   // lines until the next heading. Track page span for citations.
+  // headingMode: "inline" (CBAM — number + title on same line) or "standalone"
+  // (CDP — number on its own line, title on the next line).
   const sections = [];
   let current = null;
 
   for (const page of pages) {
     const lines = page.text.split("\n");
-    for (const rawLine of lines) {
-      const line = rawLine.replace(/\t/g, " ").trim();
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].replace(/\t/g, " ").trim();
       if (!line) continue;
-      const heading = looksLikeHeading(line);
+
+      let heading = null;
+      let consumeNext = false;
+      if (headingMode === "standalone") {
+        // Find the next non-empty line as the candidate title.
+        let nextIdx = i + 1;
+        while (nextIdx < lines.length && !lines[nextIdx].trim()) nextIdx++;
+        const nextLine = nextIdx < lines.length ? lines[nextIdx].replace(/\t/g, " ").trim() : "";
+        heading = looksLikeCdpHeading(line, nextLine);
+        if (heading) consumeNext = true;
+      } else {
+        heading = looksLikeHeading(line);
+      }
+
       if (heading) {
-        // Close previous section
         if (current) sections.push(current);
         current = {
           number: heading.number,
@@ -139,10 +231,16 @@ function chunkBySection(pages) {
           lastPage: page.num,
           body: [],
         };
+        if (consumeNext) {
+          // Skip past the title line so it isn't repeated as body text.
+          let nextIdx = i + 1;
+          while (nextIdx < lines.length && !lines[nextIdx].trim()) nextIdx++;
+          i = nextIdx;
+        }
         continue;
       }
       if (!current) {
-        // Pre-section content (rare — body starts with "1 SUMMARY"). Skip.
+        // Pre-section content (front matter). Skip.
         continue;
       }
       current.body.push(line);
@@ -150,6 +248,200 @@ function chunkBySection(pages) {
     }
   }
   if (current) sections.push(current);
+  return sections;
+}
+
+// BRSR-style: a guidance note structured as nested tables. The hierarchy is
+// established by textual headings (SECTION A/B/C, PRINCIPLE 1-9, Essential /
+// Leadership Indicators) rather than numbered headings, and the chunk unit
+// is a single Q.No. row of the inner table.
+//
+// Synthesized "section number" used as the citation key:
+//   Section A/B → A.Q14, B.Q5
+//   Section C   → C.P3.E.Q5  (Essential), C.P7.L.Q1 (Leadership)
+const BRSR_SECTION_RE = /^(?:I{1,4}|VI{0,3}|V|IV|IX)\.\s*SECTION\s+([A-C])\s*:/i;
+const BRSR_PRINCIPLE_RE = /^PRINCIPLE\s+(\d+)\b/i;
+const BRSR_INDICATOR_RE = /^(Essential|Leadership)\s+Indicators?\s*$/i;
+const BRSR_PAGE_HEADER_RE = /^Page\s+\d+\s+of\s+\d+\s*$/i;
+// Q row: a line that is purely a small integer (1-50) with optional trailing
+// dot, optional comma-separated continuation ("5, 6"), optionally followed
+// by the start of the field name on the same line.
+const BRSR_QROW_RE = /^(\d{1,2}(?:\s*,\s*\d{1,2})*)\.?\s*(.*)$/;
+// Lines we should never treat as Q rows: column-header line of the inner
+// table, plain "Q. No." labels, etc.
+const BRSR_TABLE_HEADER_RE = /^Q\.?\s*No\.?\s*(Field\s+Name)?/i;
+
+function chunkBrsrTable(pages) {
+  const sections = [];
+  let current = null;
+  let state = {
+    section: null, // "A" | "B" | "C"
+    principle: null, // number 1-9, only meaningful in C
+    indicator: null, // "E" | "L", only meaningful in C
+  };
+  // Per-state-block highest Q.No. seen so far. Q.No. is monotonically
+  // increasing within a (section, principle, indicator) block, so a smaller
+  // number that "looks like" a Q row is almost certainly a sub-bullet inside
+  // the current Q row's body.
+  let lastQ = 0;
+  function stateKey() {
+    return `${state.section}|${state.principle ?? ""}|${state.indicator ?? ""}`;
+  }
+  let lastQByState = new Map();
+
+  const sectionTitles = {
+    A: "Section A: General Disclosures",
+    B: "Section B: Management and Process Disclosures",
+    C: "Section C: Principle Wise Performance Disclosure",
+  };
+
+  function pushCurrent() {
+    if (current && current.body.length) sections.push(current);
+    current = null;
+  }
+
+  function startQRow(qNumber, firstBodyLine, page) {
+    pushCurrent();
+    let key;
+    const path = [sectionTitles[state.section]];
+    if (state.section === "C") {
+      key = `C.P${state.principle}.${state.indicator}.Q${qNumber}`;
+      path.push(`Principle ${state.principle}`);
+      path.push(state.indicator === "E" ? "Essential Indicators" : "Leadership Indicators");
+    } else {
+      key = `${state.section}.Q${qNumber}`;
+    }
+    // Title is filled in lazily from the first non-empty body line(s) — the
+    // "Field Name" column. We seed body with whatever appeared on the Q.No.
+    // line itself (if anything).
+    current = {
+      number: key,
+      title: "",
+      titleParts: [],
+      titleLocked: false,
+      firstPage: page,
+      lastPage: page,
+      body: [],
+    };
+    if (firstBodyLine) appendBodyLine(firstBodyLine, page);
+  }
+
+  function appendBodyLine(line, page) {
+    if (!current) return;
+    current.body.push(line);
+    current.lastPage = page;
+    // Heuristic for filling in the Field Name column: until we see a line
+    // that looks like a numbered guidance bullet ("1.", "2.", "•") or a
+    // sentence (ends in a period and is fairly long), accumulate the line
+    // into the title.
+    if (!current.titleLocked) {
+      const isBullet = /^(\d+\.\s|[•\-]\s|\(\w\)\s)/.test(line);
+      const looksLikeProse = line.length > 80 || /[.!?]$/.test(line);
+      if (isBullet || looksLikeProse) {
+        current.titleLocked = true;
+        current.title = current.titleParts.join(" ").trim();
+      } else {
+        current.titleParts.push(line);
+      }
+    }
+  }
+
+  for (const page of pages) {
+    const lines = page.text.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const raw = lines[i].replace(/\t/g, " ").trim();
+      if (!raw) continue;
+      if (BRSR_PAGE_HEADER_RE.test(raw)) continue;
+
+      // Section heading
+      const sm = raw.match(BRSR_SECTION_RE);
+      if (sm) {
+        pushCurrent();
+        state = { section: sm[1].toUpperCase(), principle: null, indicator: null };
+        continue;
+      }
+      // Principle heading (only meaningful in C, but we accept anywhere)
+      const pm = raw.match(BRSR_PRINCIPLE_RE);
+      if (pm) {
+        pushCurrent();
+        state.principle = Number(pm[1]);
+        state.indicator = "E"; // default to Essential until we see the heading
+        continue;
+      }
+      // Indicator-class heading
+      const im = raw.match(BRSR_INDICATOR_RE);
+      if (im) {
+        pushCurrent();
+        state.indicator = /^E/i.test(im[1]) ? "E" : "L";
+        continue;
+      }
+      // Track per-state lastQ for the monotonicity check below.
+      lastQ = lastQByState.get(stateKey()) ?? 0;
+      // Inner-table column header — skip
+      if (BRSR_TABLE_HEADER_RE.test(raw)) continue;
+
+      // Outside any section, skip (the General Guidance preamble on page 1-2
+      // doesn't have Q.No. rows; treat it as front matter).
+      if (!state.section) continue;
+
+      // Q.No. row?
+      // A real Q row line is essentially just a number (with optional dot,
+      // optional comma-list like "5, 6"), and any text on the same line is
+      // the START of the field-name column — short, no sentence-ending
+      // punctuation, no trailing colon, never a complete sentence.
+      // A sub-bullet "1. The entity shall..." is the same regex shape but
+      // has long prose attached, so we discriminate by the tail.
+      const qm = raw.match(BRSR_QROW_RE);
+      if (qm && state.section) {
+        const num = qm[1].split(",")[0].trim();
+        const numericStart = Number(num);
+        const tail = qm[2].trim();
+        // A real Q row line has either an empty tail (number on its own) or
+        // a SHORT noun-phrase fragment that's the start of the Field Name
+        // column. Sub-bullets ("5. Apart from turnover, entities may...")
+        // are typically prose: longer, ending in mid-sentence, or starting
+        // with a sentence-stem word.
+        const SUB_BULLET_STEMS = /^(The|A|An|Apart|Under|If|When|For|Entities?|This|These|It|Of|In|With|On|By|From|To|At|As|Such|All|Any|For|Where|While|During|Where|However|Further|Refers?|Means|Includes?|Whether)\b/;
+        // Field-name tails always start with a capital letter (English title-
+        // case noun phrase like "Details of...", "Sustainable sourcing", etc.)
+        // — never with a digit, lowercase, or punctuation. This filters out
+        // URL-fragment artifacts like "20 35669.htm" that pdf-parse emits
+        // when an embedded URL wraps mid-page.
+        const tailIsValidStart = tail === "" || /^[A-Z“"'(]/.test(tail);
+        const tailLooksLikeProse =
+          tail.length > 35 ||
+          /[.!?:]$/.test(tail) ||
+          SUB_BULLET_STEMS.test(tail);
+        // Monotonicity: within the current state-block, Q.No. is strictly
+        // increasing. A "Q3" appearing after we've already seen Q11 is a
+        // sub-bullet, not a new row. The very first Q in a state-block
+        // bypasses this check.
+        const isMonotonic = lastQ === 0 || numericStart > lastQ;
+        if (
+          numericStart >= 1 &&
+          numericStart <= 50 &&
+          !tailLooksLikeProse &&
+          tailIsValidStart &&
+          isMonotonic
+        ) {
+          startQRow(num, tail, page.num);
+          lastQByState.set(stateKey(), numericStart);
+          continue;
+        }
+      }
+
+      // Otherwise: body line for the current Q row.
+      if (current) appendBodyLine(raw, page.num);
+    }
+  }
+  pushCurrent();
+
+  // Normalize: ensure title is set even if titleLocked never tripped.
+  for (const s of sections) {
+    if (!s.title) s.title = (s.titleParts ?? []).join(" ").trim();
+    delete s.titleParts;
+    delete s.titleLocked;
+  }
   return sections;
 }
 
@@ -236,6 +528,29 @@ function buildSectionPaths(allSections) {
     }
     return path;
   };
+}
+
+// Decode a BRSR synthesized section number back into a human-readable
+// breadcrumb path used for embedding context and citations.
+function brsrSectionPath(row) {
+  const sectionTitles = {
+    A: "Section A: General Disclosures",
+    B: "Section B: Management and Process Disclosures",
+    C: "Section C: Principle Wise Performance Disclosure",
+  };
+  const parts = row.number.split(".");
+  const path = [];
+  if (parts[0] && sectionTitles[parts[0]]) path.push(sectionTitles[parts[0]]);
+  for (const p of parts.slice(1)) {
+    if (/^P\d+$/.test(p)) path.push(`Principle ${p.slice(1)}`);
+    else if (p === "E") path.push("Essential Indicators");
+    else if (p === "L") path.push("Leadership Indicators");
+    else if (/^Q\d+$/.test(p)) {
+      const t = row.title ? `${p} ${row.title}` : p;
+      path.push(t);
+    }
+  }
+  return path;
 }
 
 // ---------- Step 3: Contextual Retrieval (Anthropic) ----------
@@ -398,7 +713,7 @@ function buildBm25Index(chunks) {
 // ---------- Main ----------
 
 async function main() {
-  if (!DRY_RUN && !process.env.ANTHROPIC_API_KEY) {
+  if (!DRY_RUN && !SKIP_CONTEXTUAL && !process.env.ANTHROPIC_API_KEY) {
     console.error("ANTHROPIC_API_KEY is not set. Add it to .env.local.");
     process.exit(1);
   }
@@ -417,52 +732,89 @@ async function main() {
 
   await mkdir(INDEX_DIR, { recursive: true });
 
+  console.log(`Framework: ${FRAMEWORK}`);
+  console.log(`Index dir: ${INDEX_DIR}`);
+  console.log(`First body page: ${FIRST_BODY_PAGE}`);
+  console.log(`Heading mode: ${HEADING_MODE}`);
+  console.log(`Contextual retrieval: ${SKIP_CONTEXTUAL ? "SKIPPED" : "enabled"}`);
+
   const pages = await parsePdf();
   const fullDocText = sanitizeText(
     pages.map((p) => `[Page ${p.num}]\n${p.text}`).join("\n\n")
   );
 
-  const sections = chunkBySection(pages);
-  console.log(`Detected ${sections.length} numbered sections.`);
-  const leaves = keepLeafSections(sections);
-  console.log(`${leaves.length} are leaf sections (no deeper subsections).`);
-
-  const sectionPathFor = buildSectionPaths(sections);
   let chunks = [];
-  for (const leaf of leaves) {
-    const path = sectionPathFor(leaf);
-    chunks = chunks.concat(splitSection(leaf, path));
+  if (HEADING_MODE === "brsr-table") {
+    // BRSR's hierarchy is textual (Section / Principle / Indicator-class /
+    // Q.No.) and every Q row is already a leaf with its breadcrumb baked in.
+    const rows = chunkBrsrTable(pages);
+    console.log(`Detected ${rows.length} BRSR Q-rows.`);
+    for (const row of rows) {
+      // Reconstruct path for the chunker output. The path components are
+      // implicit in the synthesized number (A.Q14 / C.P3.E.Q5).
+      const path = brsrSectionPath(row);
+      chunks = chunks.concat(splitSection(row, path));
+    }
+  } else {
+    const sections = chunkBySection(pages, HEADING_MODE);
+    console.log(`Detected ${sections.length} numbered sections (mode=${HEADING_MODE}).`);
+    const leaves = keepLeafSections(sections);
+    console.log(`${leaves.length} are leaf sections (no deeper subsections).`);
+
+    const sectionPathFor = buildSectionPaths(sections);
+    for (const leaf of leaves) {
+      const path = sectionPathFor(leaf);
+      chunks = chunks.concat(splitSection(leaf, path));
+    }
   }
   console.log(`Produced ${chunks.length} chunks (post-split).`);
 
   if (DRY_RUN) {
-    console.log("Dry run — sample chunks:");
-    for (const c of chunks.slice(0, 5)) {
+    const sliceN = process.env.DRY_RUN_ALL ? chunks.length : 5;
+    console.log(`Dry run — ${process.env.DRY_RUN_ALL ? "all" : "first 5"} chunks:`);
+    for (const c of chunks.slice(0, sliceN)) {
       console.log(`\n§${c.sectionNumber} ${c.sectionTitle} (p${c.firstPage}-${c.lastPage}) [${c.text.length} chars]`);
-      console.log(c.text.slice(0, 300) + (c.text.length > 300 ? "..." : ""));
+      if (process.env.DRY_RUN_ALL) {
+        // Just the header line for full dump.
+      } else {
+        console.log(c.text.slice(0, 300) + (c.text.length > 300 ? "..." : ""));
+      }
     }
     return;
   }
 
-  const anthropic = new Anthropic();
   const voyage = new VoyageAIClient({ apiKey: process.env.VOYAGE_API_KEY });
 
   // Reuse a previous contextualization if present — context generation is the
   // expensive step (~$0.50, 3-5 min). The embed step is cheap and fast, so
   // if it fails we don't want to redo contextualization on the retry.
   let contextualized;
-  if (!FORCE && existsSync(CONTEXTUALIZED_CHECKPOINT)) {
-    console.log(`Loading cached contextualized chunks from ${CONTEXTUALIZED_CHECKPOINT}`);
-    contextualized = JSON.parse(await readFile(CONTEXTUALIZED_CHECKPOINT, "utf8"));
-    if (contextualized.length !== chunks.length) {
-      console.warn(`  checkpoint has ${contextualized.length} chunks but parser produced ${chunks.length}; ignoring checkpoint.`);
-      contextualized = null;
+  if (SKIP_CONTEXTUAL) {
+    console.log(
+      `Skipping Anthropic Contextual Retrieval (--skip-contextual or framework default).` +
+        ` Chunks will be embedded with sectionPath + title + text only.`
+    );
+    // Synthesize a deterministic context from the section path so the
+    // embedding still gets some structural signal even without an LLM blurb.
+    contextualized = chunks.map((c) => ({
+      ...c,
+      context: `Section ${c.sectionNumber} ${c.sectionTitle}. Path: ${c.sectionPath.join(" > ")}.`,
+    }));
+  } else {
+    const anthropic = new Anthropic();
+    if (!FORCE && existsSync(CONTEXTUALIZED_CHECKPOINT)) {
+      console.log(`Loading cached contextualized chunks from ${CONTEXTUALIZED_CHECKPOINT}`);
+      contextualized = JSON.parse(await readFile(CONTEXTUALIZED_CHECKPOINT, "utf8"));
+      if (contextualized.length !== chunks.length) {
+        console.warn(`  checkpoint has ${contextualized.length} chunks but parser produced ${chunks.length}; ignoring checkpoint.`);
+        contextualized = null;
+      }
     }
-  }
-  if (!contextualized) {
-    contextualized = await generateContexts(anthropic, fullDocText, chunks);
-    await writeFile(CONTEXTUALIZED_CHECKPOINT, JSON.stringify(contextualized));
-    console.log(`Checkpointed contextualized chunks to ${CONTEXTUALIZED_CHECKPOINT}`);
+    if (!contextualized) {
+      contextualized = await generateContexts(anthropic, fullDocText, chunks);
+      await writeFile(CONTEXTUALIZED_CHECKPOINT, JSON.stringify(contextualized));
+      console.log(`Checkpointed contextualized chunks to ${CONTEXTUALIZED_CHECKPOINT}`);
+    }
   }
 
   const vectors = await embedAll(voyage, contextualized);
@@ -479,12 +831,15 @@ async function main() {
     META_PATH,
     JSON.stringify(
       {
+        framework: FRAMEWORK,
+        pdfPath: PDF_PATH,
         builtAt: new Date().toISOString(),
         embedModel: EMBED_MODEL,
-        contextualizerModel: CONTEXTUALIZER_MODEL,
+        contextualizerModel: SKIP_CONTEXTUAL ? null : CONTEXTUALIZER_MODEL,
+        contextualRetrieval: !SKIP_CONTEXTUAL,
         chunkCount: contextualized.length,
-        leafSectionCount: leaves.length,
         pageCount: pages.length,
+        firstBodyPage: FIRST_BODY_PAGE,
       },
       null,
       2

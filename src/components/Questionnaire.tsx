@@ -238,8 +238,57 @@ export function Questionnaire({
       : allQuestions[0].q.id
   );
   const [search, setSearch] = useState("");
+  const [tab, setTab] = useState<"requirements" | "document">("document");
 
   const active = allQuestions.find((x) => x.q.id === activeId)!;
+
+  // Compact context handed to the AI Assistant so it knows which question the
+  // user is currently looking at. Built fresh on each render — cheap.
+  const activeQuestionContext = useMemo(() => {
+    return {
+      id: active.q.id,
+      label: active.q.label,
+      sectionId: active.section.id,
+      sectionTitle: active.section.title,
+      questionKind: active.q.kind,
+      description: active.q.description,
+    };
+  }, [active]);
+
+  const activeAnswerSummary = useMemo(() => {
+    const a = answers[active.q.id];
+    if (!a) return undefined;
+    let filledCount = 0;
+    let totalFields = 0;
+    let preview = "";
+    if (active.q.kind === "fields") {
+      totalFields = active.q.fields.length;
+      for (const f of active.q.fields) {
+        const v = a.values[f.id];
+        if (isFilled(f, v)) {
+          filledCount++;
+          if (preview.length < 200 && (typeof v === "string" || typeof v === "number")) {
+            preview += `${f.id}=${String(v).slice(0, 60)}; `;
+          }
+        }
+      }
+    } else {
+      const cols = active.q.columns;
+      totalFields = cols.length * a.rows.length;
+      for (const r of a.rows) {
+        for (const c of cols) {
+          if (isFilled(c, r[c.id])) filledCount++;
+        }
+      }
+      preview = `${a.rows.length} row${a.rows.length === 1 ? "" : "s"}`;
+    }
+    return {
+      status: a.status,
+      filledCount,
+      totalFields,
+      preview: preview.trim().slice(0, 200) || undefined,
+    };
+  }, [active, answers]);
 
   const completedCount = Object.values(answers).filter((a) => a.status === "completed").length;
   const inProgressCount = Object.values(answers).filter((a) => a.status === "in-progress").length;
@@ -292,6 +341,18 @@ export function Questionnaire({
         version={version}
         onExport={onExport}
       />
+      <QuestionnaireTabs tab={tab} onChange={setTab} />
+      {tab === "requirements" ? (
+        <RequirementsView
+          sections={sections}
+          answers={answers}
+          assignees={assignees}
+          onOpen={(id) => {
+            setActiveId(id);
+            setTab("document");
+          }}
+        />
+      ) : (
       <div className="flex flex-1 overflow-hidden">
         {panes.leftCollapsed ? (
           <CollapsedRail
@@ -349,8 +410,206 @@ export function Questionnaire({
             width={panes.rightWidth}
             onWidthChange={(w) => setPanes((p) => ({ ...p, rightWidth: w }))}
             onCollapse={() => setPanes((p) => ({ ...p, rightCollapsed: true }))}
+            frameworkId={frameworkId}
+            activeQuestion={activeQuestionContext}
+            activeAnswer={activeAnswerSummary}
           />
         )}
+      </div>
+      )}
+    </div>
+  );
+}
+
+function QuestionnaireTabs({
+  tab,
+  onChange,
+}: {
+  tab: "requirements" | "document";
+  onChange: (t: "requirements" | "document") => void;
+}) {
+  const labels: Record<"requirements" | "document", string> = {
+    requirements: "Requirements",
+    document: "Document",
+  };
+  return (
+    <div className="border-b border-slate-200 bg-white px-6">
+      <div className="flex gap-6 text-sm">
+        {(["requirements", "document"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => onChange(t)}
+            className={`-mb-px border-b-2 py-2.5 ${
+              tab === t
+                ? "border-brand font-medium text-slate-900"
+                : "border-transparent text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            {labels[t]}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RequirementsView({
+  sections,
+  answers,
+  assignees,
+  onOpen,
+}: {
+  sections: Section[];
+  answers: Record<string, QuestionState>;
+  assignees: Assignees;
+  onOpen: (id: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const rows = useMemo(() => {
+    const out: Array<{
+      id: string;
+      label: string;
+      description?: string;
+      sectionTitle: string;
+      kind: "fields" | "table";
+      status: Status;
+      updatedAt?: string;
+      assignedIds: string[];
+    }> = [];
+    for (const s of sections) {
+      for (const q of s.questions) {
+        const a = answers[q.id];
+        out.push({
+          id: q.id,
+          label: q.label,
+          description: q.description,
+          sectionTitle: s.title,
+          kind: q.kind,
+          status: a?.status ?? "not-started",
+          updatedAt: a?.updatedAt,
+          assignedIds: assignees[q.id] ?? [],
+        });
+      }
+    }
+    return out;
+  }, [sections, answers, assignees]);
+
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return rows;
+    return rows.filter(
+      (r) =>
+        r.id.toLowerCase().includes(needle) ||
+        r.label.toLowerCase().includes(needle) ||
+        (r.description ?? "").toLowerCase().includes(needle) ||
+        r.sectionTitle.toLowerCase().includes(needle)
+    );
+  }, [rows, search]);
+
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden bg-white">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-6 py-3">
+        <div className="relative max-w-sm flex-1">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search requirements..."
+            className="w-full rounded-md border border-slate-200 py-1.5 pl-8 pr-3 text-sm outline-none focus:border-brand"
+          />
+          <svg
+            className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            viewBox="0 0 24 24"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" strokeLinecap="round" />
+          </svg>
+        </div>
+        <span className="text-xs text-slate-500">
+          {filtered.length} of {rows.length}
+        </span>
+      </div>
+      <div className="flex-1 overflow-auto">
+        <table className="w-full table-fixed text-sm">
+          <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
+            <tr className="border-b border-slate-200">
+              <th className="w-32 px-4 py-2 text-left font-medium">ID</th>
+              <th className="px-4 py-2 text-left font-medium">Name</th>
+              <th className="w-56 px-4 py-2 text-left font-medium">Section</th>
+              <th className="w-20 px-4 py-2 text-left font-medium">Type</th>
+              <th className="w-32 px-4 py-2 text-left font-medium">Status</th>
+              <th className="w-44 px-4 py-2 text-left font-medium">Assigned</th>
+              <th className="w-44 px-4 py-2 text-left font-medium">Last updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((r) => (
+              <tr
+                key={r.id}
+                onClick={() => onOpen(r.id)}
+                className="cursor-pointer border-b border-slate-100 hover:bg-slate-50/60"
+              >
+                <td className="truncate px-4 py-3 font-mono text-[12px] text-slate-700">{r.id}</td>
+                <td className="truncate px-4 py-3 text-slate-900" title={r.label}>
+                  <div className="truncate font-medium">{r.label}</div>
+                  {r.description && (
+                    <div className="truncate text-xs text-slate-500">{r.description}</div>
+                  )}
+                </td>
+                <td className="truncate px-4 py-3 text-slate-600" title={r.sectionTitle}>
+                  {r.sectionTitle}
+                </td>
+                <td className="px-4 py-3 text-slate-600 capitalize">{r.kind}</td>
+                <td className="px-4 py-3">
+                  <span className="inline-flex items-center gap-1.5 text-slate-700">
+                    <span className={`h-2 w-2 rounded-full ${statusDot[r.status]}`} />
+                    {statusLabel[r.status]}
+                  </span>
+                </td>
+                <td className="truncate px-4 py-3 text-slate-600">
+                  {r.assignedIds.length > 0 ? (
+                    <span className="inline-flex flex-wrap gap-1">
+                      {r.assignedIds.slice(0, 3).map((uid) => {
+                        const u = mockUsers.find((m) => m.id === uid);
+                        return (
+                          <span
+                            key={uid}
+                            title={u?.name ?? uid}
+                            className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-200 text-[10px] font-medium text-slate-700"
+                          >
+                            {u ? initials(u.name) : "?"}
+                          </span>
+                        );
+                      })}
+                      {r.assignedIds.length > 3 && (
+                        <span className="text-xs text-slate-400">+{r.assignedIds.length - 3}</span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="italic text-slate-400">Unassigned</span>
+                  )}
+                </td>
+                <td className="truncate px-4 py-3 text-slate-500">
+                  {r.updatedAt
+                    ? new Date(r.updatedAt).toLocaleString([], {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })
+                    : "—"}
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">
+                  No requirements match your filter.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

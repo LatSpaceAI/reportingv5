@@ -1,11 +1,18 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Ensure the prebuilt RAG index is bundled with the chat route's
-  // serverless function on Vercel. Without this, runtime fs reads of
-  // data/rag/* fail in the deployed environment.
+  // Standalone output is retained so the Railway/AppRunner Dockerfile still
+  // builds during the cutover week. Once the Vercel + Sandbox deployment is
+  // proven in production, the Dockerfile/railway.json/standalone output can
+  // all be removed together.
+  output: "standalone",
+  // The agent SDK and RAG index now live inside agent-runner/, which ships
+  // into Vercel Sandbox at request time — neither needs to be traced into
+  // any Next route bundle. The dispatcher routes only depend on
+  // @vercel/sandbox which Next traces automatically.
   experimental: {
-    outputFileTracingIncludes: {
-      "/api/chat": ["./data/rag/**/*"],
+    // Keep agent-runner out of the Next build entirely.
+    outputFileTracingExcludes: {
+      "*": ["./agent-runner/**/*"],
     },
   },
 };

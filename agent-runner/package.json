@@ -1,0 +1,24 @@
+{
+  "name": "agent-runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "runner.ts",
+  "scripts": {
+    "start": "tsx runner.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.132",
+    "@anthropic-ai/sdk": "^0.93.0",
+    "tsx": "^4.19.2",
+    "voyageai": "^0.2.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/claude-agent-sdk-linux-x64": "^0.2.132"
+  }
+}

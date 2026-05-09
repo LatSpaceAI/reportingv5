@@ -24,9 +24,14 @@ export default function LandingPage() {
   const [status, setStatus] = useState<StatusFilter>("all");
   const [tick, setTick] = useState(0);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  // `mounted` defers any localStorage-derived rendering (progress %, last-updated
+  // dates) until after hydration, so SSR and the first client paint render the
+  // same empty placeholders and React doesn't trip a hydration mismatch.
+  const [mounted, setMounted] = useState(false);
   const { show } = useToast();
 
   useEffect(() => {
+    setMounted(true);
     const handler = () => setTick((t) => t + 1);
     window.addEventListener("storage", handler);
     return () => window.removeEventListener("storage", handler);
@@ -147,11 +152,12 @@ export default function LandingPage() {
                   setOpenGroups((prev) => ({ ...prev, [entry.id]: !open }))
                 }
                 onExport={handleExport}
+                mounted={mounted}
               />
             );
           }
           const f = entry as FrameworkSummary;
-          return <Row key={f.id} f={f} onExport={() => handleExport(f)} />;
+          return <Row key={f.id} f={f} onExport={() => handleExport(f)} mounted={mounted} />;
         })}
         {filteredEntries.length === 0 && (
           <div className="px-5 py-10 text-center text-sm text-slate-500">
@@ -227,12 +233,15 @@ function Row({
   f,
   onExport,
   nested = false,
+  mounted = false,
 }: {
   f: FrameworkSummary;
   onExport: () => void;
   nested?: boolean;
+  mounted?: boolean;
 }) {
-  const { pct, lastUpdated } = computeProgress(f);
+  const progress = mounted ? computeProgress(f) : { pct: 0, completed: 0, total: 0, lastUpdated: undefined as string | undefined };
+  const { pct, lastUpdated } = progress;
   const isActive = f.status === "active";
   return (
     <div
@@ -268,6 +277,9 @@ function Row({
           ) : (
             <span className="font-medium text-slate-700">{f.shortName}</span>
           )}
+          {f.name && f.name !== f.shortName && (
+            <div className="text-xs text-slate-600">{f.name}</div>
+          )}
           <div className="text-xs text-slate-500">
             {f.cadence}
             {!isActive && <span className="ml-2 text-slate-400">· Coming soon</span>}
@@ -291,7 +303,7 @@ function Row({
         )}
       </div>
       <div className="text-sm text-slate-600">
-        {isActive ? formatUpdated(lastUpdated) : ""}
+        {isActive && mounted ? formatUpdated(lastUpdated) : ""}
         {AUTOFILLED_IDS.has(f.id) && (
           <div className="mt-0.5 inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
             Autofilled on 12/02/2026
@@ -319,11 +331,13 @@ function GroupRow({
   open,
   onToggle,
   onExport,
+  mounted = false,
 }: {
   group: FrameworkGroup;
   open: boolean;
   onToggle: () => void;
   onExport: (f: FrameworkSummary) => void;
+  mounted?: boolean;
 }) {
   const activeChildren = group.children.filter((c) => c.status === "active");
   const totalQ = activeChildren.reduce(
@@ -332,11 +346,13 @@ function GroupRow({
   );
   let completedQ = 0;
   let lastUpdated: string | undefined;
-  for (const c of activeChildren) {
-    const p = computeProgress(c);
-    completedQ += p.completed;
-    if (p.lastUpdated && (!lastUpdated || p.lastUpdated > lastUpdated)) {
-      lastUpdated = p.lastUpdated;
+  if (mounted) {
+    for (const c of activeChildren) {
+      const p = computeProgress(c);
+      completedQ += p.completed;
+      if (p.lastUpdated && (!lastUpdated || p.lastUpdated > lastUpdated)) {
+        lastUpdated = p.lastUpdated;
+      }
     }
   }
   const pct = totalQ === 0 ? 0 : Math.round((completedQ / totalQ) * 100);
@@ -372,6 +388,9 @@ function GroupRow({
           )}
           <div className="min-w-0">
             <span className="font-medium text-slate-900">{group.shortName}</span>
+            {group.name && group.name !== group.shortName && (
+              <div className="text-xs text-slate-600">{group.name}</div>
+            )}
             <div className="text-xs text-slate-500">
               {group.cadence}
               <span className="ml-2 text-slate-400">
@@ -388,7 +407,7 @@ function GroupRow({
           </div>
         </div>
         <div className="text-sm text-slate-600">
-          {formatUpdated(lastUpdated)}
+          {mounted ? formatUpdated(lastUpdated) : ""}
           {group.children.some((c) => AUTOFILLED_IDS.has(c.id)) && (
             <div className="mt-0.5 inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
               Autofilled on 12/02/2026
@@ -399,7 +418,7 @@ function GroupRow({
       </button>
       {open &&
         group.children.map((c) => (
-          <Row key={c.id} f={c} onExport={() => onExport(c)} nested />
+          <Row key={c.id} f={c} onExport={() => onExport(c)} nested mounted={mounted} />
         ))}
     </div>
   );
