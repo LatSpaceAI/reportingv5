@@ -338,26 +338,14 @@ export function AssistantPane({
         signal: controller.signal,
       });
 
-      if (!res.ok || !res.body) {
+      if (!res.ok) {
         const msg = await res.text().catch(() => "Request failed");
         throw new Error(msg || `HTTP ${res.status}`);
       }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        let sep: number;
-        while ((sep = buffer.indexOf("\n\n")) !== -1) {
-          const frame = buffer.slice(0, sep);
-          buffer = buffer.slice(sep + 2);
-          handleFrame(frame);
-        }
+      const payload = (await res.json()) as { events: Array<{ event: string; data: unknown }> };
+      for (const ev of payload.events ?? []) {
+        handleEvent(ev.event, ev.data);
       }
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
@@ -373,20 +361,7 @@ export function AssistantPane({
       abortRef.current = null;
     }
 
-    function handleFrame(frame: string) {
-      let event = "message";
-      let dataLine = "";
-      for (const line of frame.split("\n")) {
-        if (line.startsWith("event: ")) event = line.slice(7).trim();
-        else if (line.startsWith("data: ")) dataLine = line.slice(6);
-      }
-      if (!dataLine) return;
-      let data: unknown;
-      try {
-        data = JSON.parse(dataLine);
-      } catch {
-        return;
-      }
+    function handleEvent(event: string, data: unknown) {
       if (event === "retrieved" && Array.isArray(data)) {
         setRetrieving(false);
         const sources = data as RetrievedSource[];
@@ -456,26 +431,14 @@ export function AssistantPane({
         signal: controller.signal,
       });
 
-      if (!res.ok || !res.body) {
+      if (!res.ok) {
         const msg = await res.text().catch(() => "Request failed");
         throw new Error(msg || `HTTP ${res.status}`);
       }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        let sep: number;
-        while ((sep = buffer.indexOf("\n\n")) !== -1) {
-          const frame = buffer.slice(0, sep);
-          buffer = buffer.slice(sep + 2);
-          handleWriteFrame(frame);
-        }
+      const payload = (await res.json()) as { events: Array<{ event: string; data: unknown }> };
+      for (const ev of payload.events ?? []) {
+        handleWriteEvent(ev.event, ev.data);
       }
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
@@ -491,20 +454,7 @@ export function AssistantPane({
       abortRef.current = null;
     }
 
-    function handleWriteFrame(frame: string) {
-      let event = "message";
-      let dataLine = "";
-      for (const line of frame.split("\n")) {
-        if (line.startsWith("event: ")) event = line.slice(7).trim();
-        else if (line.startsWith("data: ")) dataLine = line.slice(6);
-      }
-      if (!dataLine) return;
-      let data: unknown;
-      try {
-        data = JSON.parse(dataLine);
-      } catch {
-        return;
-      }
+    function handleWriteEvent(event: string, data: unknown) {
       if (event === "retrieved" && Array.isArray(data)) {
         setRetrieving(false);
         const sources = data as RetrievedSource[];
