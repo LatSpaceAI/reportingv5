@@ -20,14 +20,15 @@ build/
 .env.*
 
 # Working checkpoint + transient logs from the indexing script (not part of
-# the runtime index — and not something we want bundled into the deploy via
-# outputFileTracingIncludes globbing data/rag/**/*).
-data/rag/**/.contextualized.json
-data/rag/*-build.log
+# the runtime index — and not something we want bundled into the agent-runner
+# tarball that ships into Vercel Sandbox).
+agent-runner/data/rag/**/.contextualized.json
+agent-runner/data/rag/*-build.log
 
-# NOTE: data/rag/<framework>/{chunks,vectors,meta}.json is intentionally NOT
-# ignored — those files are the prebuilt RAG index and must be committed so
-# they ship with the Vercel deployment. Rebuild via:
+# NOTE: agent-runner/data/rag/<framework>/{chunks,vectors,meta}.json is
+# intentionally NOT ignored — those files are the prebuilt RAG index and must
+# be committed so they ship inside the agent-runner tarball that loads into
+# Vercel Sandbox at runtime. Rebuild via:
 #   node scripts/build-index.mjs --framework <id> --force
 
 # Source PDFs for the RAG indices live outside source control to keep the
@@ -45,4 +46,9 @@ logs/
 # Editor / OS
 .vscode/
 Thumbs.db
+
+# Local artifacts from scripts/build-runner-tarball.mjs. The tarball is
+# uploaded to Vercel Blob via CI (or manually with `npm run publish:runner`)
+# and never lives in source control.
+agent-runner-*.tar.gz
 

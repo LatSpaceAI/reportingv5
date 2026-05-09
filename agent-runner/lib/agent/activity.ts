@@ -3,7 +3,7 @@
 // happening (searching guidance, running a web search, fetching a URL, etc.)
 // instead of a single static "thinking" placeholder.
 
-import type { Framework } from "@/lib/anthropic/retrieval";
+import type { Framework } from "../retrieval.js";
 
 export interface AgentActivity {
   // High-level kind drives the icon/color in the UI.

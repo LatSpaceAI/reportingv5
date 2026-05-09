@@ -1,14 +1,12 @@
 # Multi-stage Dockerfile for the CBAM/CDP/BRSR reporting app.
 #
-# The app embeds the Claude Agent SDK, which ships a ~250 MB native Linux
-# binary at node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude.
-# That binary is dynamically linked against glibc, so the runner stage MUST
-# be a glibc base (debian/ubuntu) — alpine/musl will fail at exec time.
-#
-# next.config.mjs sets `output: "standalone"` and traces both
-# @anthropic-ai/claude-agent-sdk + @anthropic-ai/claude-agent-sdk-linux-x64
-# into the route bundle, so the standalone output already contains the SDK
-# binary under .next/standalone/node_modules/...
+# DEPRECATED — kept ONLY so the previous commit (db52df1 "fix: drop SSE…")
+# can still build for emergency rollback. The current architecture moves the
+# Claude Agent SDK into a Vercel Sandbox VM, so the agent binary no longer
+# ships in the route bundle and this Dockerfile will FAIL to build against
+# the current commit (the agent SDK has been removed from package.json and
+# data/rag/ moved to agent-runner/data/rag/). Roll back to the last
+# pre-Vercel-Sandbox commit before attempting `docker build`.
 #
 # Target platform: linux/amd64 (the Agent SDK only ships linux-x64 today).
 

@@ -81,7 +81,7 @@ if (!fwDefaults) {
 }
 
 const PDF_PATH = resolve(PROJECT_ROOT, flagValue("--pdf") ?? fwDefaults.pdfPath);
-const INDEX_DIR = join(PROJECT_ROOT, "data", "rag", FRAMEWORK);
+const INDEX_DIR = join(PROJECT_ROOT, "agent-runner", "data", "rag", FRAMEWORK);
 const SKIP_CONTEXTUAL = SKIP_CONTEXTUAL_FLAG || fwDefaults.skipContextual === true;
 const HEADING_MODE = fwDefaults.headingMode ?? "inline";
 const CHUNKS_PATH = join(INDEX_DIR, "chunks.json");

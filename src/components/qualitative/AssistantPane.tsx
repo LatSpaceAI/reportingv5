@@ -95,7 +95,7 @@ interface RetrievedSource {
 }
 
 // Live activity event — emitted by the route as the agent calls tools.
-// Mirrors AgentActivity in src/lib/anthropic/agent/activity.ts.
+// Mirrors AgentActivity in agent-runner/lib/agent/activity.ts.
 interface AgentActivity {
   kind: "guidance" | "websearch" | "webfetch" | "propose" | "tool";
   label: string;

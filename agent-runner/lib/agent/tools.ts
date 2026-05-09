@@ -1,14 +1,14 @@
 // In-process MCP tools exposed to the Claude Agent SDK. Each request builds
 // its own server via createAgentMcpServer() so the tool handlers can close
 // over per-request callbacks (forwarding retrieved sources / proposals to
-// SSE) and the active framework's RAG index.
+// the runner's NDJSON stream) and the active framework's RAG index.
 //
 // Tool names registered here are surfaced to the agent as
-// `mcp__<framework>__<tool_name>`; the route adds those to allowedTools.
+// `mcp__<framework>__<tool_name>`; the runner adds those to allowedTools.
 
 import { tool, createSdkMcpServer, type SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { search, type Framework, type RetrievedChunk } from "@/lib/anthropic/retrieval";
+import { search, type Framework, type RetrievedChunk } from "../retrieval.js";
 
 export interface RetrievedSource {
   section: string;
@@ -30,11 +30,11 @@ export interface ProposalBlocks {
 
 interface AgentMcpOptions {
   // Called once per `search_guidance` invocation with the surfaced sources, so
-  // the route can stream them to the client as a `retrieved` SSE event.
+  // the runner can stream them to the client as a `retrieved` NDJSON event.
   onSearchHit?: (sources: RetrievedSource[]) => void;
   // Write mode only. When provided, the propose_insert tool is registered.
   // Outline IDs are validated against this set; the proposal is forwarded via
-  // onProposal for the route to emit as a `proposal` SSE event.
+  // onProposal for the runner to emit as a `proposal` NDJSON event.
   outlineIds?: Set<string>;
   onProposal?: (proposal: ProposalBlocks) => void;
 }
@@ -217,7 +217,7 @@ export function createAgentMcpServer(framework: Framework, opts: AgentMcpOptions
   });
 }
 
-// Tool name strings for the route's allowedTools list. Framework-scoped
+// Tool name strings for the runner's allowedTools list. Framework-scoped
 // because the SDK prefixes tool names with the MCP server name.
 export function toolSearchGuidance(framework: Framework): string {
   return `mcp__${framework}__search_guidance`;

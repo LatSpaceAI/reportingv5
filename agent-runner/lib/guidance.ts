@@ -7,7 +7,7 @@
 // and pages. `propose_insert(after_block_id, blocks, rationale)` — write mode
 // only.
 
-import type { Framework } from "@/lib/anthropic/retrieval";
+import type { Framework } from "./retrieval.js";
 
 export type AgentMode = "chat" | "write";
 

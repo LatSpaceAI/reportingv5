@@ -1,23 +1,18 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Slim runner image for container deploys (App Runner / ECS / etc.).
-  // Produces .next/standalone/server.js with only the deps the routes
-  // actually trace into, instead of dragging in all of node_modules.
+  // Standalone output is retained so the Railway/AppRunner Dockerfile still
+  // builds during the cutover week. Once the Vercel + Sandbox deployment is
+  // proven in production, the Dockerfile/railway.json/standalone output can
+  // all be removed together.
   output: "standalone",
+  // The agent SDK and RAG index now live inside agent-runner/, which ships
+  // into Vercel Sandbox at request time — neither needs to be traced into
+  // any Next route bundle. The dispatcher routes only depend on
+  // @vercel/sandbox which Next traces automatically.
   experimental: {
-    outputFileTracingIncludes: {
-      // Both AI routes call into the prebuilt RAG index (chat directly,
-      // write via the search_guidance MCP tool).
-      "/api/chat": [
-        "./data/rag/**/*",
-        "./node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/**/*",
-        "./node_modules/@anthropic-ai/claude-agent-sdk/**/*",
-      ],
-      "/api/write": [
-        "./data/rag/**/*",
-        "./node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/**/*",
-        "./node_modules/@anthropic-ai/claude-agent-sdk/**/*",
-      ],
+    // Keep agent-runner out of the Next build entirely.
+    outputFileTracingExcludes: {
+      "*": ["./agent-runner/**/*"],
     },
   },
 };

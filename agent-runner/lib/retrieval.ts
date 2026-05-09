@@ -1,10 +1,11 @@
 // Retrieval module — loads the prebuilt RAG index (chunks + dense vectors +
-// BM25) once per server process and exposes a hybrid search() that fuses
-// dense + sparse results via Reciprocal Rank Fusion.
+// BM25) once per process and exposes a hybrid search() that fuses dense +
+// sparse results via Reciprocal Rank Fusion.
 //
 // The index is built offline by scripts/build-index.mjs and lives in
-// data/rag/<framework>/. On Vercel the data/ directory is bundled with the
-// route via outputFileTracingIncludes in next.config.mjs.
+// agent-runner/data/rag/<framework>/. Inside the Vercel Sandbox the runner is
+// extracted to /vercel/sandbox, so process.cwd() resolves to that path and
+// the index files load from /vercel/sandbox/data/rag/<framework>/...
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
