@@ -1,13 +1,10 @@
 // Helper that boots a Vercel Sandbox, runs the agent runner inside it, and
 // streams the runner's stdout (NDJSON) back to the browser as a Response.
 //
-// This is the single place in the app where we cross the security boundary:
-// the dispatcher (running on Vercel) never passes API keys into the sandbox.
-// Keys are injected at the network layer via the firewall's transform rule,
-// so even if the agent emits process.env to its output it will not leak our
-// secrets.
-//
-// See secure-deployment guidance:
+// Currently runs in a degraded security mode — see the SECURITY DOWNGRADE
+// comment above getNetworkPolicy() for what's broken and what the recovery
+// plan looks like. The original design (and what we should restore) is in
+// the secure-deployment guidance:
 //   https://code.claude.com/docs/en/agent-sdk/secure-deployment
 
 import { Sandbox } from "@vercel/sandbox";
@@ -57,24 +54,39 @@ function buildCreateParams(timeout: number, env: Record<string, string>, network
   );
 }
 
+// ⚠️ SECURITY DOWNGRADE (intentional, temporary)
+//
+// We originally configured this with `transform` rules that injected the
+// API keys at the network layer (credential brokering). The Vercel Sandbox
+// API rejected those payloads with HTTP 400 in production — most likely
+// because credential brokering requires a team-level permission that's
+// not yet enabled, even on Pro. See logs from 2026-05-09:
+//   POST vercel.com/api/v1/sandboxes → 400
+//
+// Until brokering is enabled (open a Vercel support ticket), or we move
+// to @vercel/sandbox@beta which has the matchers/transforms typed
+// properly, we fall back to a plain domain allow-list and pass the API
+// keys directly into the sandbox env (see dispatchToSandbox).
+//
+// The firewall still blocks all egress except these two hosts, so the
+// blast radius if the agent misbehaves is limited to those endpoints —
+// but the keys do live in process.env inside the VM, which means a
+// prompt-injection that gets the model to print env could leak them.
+//
+// To restore the original boundary later: re-add the `transform` shape
+// shown in the commented reference, AND remove ANTHROPIC_API_KEY /
+// VOYAGE_API_KEY from the env object in dispatchToSandbox().
+//
+// Reference: the original (broken) shape was
+//   {
+//     allow: {
+//       "api.anthropic.com": [{ transform: [{ headers: { "x-api-key": anthropicKey } }] }],
+//       "api.voyageai.com":  [{ transform: [{ headers: { Authorization: `Bearer ${voyageKey}` } }] }],
+//     },
+//   }
 function getNetworkPolicy() {
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  const voyageKey = process.env.VOYAGE_API_KEY;
-  if (!anthropicKey) throw new Error("ANTHROPIC_API_KEY is not set");
-  if (!voyageKey) throw new Error("VOYAGE_API_KEY is not set");
-
-  // Credential brokering: the firewall TLS-terminates traffic to these two
-  // hosts and rewrites the auth header. The sandbox env intentionally has no
-  // copy of the keys — the agent cannot exfiltrate what it never sees.
   return {
-    allow: {
-      "api.anthropic.com": [
-        { transform: [{ headers: { "x-api-key": anthropicKey } }] },
-      ],
-      "api.voyageai.com": [
-        { transform: [{ headers: { Authorization: `Bearer ${voyageKey}` } }] },
-      ],
-    },
+    allow: ["api.anthropic.com", "api.voyageai.com"],
   };
 }
 
@@ -95,14 +107,21 @@ function errorResponse(message: string, status = 500): Response {
 export async function dispatchToSandbox(opts: DispatchOptions): Promise<Response> {
   const timeout = opts.timeoutMs ?? 600_000;
 
-  // The `transform` rule shape on networkPolicy.allow is documented but the
-  // published SDK types don't include it on the public NetworkPolicy union
-  // until @vercel/sandbox@beta. We pass the documented shape through and let
-  // buildCreateParams cast it for the SDK call.
+  // ⚠️ See SECURITY DOWNGRADE comment above getNetworkPolicy(). These keys
+  // are passed into the sandbox env temporarily because credential brokering
+  // is currently rejected by the Sandbox API with HTTP 400. Remove these
+  // two env entries (and the key reads) once the firewall transform rules
+  // work again.
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const voyageKey = process.env.VOYAGE_API_KEY;
+  if (!anthropicKey) throw new Error("ANTHROPIC_API_KEY is not set");
+  if (!voyageKey) throw new Error("VOYAGE_API_KEY is not set");
+
   const env = {
     NODE_ENV: "production",
     JOB_JSON: JSON.stringify(opts.job),
-    // No ANTHROPIC_API_KEY, no VOYAGE_API_KEY — the firewall injects them.
+    ANTHROPIC_API_KEY: anthropicKey,
+    VOYAGE_API_KEY: voyageKey,
   };
 
   let sandbox;
@@ -118,8 +137,38 @@ export async function dispatchToSandbox(opts: DispatchOptions): Promise<Response
   } catch (err) {
     // Best-effort cleanup if Sandbox.create succeeded but runCommand failed.
     if (sandbox) void sandbox.stop().catch(() => {});
-    const message = err instanceof Error ? err.message : String(err);
-    return errorResponse(`Sandbox dispatch failed: ${message}`);
+
+    // The Sandbox SDK throws APIError instances that carry the full HTTP
+    // response (status, json body, text body, sandbox id). We extract those
+    // for two reasons: (1) put the rich detail in the server logs so we can
+    // diagnose failures from Vercel's function logs, (2) surface enough to
+    // the client that the user knows whether to retry vs report.
+    type ApiErrorish = Error & {
+      response?: { status?: number; statusText?: string };
+      json?: unknown;
+      text?: string;
+      sandboxId?: string;
+    };
+    const e = err as ApiErrorish;
+    const status = e.response?.status;
+    const bodyDetail =
+      e.json !== undefined ? JSON.stringify(e.json) :
+      typeof e.text === "string" && e.text.length > 0 ? e.text :
+      undefined;
+
+    // Server-side log — visible in Vercel → Project → Logs.
+    console.error("[dispatch] Sandbox.create or runCommand failed", {
+      status,
+      statusText: e.response?.statusText,
+      message: e.message,
+      body: bodyDetail,
+      sandboxId: e.sandboxId,
+    });
+
+    const clientMessage = bodyDetail
+      ? `Sandbox dispatch failed (${status ?? "?"}): ${bodyDetail}`
+      : `Sandbox dispatch failed: ${e.message ?? String(err)}`;
+    return errorResponse(clientMessage);
   }
 
   const encoder = new TextEncoder();
