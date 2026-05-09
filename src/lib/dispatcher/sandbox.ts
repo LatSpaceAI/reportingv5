@@ -86,7 +86,19 @@ function buildCreateParams(timeout: number, env: Record<string, string>, network
 //   }
 function getNetworkPolicy() {
   return {
-    allow: ["api.anthropic.com", "api.voyageai.com"],
+    allow: [
+      // Anthropic + Voyage are what the agent actually calls.
+      "api.anthropic.com",
+      "api.voyageai.com",
+      // The sandbox needs to fetch its source tarball from Vercel Blob
+      // during boot. The firewall's User-defined mode denies all traffic
+      // by default — *including DNS* — so we must explicitly allow the
+      // Blob host or the sandbox can never start. Symptom of forgetting:
+      // exitCode 6 ("Couldn't resolve host") in the create response.
+      // Wildcard covers all public Blob stores; harmless if we don't use
+      // others.
+      "*.public.blob.vercel-storage.com",
+    ],
   };
 }
 
@@ -128,9 +140,14 @@ export async function dispatchToSandbox(opts: DispatchOptions): Promise<Response
   let cmd;
   try {
     sandbox = await Sandbox.create(buildCreateParams(timeout, env, getNetworkPolicy()));
+    // Invoke tsx directly from the local node_modules instead of via `npx`.
+    // npx can do a network lookup against registry.npmjs.org even when the
+    // binary is already installed locally; we'd then have to allowlist the
+    // npm registry in the firewall too. The tarball includes the binary at
+    // ./node_modules/.bin/tsx, so we run it directly.
     cmd = await sandbox.runCommand({
-      cmd: "npx",
-      args: ["tsx", "runner.ts"],
+      cmd: "./node_modules/.bin/tsx",
+      args: ["runner.ts"],
       cwd: "/vercel/sandbox",
       detached: true,
     });
