@@ -130,11 +130,14 @@ export async function handleChat(job: ChatJob, emit: EmitFn): Promise<void> {
       allowDangerouslySkipPermissions: true,
       persistSession: false,
       includePartialMessages: false,
-      // 8 turns gives the model enough room to: search the guidance,
-      // refine the query, search again if needed, then answer. With Pro's
-      // 800 s function ceiling we have plenty of wall time. Drop to 4 on
-      // Hobby — see DEPLOY.md plan tuning.
-      maxTurns: 8,
+      // 16 turns. Compound regulatory questions sometimes need a long
+      // chain — search guidance, refine query, cross-reference an
+      // external standard via WebSearch, fetch a specific page, then
+      // synthesize. Pro's 800 s function ceiling gives us plenty of
+      // wall time for this; the bigger risk at high turn counts is
+      // tokens, not seconds. Drop to 4 on Hobby — see DEPLOY.md plan
+      // tuning.
+      maxTurns: 16,
       abortController,
       env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: `${framework}-app/1.0` },
     },
