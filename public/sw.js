@@ -7,7 +7,7 @@
  *     in the background.
  */
 
-const CACHE = "cbam-v1";
+const CACHE = "cbam-v2";
 const PRECACHE = ["/", "/cbam-template.xlsx", "/latspace-logo.svg"];
 
 self.addEventListener("install", (event) => {
