@@ -4,8 +4,8 @@ import { resolveRagFramework } from "@/lib/dispatcher/frameworks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// See chat/route.ts for the rationale on 60 — Hobby plan ceiling.
-export const maxDuration = 60;
+// See chat/route.ts for the 800 s rationale (Pro Fluid Compute streaming cap).
+export const maxDuration = 800;
 
 interface OutlineItem {
   id: string;

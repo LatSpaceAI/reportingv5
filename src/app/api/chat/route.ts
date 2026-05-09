@@ -4,14 +4,12 @@ import { resolveRagFramework } from "@/lib/dispatcher/frameworks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// Vercel Hobby plan caps function execution at 60 s. The dispatcher route
-// holds the response stream open for the whole agent run, so 60 s is also
-// the hard ceiling on how long the agent gets to think before Vercel kills
-// the function and the user sees a truncated answer. To keep agent runs
-// under that ceiling we cap maxTurns aggressively in the runner — see
-// agent-runner/modes/{chat,write}.ts. When upgrading to Pro, raise this to
-// 800 (Pro Fluid Compute streaming cap) and re-loosen maxTurns.
-export const maxDuration = 60;
+// Vercel Pro Fluid Compute streaming cap. The dispatcher route holds the
+// response stream open for the whole agent run; the sandbox itself can run
+// much longer (up to 5 hours on Pro), but the route can only stream for
+// maxDuration seconds before Vercel closes the function. 800 s is the cap.
+// On Hobby this drops to 60 s, see the `Plan tuning` section in DEPLOY.md.
+export const maxDuration = 800;
 
 interface ChatMessage {
   role: "user" | "assistant";

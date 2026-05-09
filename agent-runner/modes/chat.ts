@@ -130,11 +130,11 @@ export async function handleChat(job: ChatJob, emit: EmitFn): Promise<void> {
       allowDangerouslySkipPermissions: true,
       persistSession: false,
       includePartialMessages: false,
-      // Hobby plan ceiling: dispatcher route gets 60 s before Vercel kills
-      // the stream. 4 turns is enough for "search guidance once or twice,
-      // then answer" — more than that and we bust the window. Raise to 8
-      // when moving to Pro (maxDuration: 800).
-      maxTurns: 4,
+      // 8 turns gives the model enough room to: search the guidance,
+      // refine the query, search again if needed, then answer. With Pro's
+      // 800 s function ceiling we have plenty of wall time. Drop to 4 on
+      // Hobby — see DEPLOY.md plan tuning.
+      maxTurns: 8,
       abortController,
       env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: `${framework}-app/1.0` },
     },

@@ -14,10 +14,12 @@ import { Sandbox } from "@vercel/sandbox";
 
 export interface DispatchOptions {
   job: unknown;                 // serialized into JOB_JSON env var
-  // Hard cap on sandbox lifetime. Default tracks Vercel Hobby's 60 s
-  // function maxDuration with a small buffer for VM cleanup — keeping the
-  // sandbox alive longer than the dispatcher just burns CPU minutes from
-  // the 5-hour/month Hobby budget. Raise to 600_000 (10 min) on Pro.
+  // Hard cap on sandbox lifetime. Default 10 min on Pro — comfortably
+  // within the 800 s function streaming cap, with extra headroom in case
+  // the dispatcher ever extends its own timeout. The dispatcher's
+  // `finally` and `cancel()` already call sandbox.stop() on stream end
+  // and disconnect, so this is a backstop, not the primary kill switch.
+  // On Hobby this should be ~90_000 (90 s) — see DEPLOY.md plan tuning.
   timeoutMs?: number;
 }
 
@@ -91,7 +93,7 @@ function errorResponse(message: string, status = 500): Response {
 }
 
 export async function dispatchToSandbox(opts: DispatchOptions): Promise<Response> {
-  const timeout = opts.timeoutMs ?? 90_000;
+  const timeout = opts.timeoutMs ?? 600_000;
 
   // The `transform` rule shape on networkPolicy.allow is documented but the
   // published SDK types don't include it on the public NetworkPolicy union
