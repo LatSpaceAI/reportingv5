@@ -457,7 +457,27 @@ export function Questionnaire({
         version={version}
         onExport={onExport}
       />
-      <QuestionnaireTabs tab={tab} onChange={setTab} />
+      <QuestionnaireTabs
+        tab={tab}
+        onChange={setTab}
+        rightSlot={
+          withSOT && tab === "requirements" ? (
+            <button
+              type="button"
+              onClick={() => {
+                alert("Add requirement: coming soon.");
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              title="Add a new requirement"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Add requirement
+            </button>
+          ) : null
+        }
+      />
       {tab === "requirements" ? (
         withSOT ? (
           <CalculatedRequirementsView
@@ -554,9 +574,11 @@ export function Questionnaire({
 function QuestionnaireTabs({
   tab,
   onChange,
+  rightSlot,
 }: {
   tab: "requirements" | "document";
   onChange: (t: "requirements" | "document") => void;
+  rightSlot?: React.ReactNode;
 }) {
   const labels: Record<"requirements" | "document", string> = {
     requirements: "Requirements",
@@ -564,20 +586,23 @@ function QuestionnaireTabs({
   };
   return (
     <div className="border-b border-slate-200 bg-white px-6">
-      <div className="flex gap-6 text-sm">
-        {(["requirements", "document"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => onChange(t)}
-            className={`-mb-px border-b-2 py-2.5 ${
-              tab === t
-                ? "border-brand font-medium text-slate-900"
-                : "border-transparent text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            {labels[t]}
-          </button>
-        ))}
+      <div className="flex items-center justify-between">
+        <div className="flex gap-6 text-sm">
+          {(["requirements", "document"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => onChange(t)}
+              className={`-mb-px border-b-2 py-2.5 ${
+                tab === t
+                  ? "border-brand font-medium text-slate-900"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              {labels[t]}
+            </button>
+          ))}
+        </div>
+        {rightSlot && <div className="py-1.5">{rightSlot}</div>}
       </div>
     </div>
   );
@@ -821,36 +846,9 @@ function CalculatedRequirementsView({
             <path d="m21 21-4.3-4.3" strokeLinecap="round" />
           </svg>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500">
-            {filtered.length} of {calculatedValues.length}
-          </span>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            title="Add a new requirement"
-            onClick={() => {
-              // Placeholder hook — wiring goes in a follow-up.
-              alert("Add requirement: coming soon.");
-            }}
-          >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Add requirement
-          </button>
-          <button
-            type="button"
-            className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
-            title="More actions"
-          >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="5" cy="12" r="1" />
-              <circle cx="12" cy="12" r="1" />
-              <circle cx="19" cy="12" r="1" />
-            </svg>
-          </button>
-        </div>
+        <span className="text-xs text-slate-500">
+          {filtered.length} of {calculatedValues.length}
+        </span>
       </div>
       <div className="flex-1 overflow-auto">
         <table className="w-full text-sm">
