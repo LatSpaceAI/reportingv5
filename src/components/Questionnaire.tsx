@@ -8,11 +8,16 @@ import { AssistantPane } from "@/components/qualitative/AssistantPane";
 import { initials, mockUsers, readAssignees, writeAssignees, type Assignees } from "@/lib/storage";
 import {
   calculatedValues,
+  calculatedById,
   calculatedForField,
   calculatedForRow,
   sotRowsForTableQuestion,
   sotValuesForFieldsQuestion,
+  readUserTargets,
+  writeUserTargets,
+  type UserTarget,
 } from "@/lib/cbamSOT";
+import { PickerPopover } from "@/components/qualitative/PickerPopover";
 
 type Status = "not-started" | "in-progress" | "completed";
 
@@ -324,6 +329,32 @@ export function Questionnaire({
   const [tab, setTab] = useState<"requirements" | "document">("document");
   const [reqFocusId, setReqFocusId] = useState<string | null>(null);
 
+  // Runtime-added (user-picked) targets for SOT calculated values. Stored
+  // separately from `answers` so the calculatedRef logic can render them in
+  // blue and the Requirements table can list them under Location in Report.
+  const [userTargets, setUserTargetsState] = useState<UserTarget[]>([]);
+  useEffect(() => {
+    if (!withSOT) return;
+    setUserTargetsState(readUserTargets());
+  }, [withSOT]);
+  const persistUserTargets = useCallback((next: UserTarget[]) => {
+    setUserTargetsState(next);
+    writeUserTargets(next);
+  }, []);
+
+  // Tracks which number cell is currently focused (or was the last one to
+  // receive focus, until something steals focus elsewhere). Carries enough
+  // info to write back into the answers store + anchor the picker.
+  type FocusedCell = {
+    questionId: string;
+    fieldId: string;
+    rowIndex?: number;
+    rect: DOMRect;
+  };
+  const [focusedCell, setFocusedCell] = useState<FocusedCell | null>(null);
+  // Open state of the Add-requirement picker. Anchored at the focused cell.
+  const [pickerOpen, setPickerOpen] = useState(false);
+
   // Switch to Requirements tab and focus the row for a given calculated value.
   const jumpToRequirement = useCallback((valueId: string) => {
     setReqFocusId(valueId);
@@ -335,25 +366,92 @@ export function Questionnaire({
     }, 50);
   }, []);
 
-  // Build a (qid, fid) → CalculatedRef builder, only for CBAM.
+  // Build a (qid, fid) → CalculatedRef builder, only for CBAM. Combines the
+  // static SOT mapping with any user-added picks.
   const calcFieldRef = useCallback(
     (qid: string, fid: string): CalculatedRef | null => {
       if (!withSOT) return null;
       const v = calculatedForField(qid, fid);
-      if (!v) return null;
-      return { valueId: v.id, label: v.label, source: v.source, onJump: jumpToRequirement };
+      if (v) {
+        return { valueId: v.id, label: v.label, source: v.source, onJump: jumpToRequirement };
+      }
+      const ut = userTargets.find(
+        (t) => t.questionId === qid && t.fieldId === fid && t.rowIndex === undefined
+      );
+      if (ut) {
+        const cv = calculatedById.get(ut.valueId);
+        if (cv) return { valueId: cv.id, label: cv.label, source: cv.source, onJump: jumpToRequirement };
+      }
+      return null;
     },
-    [withSOT, jumpToRequirement]
+    [withSOT, jumpToRequirement, userTargets]
   );
 
   const calcRowRef = useCallback(
     (qid: string, rowIdx: number, cid: string): CalculatedRef | null => {
       if (!withSOT) return null;
       const v = calculatedForRow(qid, cid, rowIdx);
-      if (!v) return null;
-      return { valueId: v.id, label: v.label, source: v.source, onJump: jumpToRequirement };
+      if (v) {
+        return { valueId: v.id, label: v.label, source: v.source, onJump: jumpToRequirement };
+      }
+      const ut = userTargets.find(
+        (t) => t.questionId === qid && t.fieldId === cid && t.rowIndex === rowIdx
+      );
+      if (ut) {
+        const cv = calculatedById.get(ut.valueId);
+        if (cv) return { valueId: cv.id, label: cv.label, source: cv.source, onJump: jumpToRequirement };
+      }
+      return null;
     },
-    [withSOT, jumpToRequirement]
+    [withSOT, jumpToRequirement, userTargets]
+  );
+
+  // Apply a chosen calculated value into the currently focused cell:
+  //   1. Write the value into answers (so it persists like any other entry).
+  //   2. Record the (qid, fid, rowIdx?) → valueId user target.
+  const applyPick = useCallback(
+    (valueId: string) => {
+      const cv = calculatedById.get(valueId);
+      const cell = focusedCell;
+      if (!cv || !cell) return;
+      // Write into answers.
+      setAnswers((prev) => {
+        const cur = prev[cell.questionId];
+        if (!cur) return prev;
+        if (cell.rowIndex === undefined) {
+          const values = { ...cur.values, [cell.fieldId]: cv.value };
+          return {
+            ...prev,
+            [cell.questionId]: { ...cur, values, updatedAt: new Date().toISOString() },
+          };
+        }
+        const rows = cur.rows.map((r, i) =>
+          i === cell.rowIndex ? { ...r, [cell.fieldId]: cv.value } : r
+        );
+        return {
+          ...prev,
+          [cell.questionId]: { ...cur, rows, updatedAt: new Date().toISOString() },
+        };
+      });
+      // Record the user target (idempotent — replace if same cell already mapped).
+      const next = userTargets.filter(
+        (t) =>
+          !(
+            t.questionId === cell.questionId &&
+            t.fieldId === cell.fieldId &&
+            t.rowIndex === cell.rowIndex
+          )
+      );
+      next.push({
+        valueId,
+        questionId: cell.questionId,
+        fieldId: cell.fieldId,
+        rowIndex: cell.rowIndex,
+      });
+      persistUserTargets(next);
+      setPickerOpen(false);
+    },
+    [focusedCell, userTargets, persistUserTargets]
   );
 
   const active = allQuestions.find((x) => x.q.id === activeId)!;
@@ -464,11 +562,16 @@ export function Questionnaire({
           withSOT ? (
             <button
               type="button"
-              onClick={() => {
-                alert("Add requirement: coming soon.");
-              }}
-              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              title="Add a new requirement"
+              disabled={!focusedCell || tab !== "document"}
+              onClick={() => setPickerOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              title={
+                tab !== "document"
+                  ? "Switch to the Document tab and click a number field first."
+                  : focusedCell
+                  ? "Pick a calculated value to insert into this field"
+                  : "Click a number field on the Document tab first"
+              }
             >
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
@@ -478,12 +581,31 @@ export function Questionnaire({
           ) : null
         }
       />
+      {withSOT && pickerOpen && focusedCell && (
+        <PickerPopover
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          title="Insert calculated value"
+          items={calculatedValues.map((v) => ({
+            id: v.id,
+            primary: v.label,
+            secondary: `${v.value.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${v.unit} · ${v.sotSection}`,
+          }))}
+          onPick={(id) => applyPick(id)}
+          position={{
+            top: Math.min(window.innerHeight - 360, focusedCell.rect.bottom + 6),
+            left: Math.min(window.innerWidth - 340, focusedCell.rect.left),
+          }}
+          emptyLabel="No calculated values match your search."
+        />
+      )}
       {tab === "requirements" ? (
         withSOT ? (
           <CalculatedRequirementsView
             sections={sections}
             answers={answers}
             focusId={reqFocusId}
+            userTargets={userTargets}
             onJumpToReport={(qid) => {
               setActiveId(qid);
               setTab("document");
@@ -546,6 +668,17 @@ export function Questionnaire({
           computeCtx={computeCtx}
           calcFieldRef={(fid) => calcFieldRef(active.q.id, fid)}
           calcRowRef={(rowIdx, cid) => calcRowRef(active.q.id, rowIdx, cid)}
+          onFieldFocus={
+            withSOT
+              ? (fid, rect) => setFocusedCell({ questionId: active.q.id, fieldId: fid, rect })
+              : undefined
+          }
+          onCellFocus={
+            withSOT
+              ? (rowIdx, cid, rect) =>
+                  setFocusedCell({ questionId: active.q.id, fieldId: cid, rowIndex: rowIdx, rect })
+              : undefined
+          }
         />
         {panes.rightCollapsed ? (
           <CollapsedRail
@@ -780,11 +913,13 @@ function CalculatedRequirementsView({
   answers,
   focusId,
   onJumpToReport,
+  userTargets,
 }: {
   sections: Section[];
   answers: Record<string, QuestionState>;
   focusId: string | null;
   onJumpToReport: (questionId: string) => void;
+  userTargets: UserTarget[];
 }) {
   const [search, setSearch] = useState("");
 
@@ -889,32 +1024,61 @@ function CalculatedRequirementsView({
                     <span className="font-medium text-blue-700">{formatValue(v.value, v.unit)}</span>
                   </td>
                   <td className="px-4 py-3 align-top text-slate-700">
-                    {v.targets.length === 0 ? (
-                      <span className="italic text-slate-400">Not tagged yet</span>
-                    ) : (
-                      <ul className="space-y-0.5">
-                        {v.targets.map((t, idx) => {
-                          const qInfo = questionById.get(t.questionId);
-                          const sectionShort = qInfo?.sectionTitle.replace(/^[A-Z]+\.\s*/, "") ?? "";
-                          const label =
-                            qInfo?.questionLabel ?? t.questionId;
-                          const rowSuffix =
-                            t.rowIndex !== undefined ? ` · row ${t.rowIndex + 1}` : "";
-                          return (
-                            <li key={idx}>
-                              <button
-                                onClick={() => onJumpToReport(t.questionId)}
-                                className="text-left text-sm text-slate-700 hover:text-blue-700 hover:underline"
-                                title={`Open ${qInfo?.questionLabel ?? t.questionId} in the report`}
-                              >
-                                {sectionShort} / {label}
-                                <span className="text-slate-500">{rowSuffix}</span>
-                              </button>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
+                    {(() => {
+                      // Built-in SOT targets + any runtime user picks for this value.
+                      const extras = userTargets
+                        .filter((t) => t.valueId === v.id)
+                        .filter(
+                          (t) =>
+                            !v.targets.some(
+                              (b) =>
+                                b.questionId === t.questionId &&
+                                b.fieldId === t.fieldId &&
+                                b.rowIndex === t.rowIndex
+                            )
+                        )
+                        .map((t) => ({
+                          questionId: t.questionId,
+                          fieldId: t.fieldId,
+                          rowIndex: t.rowIndex,
+                          userAdded: true as const,
+                        }));
+                      const all = [
+                        ...v.targets.map((t) => ({ ...t, userAdded: false as const })),
+                        ...extras,
+                      ];
+                      if (all.length === 0) {
+                        return <span className="italic text-slate-400">Not tagged yet</span>;
+                      }
+                      return (
+                        <ul className="space-y-0.5">
+                          {all.map((t, idx) => {
+                            const qInfo = questionById.get(t.questionId);
+                            const sectionShort = qInfo?.sectionTitle.replace(/^[A-Z]+\.\s*/, "") ?? "";
+                            const label = qInfo?.questionLabel ?? t.questionId;
+                            const rowSuffix =
+                              t.rowIndex !== undefined ? ` · row ${t.rowIndex + 1}` : "";
+                            return (
+                              <li key={idx}>
+                                <button
+                                  onClick={() => onJumpToReport(t.questionId)}
+                                  className="text-left text-sm text-slate-700 hover:text-blue-700 hover:underline"
+                                  title={`Open ${qInfo?.questionLabel ?? t.questionId} in the report`}
+                                >
+                                  {sectionShort} / {label}
+                                  <span className="text-slate-500">{rowSuffix}</span>
+                                  {t.userAdded && (
+                                    <span className="ml-1 rounded-sm bg-blue-100 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-blue-700">
+                                      Added
+                                    </span>
+                                  )}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      );
+                    })()}
                   </td>
                   <td className="truncate px-4 py-3 align-top text-slate-500">{createdAt}</td>
                 </tr>
@@ -1229,6 +1393,8 @@ function QuestionPanel({
   computeCtx,
   calcFieldRef,
   calcRowRef,
+  onFieldFocus,
+  onCellFocus,
 }: {
   section: Section;
   question: Question;
@@ -1243,6 +1409,8 @@ function QuestionPanel({
   computeCtx: ComputeContext;
   calcFieldRef?: (fieldId: string) => CalculatedRef | null;
   calcRowRef?: (rowIndex: number, columnId: string) => CalculatedRef | null;
+  onFieldFocus?: (fieldId: string, rect: DOMRect) => void;
+  onCellFocus?: (rowIndex: number, columnId: string, rect: DOMRect) => void;
 }) {
   const valid = canComplete(question, state);
   return (
@@ -1289,6 +1457,7 @@ function QuestionPanel({
               onChange={onValues}
               computeCtx={computeCtx}
               calcFieldRef={calcFieldRef}
+              onFieldFocus={onFieldFocus}
             />
           ) : (
             <TableField
@@ -1299,6 +1468,7 @@ function QuestionPanel({
               calculatedRef={
                 calcRowRef ? (rowIdx, cid) => calcRowRef(rowIdx, cid) : undefined
               }
+              onCellFocus={onCellFocus}
             />
           )}
         </div>
@@ -1350,12 +1520,14 @@ function FieldsForm({
   onChange,
   computeCtx,
   calcFieldRef,
+  onFieldFocus,
 }: {
   q: FieldsQuestion;
   values: RowValues;
   onChange: (v: RowValues) => void;
   computeCtx?: ComputeContext;
   calcFieldRef?: (fieldId: string) => CalculatedRef | null;
+  onFieldFocus?: (fieldId: string, rect: DOMRect) => void;
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1372,6 +1544,7 @@ function FieldsForm({
               onChange={(v) => onChange({ ...values, [f.id]: v })}
               computeCtx={computeCtx}
               calculatedRef={calc}
+              onNumberFocus={onFieldFocus ? (rect) => onFieldFocus(f.id, rect) : undefined}
             />
             <FieldHelp field={f} />
           </div>

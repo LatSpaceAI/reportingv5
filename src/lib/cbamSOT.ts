@@ -623,6 +623,36 @@ export const calculatedById = new Map<string, CalculatedValue>(
   calculatedValues.map((v) => [v.id, v])
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Runtime-added targets — set by the user when they pick a calculated value
+// into a number field via the "+ Add requirement" picker. Persisted in
+// localStorage so the linkage survives reloads.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const USER_TARGETS_KEY = "cbam-app/calculated-user-targets/v1";
+
+export interface UserTarget {
+  valueId: string;
+  questionId: string;
+  fieldId: string;
+  rowIndex?: number;
+}
+
+export function readUserTargets(): UserTarget[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(USER_TARGETS_KEY);
+    return raw ? (JSON.parse(raw) as UserTarget[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function writeUserTargets(ts: UserTarget[]): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(USER_TARGETS_KEY, JSON.stringify(ts));
+}
+
 /**
  * Build the initial `values` map for a `fields` question, prefilled from SOT.
  * Returns null if no fields are calculated for that question.
