@@ -5,11 +5,30 @@ import { CBAM_ANSWERS_KEY, readAnswers } from "@/lib/storage";
 
 const TEMPLATE_URL = "/cbam-template.xlsx";
 
+export type ExportPeriod =
+  | { kind: "annual"; year: number }
+  | { kind: "quarter"; year: number; quarter: 1 | 2 | 3 | 4 };
+
+function quarterRange(p: { year: number; quarter: 1 | 2 | 3 | 4 }) {
+  const startMonth = (p.quarter - 1) * 3; // 0,3,6,9
+  const start = new Date(Date.UTC(p.year, startMonth, 1));
+  const end = new Date(Date.UTC(p.year, startMonth + 3, 0)); // last day of last month
+  return { start, end };
+}
+
+function periodLabel(p: ExportPeriod): string {
+  if (p.kind === "annual") return `Annual-${p.year}`;
+  return `Q${p.quarter}-${p.year}`;
+}
+
 /**
  * Load the template, fill every binding from the stored answers, and trigger a
  * download. All work happens in the browser; no data leaves the device.
+ *
+ * When `period` is provided, the reporting-period cells in A_InstData (I9
+ * start, L9 end) are stamped accordingly and the filename includes the period.
  */
-export async function exportCbamFilled(): Promise<void> {
+export async function exportCbamFilled(period?: ExportPeriod): Promise<void> {
   const [ExcelJSMod, FileSaverMod] = await Promise.all([
     import("exceljs"),
     import("file-saver"),
@@ -40,8 +59,26 @@ export async function exportCbamFilled(): Promise<void> {
     }
   }
 
+  // Period override — stamp the reporting period cells if the caller picked a
+  // period explicitly via the export dialog. Overrides any A.1 entries.
+  if (period) {
+    const sheet = wb.getWorksheet("A_InstData");
+    if (sheet) {
+      let start: Date;
+      let end: Date;
+      if (period.kind === "annual") {
+        start = new Date(Date.UTC(period.year, 0, 1));
+        end = new Date(Date.UTC(period.year, 11, 31));
+      } else {
+        ({ start, end } = quarterRange(period));
+      }
+      sheet.getCell("I9").value = start;
+      sheet.getCell("L9").value = end;
+    }
+  }
+
   const out = await wb.xlsx.writeBuffer();
-  const stamp = new Date().toISOString().slice(0, 10);
+  const stamp = period ? periodLabel(period) : new Date().toISOString().slice(0, 10);
   saveAs(new Blob([out]), `CBAM-Communication-${stamp}.xlsx`);
 }
 
