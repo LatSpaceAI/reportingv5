@@ -461,7 +461,7 @@ export function Questionnaire({
         tab={tab}
         onChange={setTab}
         rightSlot={
-          withSOT && tab === "requirements" ? (
+          withSOT ? (
             <button
               type="button"
               onClick={() => {
