@@ -276,6 +276,7 @@ export const sections: Section[] = [
           { id: "good", kind: "selectGood", label: "Aggregated good", required: true },
           { id: "output", kind: "number", label: "Output", min: 0, unit: "t" },
           { id: "directEm", kind: "number", label: "Attributed direct emissions", min: 0, unit: "tCO₂e" },
+          { id: "indirectEm", kind: "number", label: "Attributed indirect emissions", min: 0, unit: "tCO₂e" },
           { id: "heatProduced", kind: "number", label: "Heat produced", min: 0, unit: "TJ" },
           { id: "heatConsumed", kind: "number", label: "Heat consumed", min: 0, unit: "TJ" },
           { id: "heatImported", kind: "number", label: "Heat imported", min: 0, unit: "TJ" },

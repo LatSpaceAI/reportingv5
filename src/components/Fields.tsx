@@ -17,6 +17,20 @@ function optionsForField(field: Field, siblings?: RowValues): readonly string[] 
   return [];
 }
 
+/**
+ * `calculatedRef` flags a field whose value is sourced from the SOT (Hindalco
+ * Renukoot calculation workbook). When present:
+ *   - The input renders in blue with an underline on hover.
+ *   - A small jump-to-Requirements button appears next to it.
+ *   - Hover title shows the calculation source + provenance.
+ */
+export interface CalculatedRef {
+  valueId: string;
+  label: string;
+  source: string;
+  onJump: (valueId: string) => void;
+}
+
 interface FieldProps {
   field: Field;
   value: FieldValue;
@@ -24,12 +38,14 @@ interface FieldProps {
   siblings?: RowValues;
   compact?: boolean;
   computeCtx?: ComputeContext;
+  calculatedRef?: CalculatedRef;
 }
 
-export function FieldRenderer({ field, value, onChange, siblings, compact, computeCtx }: FieldProps) {
+export function FieldRenderer({ field, value, onChange, siblings, compact, computeCtx, calculatedRef }: FieldProps) {
+  const calc = !!calculatedRef;
   const baseCls = compact
-    ? "w-full bg-transparent px-2 py-1.5 text-sm outline-none border-0"
-    : "w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20";
+    ? `w-full bg-transparent px-2 py-1.5 text-sm outline-none border-0${calc ? " text-blue-600 font-medium" : ""}`
+    : `w-full rounded-md border ${calc ? "border-blue-200 bg-blue-50/40" : "border-slate-200 bg-white"} px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20${calc ? " text-blue-600 font-medium" : ""}`;
 
   if (field.kind === "computed") {
     const computed = computeCtx ? field.compute(computeCtx) : null;
@@ -99,25 +115,46 @@ export function FieldRenderer({ field, value, onChange, siblings, compact, compu
   }
 
   if (field.kind === "number") {
+    const rightPad = calc ? (field.unit ? " pr-20" : " pr-7") : field.unit ? " pr-14" : "";
     return (
       <div className="relative">
         <input
           type="number"
           inputMode="decimal"
-          className={baseCls + (field.unit ? " pr-14" : "")}
+          className={baseCls + rightPad}
           value={value === null || value === undefined || value === "" ? "" : String(value)}
           min={field.min}
           max={field.max}
           step={field.step ?? "any"}
+          title={calculatedRef ? `Calculated · ${calculatedRef.label}\n${calculatedRef.source}` : undefined}
           onChange={(e) => {
             const v = e.target.value;
             onChange(v === "" ? null : Number(v));
           }}
         />
         {field.unit && (
-          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">
+          <span
+            className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-[11px] ${
+              calc ? "right-7 text-blue-400" : "right-2 text-slate-400"
+            }`}
+          >
             {field.unit}
           </span>
+        )}
+        {calculatedRef && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              calculatedRef.onJump(calculatedRef.valueId);
+            }}
+            title={`View source in Requirements: ${calculatedRef.label}`}
+            className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-blue-500 hover:bg-blue-100"
+          >
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <path d="M7 17 17 7M9 7h8v8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
         )}
       </div>
     );
