@@ -51,7 +51,7 @@ export interface CalculatedValue {
 export const calculatedValues: CalculatedValue[] = [
   // ─── Production volumes (SOT Input §1 + Output §L) ────────────────────────
   {
-    id: "prod-hot-metal",
+    id: "hot_metal_smelter_production",
     label: "Hot Metal (Smelter) production",
     unit: "MT",
     value: 407602.4401,
@@ -60,7 +60,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "D.1", fieldId: "output", rowIndex: 0 }],
   },
   {
-    id: "prod-frp-net",
+    id: "frp_net_production_gross_internal_scrap",
     label: "FRP net production (gross − internal scrap)",
     unit: "MT",
     value: 78331.425,
@@ -69,7 +69,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "D.1", fieldId: "output", rowIndex: 1 }],
   },
   {
-    id: "prod-extrusion-net",
+    id: "extrusion_net_production_gross_scrap",
     label: "Extrusion net production (gross − scrap)",
     unit: "MT",
     value: 35292.4367,
@@ -80,7 +80,7 @@ export const calculatedValues: CalculatedValue[] = [
 
   // ─── Combined electricity emission factor ─────────────────────────────────
   {
-    id: "combined-ef",
+    id: "combined_ef_sumproduct",
     label: "Combined electricity emission factor",
     unit: "tCO₂/MWh",
     value: 1.0631,
@@ -96,7 +96,7 @@ export const calculatedValues: CalculatedValue[] = [
 
   // ─── Electricity consumption per process ──────────────────────────────────
   {
-    id: "elec-p1",
+    id: "total_smelter_downstream_electricity_mwh",
     label: "Electricity consumption — P1 Unwrought Aluminium",
     unit: "MWh",
     value: 5828000,
@@ -106,7 +106,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "D.1", fieldId: "elecMWh", rowIndex: 0 }],
   },
   {
-    id: "elec-p2",
+    id: "frp_electricity_power",
     label: "Electricity consumption — P2 FRP",
     unit: "MWh",
     value: 76667.5662,
@@ -115,7 +115,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "D.1", fieldId: "elecMWh", rowIndex: 1 }],
   },
   {
-    id: "elec-p3",
+    id: "extrusion_electricity_power",
     label: "Electricity consumption — P3 Extrusion",
     unit: "MWh",
     value: 46819.0251,
@@ -126,7 +126,7 @@ export const calculatedValues: CalculatedValue[] = [
 
   // ─── Per-process attributed direct emissions ──────────────────────────────
   {
-    id: "direm-p1",
+    id: "direm_p1_unwrought_aluminium",
     label: "DirEm* — P1 Unwrought Aluminium",
     unit: "tCO₂e",
     value: 778804.4346,
@@ -136,7 +136,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "D.1", fieldId: "directEm", rowIndex: 0 }],
   },
   {
-    id: "direm-p2",
+    id: "direm_p2_frp",
     label: "DirEm* — P2 FRP",
     unit: "tCO₂e",
     value: 1713.5954,
@@ -145,7 +145,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "D.1", fieldId: "directEm", rowIndex: 1 }],
   },
   {
-    id: "direm-p3",
+    id: "direm_p3_extrusion",
     label: "DirEm* — P3 Extrusion",
     unit: "tCO₂e",
     value: 1551.9282,
@@ -156,7 +156,7 @@ export const calculatedValues: CalculatedValue[] = [
 
   // ─── Per-process attributed indirect emissions ────────────────────────────
   {
-    id: "indem-p1",
+    id: "indirect_emissions_p1",
     label: "Indirect emissions — P1 Unwrought Aluminium",
     unit: "tCO₂e",
     value: 6194593,
@@ -165,7 +165,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "D.1", fieldId: "indirectEm", rowIndex: 0 }],
   },
   {
-    id: "indem-p2",
+    id: "indirect_emissions_p2",
     label: "Indirect emissions — P2 FRP",
     unit: "tCO₂e",
     value: 81504.1599,
@@ -174,7 +174,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "D.1", fieldId: "indirectEm", rowIndex: 1 }],
   },
   {
-    id: "indem-p3",
+    id: "indirect_emissions_p3",
     label: "Indirect emissions — P3 Extrusion",
     unit: "tCO₂e",
     value: 49772.5512,
@@ -185,33 +185,27 @@ export const calculatedValues: CalculatedValue[] = [
 
   // ─── Installation-level emissions balance ─────────────────────────────────
   {
-    id: "calc-co2",
+    id: "calculation_based_co2_emissions",
     label: "Calculation-based CO₂ emissions",
     unit: "tCO₂e",
     value: 662097.7894,
     source:
       "SOT Output!R123 — Sum of CO₂ from each B source stream (CPP coal/HSD/biomass + carbon anode + cold metal + cogen).",
     sotSection: "Output §N",
-    targets: [
-      { questionId: "C.2", fieldId: "co2" },
-      { questionId: "SC.2", fieldId: "calc" },
-    ],
+    targets: [{ questionId: "C.2", fieldId: "co2" }],
   },
   {
-    id: "pfc-total",
+    id: "pfc_emissions_co2_equivalent",
     label: "Total PFC emissions (CO₂-equivalent)",
     unit: "tCO₂e",
     value: 119972.1688,
     source:
       "SOT Output!R128 = E_CF4 × GWP_CF4 + E_C2F6 × GWP_C2F6 (AR5: 6630, 11100). Slope method on smelter.",
     sotSection: "Output §N",
-    targets: [
-      { questionId: "C.2", fieldId: "pfc" },
-      { questionId: "SC.2", fieldId: "pfc" },
-    ],
+    targets: [{ questionId: "C.2", fieldId: "pfc" }],
   },
   {
-    id: "biomass-em",
+    id: "biomass_emission_cpp",
     label: "Biomass emissions",
     unit: "tCO₂e",
     value: 108.13,
@@ -221,7 +215,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "C.2", fieldId: "biomass" }],
   },
   {
-    id: "n2o-total",
+    id: "total_n2o_emissions",
     label: "Total N₂O emissions",
     unit: "tCO₂e",
     value: 0,
@@ -230,7 +224,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "C.2", fieldId: "n2o" }],
   },
   {
-    id: "total-direct",
+    id: "total_direct_emissions",
     label: "Total direct emissions",
     unit: "tCO₂e",
     value: 782069.9582,
@@ -240,7 +234,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "C.2", fieldId: "direct" }],
   },
   {
-    id: "total-indirect",
+    id: "total_indirect_emissions",
     label: "Total indirect emissions",
     unit: "tCO₂e",
     value: 6325870,
@@ -252,7 +246,7 @@ export const calculatedValues: CalculatedValue[] = [
 
   // ─── Purchased precursors (PP1-PP6) ────────────────────────────────────────
   {
-    id: "pp1-mass",
+    id: "pp1_tonnes_to_p2_frp",
     label: "PP1 — Hindalco-Hirakud, tonnes to FRP",
     unit: "t",
     value: 2371.263,
@@ -261,7 +255,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "mass", rowIndex: 0 }],
   },
   {
-    id: "pp1-see-direct",
+    id: "pp1_see_direct_tco2e_t",
     label: "PP1 — SEE (direct)",
     unit: "tCO₂e/t",
     value: 2.816,
@@ -270,7 +264,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "seeDirect", rowIndex: 0 }],
   },
   {
-    id: "pp1-elec-per-t",
+    id: "pp1_specific_electricity_mwh_t",
     label: "PP1 — Specific electricity",
     unit: "MWh/t",
     value: 14.3620163,
@@ -279,7 +273,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "elecPerT", rowIndex: 0 }],
   },
   {
-    id: "pp1-elec-ef",
+    id: "pp1_electricity_ef_tco2e_mwh",
     label: "PP1 — Electricity EF",
     unit: "tCO₂/MWh",
     value: 1.20199,
@@ -288,7 +282,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "elecEF", rowIndex: 0 }],
   },
   {
-    id: "pp1-see-indirect",
+    id: "pp1_see_indirect_of_precursor",
     label: "PP1 — SEE (indirect)",
     unit: "tCO₂e/t",
     value: 17.263,
@@ -298,7 +292,7 @@ export const calculatedValues: CalculatedValue[] = [
   },
 
   {
-    id: "pp2-mass",
+    id: "pp2_tonnes_to_p2_frp",
     label: "PP2 — Hindalco-Taloja, tonnes to FRP",
     unit: "t",
     value: 702.504,
@@ -307,7 +301,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "mass", rowIndex: 1 }],
   },
   {
-    id: "pp2-see-direct",
+    id: "pp2_see_direct_tco2e_t",
     label: "PP2 — SEE (direct)",
     unit: "tCO₂e/t",
     value: 2.57,
@@ -316,7 +310,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "seeDirect", rowIndex: 1 }],
   },
   {
-    id: "pp2-elec-per-t",
+    id: "pp2_specific_electricity_mwh_t",
     label: "PP2 — Specific electricity",
     unit: "MWh/t",
     value: 12.82,
@@ -325,7 +319,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "elecPerT", rowIndex: 1 }],
   },
   {
-    id: "pp2-elec-ef",
+    id: "pp2_electricity_ef_tco2e_mwh",
     label: "PP2 — Electricity EF",
     unit: "tCO₂/MWh",
     value: 1.21728306,
@@ -334,7 +328,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "elecEF", rowIndex: 1 }],
   },
   {
-    id: "pp2-see-indirect",
+    id: "pp2_see_indirect_of_precursor",
     label: "PP2 — SEE (indirect)",
     unit: "tCO₂e/t",
     value: 15.6056,
@@ -344,7 +338,7 @@ export const calculatedValues: CalculatedValue[] = [
   },
 
   {
-    id: "pp3-mass",
+    id: "pp3_tonnes_to_p3_extrusion",
     label: "PP3 — Hindalco-Mahan, tonnes to Extrusion",
     unit: "t",
     value: 4104.4313,
@@ -353,7 +347,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "mass", rowIndex: 2 }],
   },
   {
-    id: "pp3-see-direct",
+    id: "pp3_see_direct_tco2e_t",
     label: "PP3 — SEE (direct)",
     unit: "tCO₂e/t",
     value: 1.562,
@@ -362,7 +356,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "seeDirect", rowIndex: 2 }],
   },
   {
-    id: "pp3-elec-per-t",
+    id: "pp3_specific_electricity_mwh_t",
     label: "PP3 — Specific electricity",
     unit: "MWh/t",
     value: 14.1557444,
@@ -371,7 +365,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "elecPerT", rowIndex: 2 }],
   },
   {
-    id: "pp3-elec-ef",
+    id: "pp3_electricity_ef_tco2e_mwh",
     label: "PP3 — Electricity EF",
     unit: "tCO₂/MWh",
     value: 0.95407893,
@@ -380,7 +374,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "elecEF", rowIndex: 2 }],
   },
   {
-    id: "pp3-see-indirect",
+    id: "pp3_see_indirect_of_precursor",
     label: "PP3 — SEE (indirect)",
     unit: "tCO₂e/t",
     value: 13.5057,
@@ -390,7 +384,7 @@ export const calculatedValues: CalculatedValue[] = [
   },
 
   {
-    id: "pp4-mass",
+    id: "pp4_tonnes_to_p3_extrusion",
     label: "PP4 — Hindalco-Alupuram, tonnes to Extrusion",
     unit: "t",
     value: 138.693,
@@ -399,7 +393,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "mass", rowIndex: 3 }],
   },
   {
-    id: "pp4-see-direct",
+    id: "pp4_see_direct_tco2e_t",
     label: "PP4 — SEE (direct)",
     unit: "tCO₂e/t",
     value: 2.232,
@@ -408,7 +402,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "seeDirect", rowIndex: 3 }],
   },
   {
-    id: "pp4-elec-per-t",
+    id: "pp4_specific_electricity_mwh_t",
     label: "PP4 — Specific electricity",
     unit: "MWh/t",
     value: 15.7965484,
@@ -417,7 +411,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "elecPerT", rowIndex: 3 }],
   },
   {
-    id: "pp4-elec-ef",
+    id: "pp4_electricity_ef_tco2e_mwh",
     label: "PP4 — Electricity EF",
     unit: "tCO₂/MWh",
     value: 0.71,
@@ -426,7 +420,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "elecEF", rowIndex: 3 }],
   },
   {
-    id: "pp4-see-indirect",
+    id: "pp4_see_indirect_of_precursor",
     label: "PP4 — SEE (indirect)",
     unit: "tCO₂e/t",
     value: 11.2155,
@@ -436,7 +430,7 @@ export const calculatedValues: CalculatedValue[] = [
   },
 
   {
-    id: "pp5-mass",
+    id: "pp5_tonnes_to_p3_extrusion",
     label: "PP5 — Hindalco-Almex, tonnes to Extrusion",
     unit: "t",
     value: 77.15,
@@ -445,7 +439,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "mass", rowIndex: 4 }],
   },
   {
-    id: "pp5-see-direct",
+    id: "pp5_see_direct_tco2e_t",
     label: "PP5 — SEE (direct)",
     unit: "tCO₂e/t",
     value: 1.337,
@@ -454,7 +448,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "seeDirect", rowIndex: 4 }],
   },
   {
-    id: "pp5-elec-per-t",
+    id: "pp5_specific_electricity_mwh_t",
     label: "PP5 — Specific electricity",
     unit: "MWh/t",
     value: 11.4309855,
@@ -463,7 +457,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "elecPerT", rowIndex: 4 }],
   },
   {
-    id: "pp5-elec-ef",
+    id: "pp5_electricity_ef_tco2e_mwh",
     label: "PP5 — Electricity EF",
     unit: "tCO₂/MWh",
     value: 0.71,
@@ -472,7 +466,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "elecEF", rowIndex: 4 }],
   },
   {
-    id: "pp5-see-indirect",
+    id: "pp5_see_indirect_of_precursor",
     label: "PP5 — SEE (indirect)",
     unit: "tCO₂e/t",
     value: 8.116,
@@ -482,7 +476,7 @@ export const calculatedValues: CalculatedValue[] = [
   },
 
   {
-    id: "pp6-mass",
+    id: "pp6_tonnes_to_p3_extrusion",
     label: "PP6 — CRM Green Tech, tonnes to Extrusion",
     unit: "t",
     value: 969.959,
@@ -491,7 +485,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "mass", rowIndex: 5 }],
   },
   {
-    id: "pp6-see-direct",
+    id: "pp6_see_direct_tco2e_t",
     label: "PP6 — SEE (direct)",
     unit: "tCO₂e/t",
     value: 0,
@@ -500,7 +494,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "seeDirect", rowIndex: 5 }],
   },
   {
-    id: "pp6-elec-per-t",
+    id: "pp6_specific_electricity_mwh_t",
     label: "PP6 — Specific electricity",
     unit: "MWh/t",
     value: 0,
@@ -509,7 +503,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "elecPerT", rowIndex: 5 }],
   },
   {
-    id: "pp6-elec-ef",
+    id: "pp6_electricity_ef_tco2e_mwh",
     label: "PP6 — Electricity EF",
     unit: "tCO₂/MWh",
     value: 0.71,
@@ -518,7 +512,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "E.1", fieldId: "elecEF", rowIndex: 5 }],
   },
   {
-    id: "pp6-see-indirect",
+    id: "pp6_see_indirect_of_precursor",
     label: "PP6 — SEE (indirect)",
     unit: "tCO₂e/t",
     value: 0,
@@ -529,7 +523,7 @@ export const calculatedValues: CalculatedValue[] = [
 
   // ─── Cogeneration tool inputs ─────────────────────────────────────────────
   {
-    id: "cogen-fuel-in",
+    id: "cogen_ein_total_fuel_input",
     label: "Cogen — Total fuel input",
     unit: "TJ",
     value: 9657.85,
@@ -539,7 +533,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "F.1", fieldId: "fuelIn" }],
   },
   {
-    id: "cogen-heat-out",
+    id: "cogen_qnet_heat_produced",
     label: "Cogen — Heat output",
     unit: "TJ",
     value: 4648.62,
@@ -548,7 +542,7 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "F.1", fieldId: "heatOut" }],
   },
   {
-    id: "cogen-elec-out",
+    id: "cogen_sent_out_power",
     label: "Cogen — Electricity output",
     unit: "MWh",
     value: 283324.8404,
@@ -557,25 +551,6 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "F.1", fieldId: "elecOut" }],
   },
 
-  // ─── SC summary (importer-facing) ─────────────────────────────────────────
-  {
-    id: "measured-em",
-    label: "Measurement-based emissions",
-    unit: "tCO₂e",
-    value: 0,
-    source: "No CEMS in scope at Renukoot — all sources calculation-based.",
-    sotSection: "Output §N",
-    targets: [{ questionId: "SC.2", fieldId: "measured" }],
-  },
-  {
-    id: "other-em",
-    label: "Other monitoring methodology",
-    unit: "tCO₂e",
-    value: 0,
-    source: "No 'other' methodology used.",
-    sotSection: "Output §N",
-    targets: [{ questionId: "SC.2", fieldId: "other" }],
-  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
