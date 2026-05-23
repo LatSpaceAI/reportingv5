@@ -12,7 +12,6 @@ import {
   calculatedForRow,
   sotRowsForTableQuestion,
   sotValuesForFieldsQuestion,
-  type CalculatedValue,
 } from "@/lib/cbamSOT";
 
 type Status = "not-started" | "in-progress" | "completed";
@@ -764,7 +763,7 @@ function CalculatedRequirementsView({
 }) {
   const [search, setSearch] = useState("");
 
-  // Index questions by id, for label lookup.
+  // Index questions by id, for label/section lookup in the Location column.
   const questionById = useMemo(() => {
     const m = new Map<string, { sectionTitle: string; questionLabel: string; question: Question }>();
     for (const s of sections) {
@@ -787,26 +786,19 @@ function CalculatedRequirementsView({
     );
   }, [search]);
 
-  // Group by SOT section.
-  const groups = useMemo(() => {
-    const m = new Map<string, CalculatedValue[]>();
-    for (const v of filtered) {
-      const arr = m.get(v.sotSection) ?? [];
-      arr.push(v);
-      m.set(v.sotSection, arr);
-    }
-    return Array.from(m.entries());
-  }, [filtered]);
-
   const formatValue = (n: number, unit: string): string => {
-    if (n === 0) return `0 ${unit}`;
+    if (n === 0) return unit ? `0 ${unit}` : "0";
     const abs = Math.abs(n);
     let s: string;
     if (abs >= 1000) s = n.toLocaleString(undefined, { maximumFractionDigits: 2 });
     else if (abs >= 1) s = n.toLocaleString(undefined, { maximumFractionDigits: 4 });
     else s = n.toPrecision(4);
-    return `${s} ${unit}`;
+    return unit ? `${s} ${unit}` : s;
   };
+
+  // Stable "Created at" — calculated values were materialised when the SOT
+  // was published, so we anchor on the date the SOT analysis was completed.
+  const createdAt = "May 23, 2026, 6:08 PM";
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-white">
@@ -815,7 +807,7 @@ function CalculatedRequirementsView({
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search calculated values, sources, SOT sections..."
+            placeholder="Search requirements..."
             className="w-full rounded-md border border-slate-200 py-1.5 pl-8 pr-3 text-sm outline-none focus:border-brand"
           />
           <svg
@@ -829,124 +821,116 @@ function CalculatedRequirementsView({
             <path d="m21 21-4.3-4.3" strokeLinecap="round" />
           </svg>
         </div>
-        <span className="text-xs text-slate-500">
-          {filtered.length} of {calculatedValues.length} calculated values
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">
+            {filtered.length} of {calculatedValues.length}
+          </span>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            title="Add a new requirement"
+            onClick={() => {
+              // Placeholder hook — wiring goes in a follow-up.
+              alert("Add requirement: coming soon.");
+            }}
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Add requirement
+          </button>
+          <button
+            type="button"
+            className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
+            title="More actions"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="5" cy="12" r="1" />
+              <circle cx="12" cy="12" r="1" />
+              <circle cx="19" cy="12" r="1" />
+            </svg>
+          </button>
+        </div>
       </div>
       <div className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-6xl px-6 py-4">
-          <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-slate-700">
-            <div className="flex items-start gap-2">
-              <svg viewBox="0 0 24 24" className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 8v4M12 16h.01" strokeLinecap="round" />
-              </svg>
-              <div>
-                <div className="font-medium text-slate-900">Calculated values from SOT</div>
-                <div className="mt-0.5 text-xs text-slate-600">
-                  Source: <span className="font-mono">SOT - CBAM Calculation Hindalco Renukoot.xlsx</span>.
-                  These numbers are pre-populated into the report — they appear in <span className="font-medium text-blue-700">blue</span> in the Document tab.
-                  Click the ↗ icon on any blue value to jump back here.
-                </div>
-              </div>
-            </div>
-          </div>
-          {groups.map(([groupLabel, vals]) => (
-            <div key={groupLabel} className="mb-6">
-              <div className="mb-2 flex items-baseline gap-2">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                  {groupLabel}
-                </span>
-                <span className="text-xs text-slate-400">·</span>
-                <span className="text-xs text-slate-500">{vals.length} value{vals.length === 1 ? "" : "s"}</span>
-              </div>
-              <div className="overflow-hidden rounded-md border border-slate-200">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
-                    <tr className="border-b border-slate-200">
-                      <th className="w-44 px-3 py-2 text-left font-medium">ID</th>
-                      <th className="px-3 py-2 text-left font-medium">Calculated value</th>
-                      <th className="w-48 px-3 py-2 text-right font-medium">Value</th>
-                      <th className="px-3 py-2 text-left font-medium">Mapped to (report)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {vals.map((v) => {
-                      const focused = focusId === v.id;
-                      return (
-                        <tr
-                          key={v.id}
-                          id={`req-${v.id}`}
-                          className={`border-b border-slate-100 last:border-b-0 ${
-                            focused ? "bg-blue-50 ring-1 ring-inset ring-blue-300" : "hover:bg-slate-50/60"
-                          }`}
-                        >
-                          <td className="px-3 py-3 align-top">
-                            <span className="font-mono text-[11px] text-slate-600">{v.id}</span>
-                          </td>
-                          <td className="px-3 py-3 align-top">
-                            <div className="font-medium text-slate-900">{v.label}</div>
-                            <div className="mt-1 text-xs text-slate-500">{v.source}</div>
-                          </td>
-                          <td className="px-3 py-3 text-right align-top tabular-nums">
-                            <span className="font-semibold text-blue-700">
-                              {formatValue(v.value, v.unit)}
-                            </span>
-                          </td>
-                          <td className="px-3 py-3 align-top">
-                            <ul className="space-y-1">
-                              {v.targets.map((t, idx) => {
-                                const qInfo = questionById.get(t.questionId);
-                                const a = answers[t.questionId];
-                                let curStr = "—";
-                                if (a) {
-                                  if (t.rowIndex !== undefined && a.rows[t.rowIndex]) {
-                                    const cv = a.rows[t.rowIndex][t.fieldId];
-                                    if (cv !== null && cv !== undefined && cv !== "") {
-                                      curStr = typeof cv === "number" ? formatValue(cv, v.unit) : String(cv);
-                                    }
-                                  } else if (a.values && a.values[t.fieldId] !== undefined) {
-                                    const cv = a.values[t.fieldId];
-                                    if (cv !== null && cv !== undefined && cv !== "") {
-                                      curStr = typeof cv === "number" ? formatValue(cv, v.unit) : String(cv);
-                                    }
-                                  }
-                                }
-                                return (
-                                  <li key={idx} className="flex items-start justify-between gap-3">
-                                    <button
-                                      onClick={() => onJumpToReport(t.questionId)}
-                                      className="text-left text-xs text-blue-700 hover:underline"
-                                      title={`Open ${qInfo?.questionLabel ?? t.questionId} in the report`}
-                                    >
-                                      <span className="font-mono">{t.questionId}</span>
-                                      {t.rowIndex !== undefined && (
-                                        <span className="text-slate-500"> · row {t.rowIndex + 1}</span>
-                                      )}{" "}
-                                      · <span className="text-slate-600">{t.fieldId}</span>
-                                    </button>
-                                    <span className="shrink-0 text-[11px] tabular-nums text-slate-500">
-                                      {curStr}
-                                    </span>
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
-          {filtered.length === 0 && (
-            <div className="rounded-md border border-dashed border-slate-200 px-6 py-12 text-center text-sm text-slate-400">
-              No calculated values match your search.
-            </div>
-          )}
-        </div>
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
+            <tr className="border-b border-slate-200">
+              <th className="w-44 px-4 py-2 text-left font-medium">ID</th>
+              <th className="w-72 px-4 py-2 text-left font-medium">Display Name</th>
+              <th className="px-4 py-2 text-left font-medium">Response</th>
+              <th className="w-72 px-4 py-2 text-left font-medium">Location in Report</th>
+              <th className="w-44 px-4 py-2 text-left font-medium">Created at</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((v) => {
+              const focused = focusId === v.id;
+              return (
+                <tr
+                  key={v.id}
+                  id={`req-${v.id}`}
+                  className={`border-b border-slate-100 ${
+                    focused
+                      ? "bg-blue-50 ring-1 ring-inset ring-blue-300"
+                      : "hover:bg-slate-50/60"
+                  }`}
+                >
+                  <td className="truncate px-4 py-3 align-top">
+                    <span className="font-mono text-[12px] text-slate-700">{v.id}</span>
+                  </td>
+                  <td className="px-4 py-3 align-top">
+                    <div className="truncate font-medium text-slate-900" title={v.label}>
+                      {v.label}
+                    </div>
+                    <div className="mt-0.5 truncate text-xs text-slate-500" title={v.source}>
+                      {v.source}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 align-top tabular-nums">
+                    <span className="font-medium text-blue-700">{formatValue(v.value, v.unit)}</span>
+                  </td>
+                  <td className="px-4 py-3 align-top text-slate-700">
+                    {v.targets.length === 0 ? (
+                      <span className="italic text-slate-400">Not tagged yet</span>
+                    ) : (
+                      <ul className="space-y-0.5">
+                        {v.targets.map((t, idx) => {
+                          const qInfo = questionById.get(t.questionId);
+                          const sectionShort = qInfo?.sectionTitle.replace(/^[A-Z]+\.\s*/, "") ?? "";
+                          const label =
+                            qInfo?.questionLabel ?? t.questionId;
+                          const rowSuffix =
+                            t.rowIndex !== undefined ? ` · row ${t.rowIndex + 1}` : "";
+                          return (
+                            <li key={idx}>
+                              <button
+                                onClick={() => onJumpToReport(t.questionId)}
+                                className="text-left text-sm text-slate-700 hover:text-blue-700 hover:underline"
+                                title={`Open ${qInfo?.questionLabel ?? t.questionId} in the report`}
+                              >
+                                {sectionShort} / {label}
+                                <span className="text-slate-500">{rowSuffix}</span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </td>
+                  <td className="truncate px-4 py-3 align-top text-slate-500">{createdAt}</td>
+                </tr>
+              );
+            })}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-400">
+                  No requirements match your filter.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
