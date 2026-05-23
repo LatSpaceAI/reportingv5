@@ -1372,6 +1372,30 @@ function CctsRequirementsView({
     return unit ? `${s} ${unit}` : s;
   };
 
+  // Strip leading enumerators from labels — patterns like
+  // "(a)", "(i)", "(IV)", "(1)", "a)", "iii)", "1.", "1.2.", "1)",
+  // "1.2.3 Foo", "i.", "III.", "iii Foo". Applied iteratively so nested
+  // prefixes like "(a) (i) Foo" collapse fully. Real words like
+  // "Important note", "View settings" are untouched.
+  const stripEnumerator = (label: string): string => {
+    const patterns: RegExp[] = [
+      /^\s*\(\s*[A-Za-z]+\s*\)\s*/,
+      /^\s*\(\s*\d+(?:\.\d+)*\s*\)\s*/,
+      /^\s*[A-Za-z]+\)\s*/,
+      /^\s*\d+(?:\.\d+)*[.)]\s+/,
+      /^\s*\d+(?:\.\d+)+\s+(?=\S)/,
+      /^\s*[ivxlcdmIVXLCDM]+\.\s+/,
+      /^\s*[ivxlcdmIVXLCDM]+\s+(?=[A-Z])/,
+    ];
+    let out = label;
+    let prev = "";
+    while (prev !== out) {
+      prev = out;
+      for (const p of patterns) out = out.replace(p, "");
+    }
+    return out.trim();
+  };
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-white">
       <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-6 py-3">
@@ -1411,6 +1435,8 @@ function CctsRequirementsView({
             {filtered.map((r) => {
               const focused = focusId === r.id;
               const active = isActive(r);
+              const cleanLabel = stripEnumerator(r.label);
+              const cleanQuestion = stripEnumerator(r.questionLabel);
               return (
                 <tr
                   key={r.id}
@@ -1425,7 +1451,7 @@ function CctsRequirementsView({
                     <span className="font-mono text-[12px] text-slate-700">{r.id}</span>
                   </td>
                   <td className="px-4 py-3 align-top">
-                    <div className="text-slate-900" title={r.label}>{r.label}</div>
+                    <div className="text-slate-900" title={cleanLabel}>{cleanLabel}</div>
                   </td>
                   <td className="px-4 py-3 align-top tabular-nums">
                     <span className={active ? "font-medium text-blue-700" : "text-slate-500"}>
@@ -1436,9 +1462,9 @@ function CctsRequirementsView({
                     <button
                       onClick={() => onJumpToReport(r.target.questionId)}
                       className="text-left text-sm text-slate-700 hover:text-blue-700 hover:underline"
-                      title={`Open ${r.questionLabel} in the report`}
+                      title={`Open ${cleanQuestion} in the report`}
                     >
-                      {r.sectionShort} / {r.questionLabel}
+                      {r.sectionShort} / {cleanQuestion}
                     </button>
                   </td>
                 </tr>
