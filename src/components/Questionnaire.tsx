@@ -17,6 +17,11 @@ import {
   writeUserTargets,
   type UserTarget,
 } from "@/lib/cbamSOT";
+import {
+  cctsRequirements,
+  cctsRequirementForField,
+  type CctsRequirement,
+} from "@/lib/cctsRequirements";
 import { PickerPopover } from "@/components/qualitative/PickerPopover";
 
 type Status = "not-started" | "in-progress" | "completed";
@@ -64,6 +69,18 @@ export interface QuestionnaireConfig {
   onExport?: (opts?: ExportOptions) => Promise<void> | void; // called by the header Export button; if absent, button is hidden
   /** If true, the Export button opens a dialog asking for a reporting period (Quarterly vs Annual) instead of exporting immediately. */
   exportNeedsPeriod?: boolean;
+  /**
+   * Optional demo-mode seed: questionId → fieldId → value. Written to the
+   * questionnaire's localStorage key on first open (or after storage was
+   * cleared) so users see populated values instead of a blank form. User
+   * edits override and persist normally.
+   *
+   * Pair with `seedVersion` so regenerated seeds replace freshly-cleared
+   * storage without overwriting existing edits.
+   */
+  seed?: Record<string, Record<string, string | number>>;
+  /** Version tag for the seed — when this changes, re-seed cleared storage. */
+  seedVersion?: string;
 }
 
 const LEFT_MIN = 240;
@@ -193,8 +210,12 @@ export function Questionnaire({
   config: QuestionnaireConfig;
   initialQuestionId?: string;
 }) {
-  const { sections, storageKey, frameworkId, frameworkName, version, onExport, exportNeedsPeriod } = config;
+  const { sections, storageKey, frameworkId, frameworkName, version, onExport, exportNeedsPeriod, seed, seedVersion } = config;
   const withSOT = frameworkId === "cbam";
+  // CCTS uses a generic "requirements" registry derived from the demo seed.
+  // It shares the blue-number + Requirements-tab UI with CBAM but doesn't have
+  // the "+ Add requirement" picker (no runtime user-picked targets).
+  const withCctsRequirements = frameworkId === "ccts";
   const allQuestions = useMemo(
     () => sections.flatMap((s) => s.questions.map((q) => ({ section: s, q }))),
     [sections]
@@ -204,34 +225,116 @@ export function Questionnaire({
     Object.fromEntries(allQuestions.map(({ q }) => [q.id, sotHydratedState(q, withSOT)]))
   );
 
-  // When the framework changes (rare — happens via navigation), reset state.
+  // Tracks whether the storage-load effect below has completed. Without this
+  // gate, the persist effect would fire on the initial blank state and clobber
+  // good localStorage data (a problem React Strict-Mode double-mount in dev
+  // amplifies).
+  const hydratedRef = useRef(false);
+
+  // When the framework changes (rare — happens via navigation), reset state
+  // and re-arm the hydration gate.
   useEffect(() => {
     setAnswers(Object.fromEntries(allQuestions.map(({ q }) => [q.id, sotHydratedState(q, withSOT)])));
+    hydratedRef.current = false;
   }, [storageKey, allQuestions, withSOT]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const raw = localStorage.getItem(storageKey);
-    if (!raw) return;
-    try {
-      const saved = JSON.parse(raw) as Record<string, QuestionState>;
-      setAnswers((prev) => {
-        const next = { ...prev };
-        for (const { q } of allQuestions) {
-          if (saved[q.id]) {
-            // Backfill any SOT calculated cell the user hasn't already filled.
-            // This keeps the report behaviour consistent if the SOT map grows
-            // between sessions.
-            next[q.id] = withSOT ? mergeSOTBackfill(q, saved[q.id]) : saved[q.id];
-          }
+    const seedVersionKey = `${storageKey}/seedVersion`;
+    let appliedSeedVersion = localStorage.getItem(seedVersionKey);
+
+    // Decide whether the saved data is compatible with the current schema.
+    // If a non-empty storage payload shares zero question ids with the
+    // current sections, it's from an older schema (e.g. cement-era CCTS
+    // answers persisting after a swap to aluminium). Treat it as empty so
+    // the seed branch can run.
+    //
+    // Also treat all-null saved data as empty — this can happen if a prior
+    // render persisted the blank initial state before hydration completed
+    // (an issue React Strict-Mode double-mount can trigger). Detecting and
+    // re-seeding recovers those users without manual intervention.
+    let saved: Record<string, QuestionState> | null = null;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as Record<string, QuestionState>;
+        const currentIds = new Set(allQuestions.map(({ q }) => q.id));
+        const overlap = Object.keys(parsed).some((id) => currentIds.has(id));
+        const hasAnyRealValue = Object.values(parsed).some((qs) => {
+          if (!qs) return false;
+          const inValues = qs.values && Object.values(qs.values).some((v) => v !== null && v !== undefined && v !== "");
+          const inRows = qs.rows && qs.rows.some((row) =>
+            row && Object.values(row).some((v) => v !== null && v !== undefined && v !== "")
+          );
+          return Boolean(inValues || inRows);
+        });
+        if (overlap && hasAnyRealValue) {
+          saved = parsed;
+        } else if (Object.keys(parsed).length > 0) {
+          // Stale or null-only payload — wipe so the seed branch fires and
+          // we don't carry around orphan keys that mean nothing to the
+          // current form. Also clear the seedVersion stamp so the seed
+          // re-applies fresh, and reset the in-effect tracking variable so
+          // the version check below doesn't gate the re-seed on a stale
+          // value we just deleted.
+          localStorage.removeItem(storageKey);
+          localStorage.removeItem(seedVersionKey);
+          appliedSeedVersion = null;
         }
-        return next;
-      });
-    } catch {}
-  }, [allQuestions, storageKey, withSOT]);
+      } catch {}
+    }
+
+    // Seed branch: no compatible saved data, and the seed hasn't been
+    // applied at this version yet.
+    if (!saved && seed && seedVersion && appliedSeedVersion !== seedVersion) {
+      const seeded: Record<string, QuestionState> = {};
+      for (const { q } of allQuestions) {
+        if (q.kind !== "fields") continue;
+        const seedValues = seed[q.id];
+        if (!seedValues) continue;
+        const values: RowValues = {};
+        for (const f of q.fields) values[f.id] = null;
+        // Only apply seed values for fields that actually exist on the
+        // question — guards against stale seeds when the schema changes.
+        const fieldIds = new Set(q.fields.map((f) => f.id));
+        for (const [fid, v] of Object.entries(seedValues)) {
+          if (fieldIds.has(fid)) values[fid] = v;
+        }
+        seeded[q.id] = { values, rows: [], status: "in-progress" };
+      }
+      setAnswers((prev) => ({ ...prev, ...seeded }));
+      localStorage.setItem(seedVersionKey, seedVersion);
+      hydratedRef.current = true;
+      return;
+    }
+
+    if (!saved) {
+      // No saved data and no seed — still mark hydrated so subsequent
+      // user edits will persist.
+      hydratedRef.current = true;
+      return;
+    }
+    setAnswers((prev) => {
+      const next = { ...prev };
+      for (const { q } of allQuestions) {
+        if (saved![q.id]) {
+          // Backfill any SOT calculated cell the user hasn't already filled.
+          // This keeps the report behaviour consistent if the SOT map grows
+          // between sessions.
+          next[q.id] = withSOT ? mergeSOTBackfill(q, saved![q.id]) : saved![q.id];
+        }
+      }
+      return next;
+    });
+    hydratedRef.current = true;
+  }, [allQuestions, storageKey, withSOT, seed, seedVersion]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // Don't persist until we've read & merged anything already in storage.
+    // Otherwise the initial blank state would overwrite good saved data
+    // (especially nasty under React Strict-Mode double-mount in dev).
+    if (!hydratedRef.current) return;
     localStorage.setItem(storageKey, JSON.stringify(answers));
   }, [answers, storageKey]);
 
@@ -390,30 +493,49 @@ export function Questionnaire({
     return Math.abs(current - sot) / denom < 1e-6;
   };
 
-  // Build a (qid, fid) → CalculatedRef builder, only for CBAM. Combines the
-  // static SOT mapping with any user-added picks. A cell is treated as
-  // "calculated" only while its current value still matches the SOT — once
-  // the user types over it, the blue styling and ↗ jump button drop away.
+  // Equality check tuned for CCTS string/number values. Strings compare
+  // verbatim; numbers use the same relative-tolerance check as matchesSOT.
+  const matchesCctsRequirement = (current: unknown, expected: string | number): boolean => {
+    if (typeof expected === "string") return typeof current === "string" && current === expected;
+    if (typeof expected === "number") return matchesSOT(current, expected);
+    return false;
+  };
+
+  // Build a (qid, fid) → CalculatedRef builder. For CBAM, combines the static
+  // SOT mapping with runtime user-picked targets; for CCTS, uses the seed-
+  // derived requirements registry. A cell is treated as "calculated" only
+  // while its current value still matches the source — once the user types
+  // over it, the blue styling and ↗ jump button drop away.
   const calcFieldRef = useCallback(
     (qid: string, fid: string): CalculatedRef | null => {
-      if (!withSOT) return null;
-      const cur = answers[qid]?.values?.[fid];
-      const v = calculatedForField(qid, fid);
-      if (v && matchesSOT(cur, v.value)) {
-        return { valueId: v.id, label: v.label, source: v.source, onJump: jumpToRequirement };
-      }
-      const ut = userTargets.find(
-        (t) => t.questionId === qid && t.fieldId === fid && t.rowIndex === undefined
-      );
-      if (ut) {
-        const cv = calculatedById.get(ut.valueId);
-        if (cv && matchesSOT(cur, cv.value)) {
-          return { valueId: cv.id, label: cv.label, source: cv.source, onJump: jumpToRequirement };
+      if (withSOT) {
+        const cur = answers[qid]?.values?.[fid];
+        const v = calculatedForField(qid, fid);
+        if (v && matchesSOT(cur, v.value)) {
+          return { valueId: v.id, label: v.label, source: v.source, onJump: jumpToRequirement };
         }
+        const ut = userTargets.find(
+          (t) => t.questionId === qid && t.fieldId === fid && t.rowIndex === undefined
+        );
+        if (ut) {
+          const cv = calculatedById.get(ut.valueId);
+          if (cv && matchesSOT(cur, cv.value)) {
+            return { valueId: cv.id, label: cv.label, source: cv.source, onJump: jumpToRequirement };
+          }
+        }
+        return null;
+      }
+      if (withCctsRequirements) {
+        const cur = answers[qid]?.values?.[fid];
+        const r = cctsRequirementForField(qid, fid);
+        if (r && matchesCctsRequirement(cur, r.value)) {
+          return { valueId: r.id, label: r.label, source: "", onJump: jumpToRequirement };
+        }
+        return null;
       }
       return null;
     },
-    [withSOT, jumpToRequirement, userTargets, answers]
+    [withSOT, withCctsRequirements, jumpToRequirement, userTargets, answers]
   );
 
   const calcRowRef = useCallback(
@@ -666,6 +788,15 @@ export function Questionnaire({
               setTab("document");
             }}
           />
+        ) : withCctsRequirements ? (
+          <CctsRequirementsView
+            answers={answers}
+            focusId={reqFocusId}
+            onJumpToReport={(qid) => {
+              setActiveId(qid);
+              setTab("document");
+            }}
+          />
         ) : (
         <RequirementsView
           sections={sections}
@@ -834,6 +965,30 @@ function RequirementsView({
     return `${populated} row${populated === 1 ? "" : "s"}`;
   };
 
+  // Strip any leading enumerator from display labels. Removes prefixes of
+  // the form (a) / (1) / (iii) / a) / 1. / 1.2 / iii. as well as bare
+  // letter/roman tokens like "iii Electrical SEC". Applied iteratively so
+  // nested enumerators like "(a) (i) Foo" collapse to "Foo". Only matches a
+  // true prefix; never touches mid-string text.
+  const stripEnumerator = (label: string): string => {
+    const patterns: RegExp[] = [
+      /^\s*\(\s*[A-Za-z]+\s*\)\s*/,         // (a) / (i) / (IV)
+      /^\s*\(\s*\d+(?:\.\d+)*\s*\)\s*/,     // (1) / (2.3)
+      /^\s*[A-Za-z]+\)\s*/,                 // a) / iii)
+      /^\s*\d+(?:\.\d+)*[.)]\s+/,           // 1. / 1.2. / 1)
+      /^\s*\d+(?:\.\d+)+\s+(?=\S)/,         // bare dotted: 1.2.3 Foo
+      /^\s*[ivxlcdmIVXLCDM]+\.\s+/,         // i. / III.
+      /^\s*[ivxlcdmIVXLCDM]+\s+(?=[A-Z])/,  // "iii Electrical SEC ..."
+    ];
+    let out = label;
+    let prev = "";
+    while (prev !== out) {
+      prev = out;
+      for (const p of patterns) out = out.replace(p, "");
+    }
+    return out.trim();
+  };
+
   const rows = useMemo(() => {
     const out: Array<{
       id: string;
@@ -847,7 +1002,7 @@ function RequirementsView({
         const a = answers[q.id];
         out.push({
           id: q.id,
-          label: q.label,
+          label: stripEnumerator(q.label),
           sectionTitle: s.title,
           response: summarise(q, a),
           updatedAt: a?.updatedAt,
@@ -1151,6 +1306,147 @@ function CalculatedRequirementsView({
             {filtered.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-400">
+                  No requirements match your filter.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * CCTS Requirements tab — every seeded baseline-year value from the BEE
+ * Aluminium pro-forma exposed as a row. Each row is anchored at
+ * `id="req-<fieldId>"` so the report's blue numbers can deep-link in.
+ */
+function CctsRequirementsView({
+  answers,
+  focusId,
+  onJumpToReport,
+}: {
+  answers: Record<string, QuestionState>;
+  focusId: string | null;
+  onJumpToReport: (questionId: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+
+  // A requirement is "active" when the matching cell still carries the
+  // seeded value — once the user edits, the blue link breaks. We still
+  // show all rows; the active state just dims/un-dims the row.
+  const isActive = useCallback(
+    (req: CctsRequirement): boolean => {
+      const cur = answers[req.target.questionId]?.values?.[req.target.fieldId];
+      if (typeof req.value === "string") return typeof cur === "string" && cur === req.value;
+      if (typeof req.value === "number" && typeof cur === "number") {
+        const denom = Math.max(Math.abs(req.value), 1);
+        return Math.abs(cur - req.value) / denom < 1e-6;
+      }
+      return false;
+    },
+    [answers]
+  );
+
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return cctsRequirements;
+    return cctsRequirements.filter(
+      (r) =>
+        r.id.toLowerCase().includes(needle) ||
+        r.label.toLowerCase().includes(needle) ||
+        r.sectionTitle.toLowerCase().includes(needle) ||
+        r.questionLabel.toLowerCase().includes(needle)
+    );
+  }, [search]);
+
+  const formatValue = (v: string | number, unit?: string): string => {
+    if (typeof v === "string") return v;
+    if (v === 0) return unit ? `0 ${unit}` : "0";
+    const abs = Math.abs(v);
+    let s: string;
+    if (abs >= 1000) s = v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    else if (abs >= 1) s = v.toLocaleString(undefined, { maximumFractionDigits: 4 });
+    else s = v.toPrecision(4);
+    return unit ? `${s} ${unit}` : s;
+  };
+
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden bg-white">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-6 py-3">
+        <div className="relative max-w-sm flex-1">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search requirements..."
+            className="w-full rounded-md border border-slate-200 py-1.5 pl-8 pr-3 text-sm outline-none focus:border-brand"
+          />
+          <svg
+            className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            viewBox="0 0 24 24"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" strokeLinecap="round" />
+          </svg>
+        </div>
+        <span className="text-xs text-slate-500">
+          {filtered.length} of {cctsRequirements.length}
+        </span>
+      </div>
+      <div className="flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
+            <tr className="border-b border-slate-200">
+              <th className="w-40 px-4 py-2 text-left font-medium">ID</th>
+              <th className="px-4 py-2 text-left font-medium">Display Name</th>
+              <th className="w-44 px-4 py-2 text-left font-medium">Response</th>
+              <th className="w-80 px-4 py-2 text-left font-medium">Location in Report</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((r) => {
+              const focused = focusId === r.id;
+              const active = isActive(r);
+              return (
+                <tr
+                  key={r.id}
+                  id={`req-${r.id}`}
+                  className={`border-b border-slate-100 ${
+                    focused
+                      ? "bg-blue-50 ring-1 ring-inset ring-blue-300"
+                      : "hover:bg-slate-50/60"
+                  }`}
+                >
+                  <td className="truncate px-4 py-3 align-top">
+                    <span className="font-mono text-[12px] text-slate-700">{r.id}</span>
+                  </td>
+                  <td className="px-4 py-3 align-top">
+                    <div className="text-slate-900" title={r.label}>{r.label}</div>
+                  </td>
+                  <td className="px-4 py-3 align-top tabular-nums">
+                    <span className={active ? "font-medium text-blue-700" : "text-slate-500"}>
+                      {formatValue(r.value, r.unit)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 align-top text-slate-700">
+                    <button
+                      onClick={() => onJumpToReport(r.target.questionId)}
+                      className="text-left text-sm text-slate-700 hover:text-blue-700 hover:underline"
+                      title={`Open ${r.questionLabel} in the report`}
+                    >
+                      {r.sectionShort} / {r.questionLabel}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-4 py-12 text-center text-sm text-slate-400">
                   No requirements match your filter.
                 </td>
               </tr>
