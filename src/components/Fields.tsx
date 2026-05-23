@@ -39,9 +39,26 @@ interface FieldProps {
   compact?: boolean;
   computeCtx?: ComputeContext;
   calculatedRef?: CalculatedRef;
+  /**
+   * Fired when a number field gains focus. Used by the CBAM report so the
+   * "+ Add requirement" picker knows which cell to write into.
+   * Receives the bounding rect of the input element (viewport coords).
+   */
+  onNumberFocus?: (rect: DOMRect) => void;
+  onNumberBlur?: () => void;
 }
 
-export function FieldRenderer({ field, value, onChange, siblings, compact, computeCtx, calculatedRef }: FieldProps) {
+export function FieldRenderer({
+  field,
+  value,
+  onChange,
+  siblings,
+  compact,
+  computeCtx,
+  calculatedRef,
+  onNumberFocus,
+  onNumberBlur,
+}: FieldProps) {
   const calc = !!calculatedRef;
   const baseCls = compact
     ? `w-full bg-transparent px-2 py-1.5 text-sm outline-none border-0${calc ? " text-blue-600 font-medium" : ""}`
@@ -127,6 +144,8 @@ export function FieldRenderer({ field, value, onChange, siblings, compact, compu
           max={field.max}
           step={field.step ?? "any"}
           title={calculatedRef ? `Calculated · ${calculatedRef.label}\n${calculatedRef.source}` : undefined}
+          onFocus={(e) => onNumberFocus?.(e.currentTarget.getBoundingClientRect())}
+          onBlur={() => onNumberBlur?.()}
           onChange={(e) => {
             const v = e.target.value;
             onChange(v === "" ? null : Number(v));

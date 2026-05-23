@@ -10,6 +10,9 @@ interface Props {
   computeCtx?: ComputeContext;
   /** Optional: returns a calculated-value ref for a given (rowIndex, columnId). */
   calculatedRef?: (rowIndex: number, columnId: string) => CalculatedRef | null;
+  /** Optional: fires when a number cell is focused/blurred. */
+  onCellFocus?: (rowIndex: number, columnId: string, rect: DOMRect) => void;
+  onCellBlur?: () => void;
 }
 
 function emptyRow(q: TableQuestion): RowValues {
@@ -18,7 +21,7 @@ function emptyRow(q: TableQuestion): RowValues {
   return r;
 }
 
-export function TableField({ q, rows, onChange, computeCtx, calculatedRef }: Props) {
+export function TableField({ q, rows, onChange, computeCtx, calculatedRef, onCellFocus, onCellBlur }: Props) {
   const data = rows.length === 0 ? Array.from({ length: q.minRows }, () => emptyRow(q)) : rows;
 
   function updateCell(rowIdx: number, colId: string, value: FieldValue) {
@@ -95,6 +98,10 @@ export function TableField({ q, rows, onChange, computeCtx, calculatedRef }: Pro
                         compact
                         computeCtx={computeCtx}
                         calculatedRef={calc}
+                        onNumberFocus={
+                          onCellFocus ? (rect) => onCellFocus(i, c.id, rect) : undefined
+                        }
+                        onNumberBlur={onCellBlur}
                       />
                     </td>
                   );
