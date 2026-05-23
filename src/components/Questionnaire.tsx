@@ -799,25 +799,48 @@ function QuestionnaireTabs({
 function RequirementsView({
   sections,
   answers,
-  assignees,
   onOpen,
 }: {
   sections: Section[];
   answers: Record<string, QuestionState>;
-  assignees: Assignees;
+  assignees: Assignees; // kept in signature for backward compatibility; no longer rendered
   onOpen: (id: string) => void;
 }) {
   const [search, setSearch] = useState("");
+
+  // Produce a short, readable response summary for each question, matching
+  // the look of the CBAM "Response" column.
+  const summarise = (q: Question, a: QuestionState | undefined): string => {
+    if (!a) return "—";
+    if (q.kind === "fields") {
+      const filled = q.fields
+        .map((f) => {
+          const v = a.values[f.id];
+          if (v === null || v === undefined || v === "") return null;
+          if (typeof v === "number") return String(v);
+          if (typeof v === "boolean") return v ? "Yes" : "No";
+          return String(v);
+        })
+        .filter((x): x is string => Boolean(x));
+      if (filled.length === 0) return "—";
+      return filled.join(" · ");
+    }
+    // Table: count populated rows.
+    const populated = a.rows.filter((r) => q.columns.some((c) => {
+      const v = r[c.id];
+      return v !== null && v !== undefined && v !== "";
+    })).length;
+    if (populated === 0) return "—";
+    return `${populated} row${populated === 1 ? "" : "s"}`;
+  };
+
   const rows = useMemo(() => {
     const out: Array<{
       id: string;
       label: string;
-      description?: string;
       sectionTitle: string;
-      kind: "fields" | "table";
-      status: Status;
+      response: string;
       updatedAt?: string;
-      assignedIds: string[];
     }> = [];
     for (const s of sections) {
       for (const q of s.questions) {
@@ -825,17 +848,14 @@ function RequirementsView({
         out.push({
           id: q.id,
           label: q.label,
-          description: q.description,
           sectionTitle: s.title,
-          kind: q.kind,
-          status: a?.status ?? "not-started",
+          response: summarise(q, a),
           updatedAt: a?.updatedAt,
-          assignedIds: assignees[q.id] ?? [],
         });
       }
     }
     return out;
-  }, [sections, answers, assignees]);
+  }, [sections, answers]);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -844,10 +864,23 @@ function RequirementsView({
       (r) =>
         r.id.toLowerCase().includes(needle) ||
         r.label.toLowerCase().includes(needle) ||
-        (r.description ?? "").toLowerCase().includes(needle) ||
-        r.sectionTitle.toLowerCase().includes(needle)
+        r.sectionTitle.toLowerCase().includes(needle) ||
+        r.response.toLowerCase().includes(needle)
     );
   }, [rows, search]);
+
+  const formatCreated = (iso?: string): string => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-white">
@@ -875,78 +908,57 @@ function RequirementsView({
         </span>
       </div>
       <div className="flex-1 overflow-auto">
-        <table className="w-full table-fixed text-sm">
+        <table className="w-full text-sm">
           <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
             <tr className="border-b border-slate-200">
-              <th className="w-32 px-4 py-2 text-left font-medium">ID</th>
-              <th className="px-4 py-2 text-left font-medium">Name</th>
-              <th className="w-56 px-4 py-2 text-left font-medium">Section</th>
-              <th className="w-20 px-4 py-2 text-left font-medium">Type</th>
-              <th className="w-32 px-4 py-2 text-left font-medium">Status</th>
-              <th className="w-44 px-4 py-2 text-left font-medium">Assigned</th>
-              <th className="w-44 px-4 py-2 text-left font-medium">Last updated</th>
+              <th className="w-44 px-4 py-2 text-left font-medium">ID</th>
+              <th className="w-72 px-4 py-2 text-left font-medium">Display Name</th>
+              <th className="px-4 py-2 text-left font-medium">Response</th>
+              <th className="w-72 px-4 py-2 text-left font-medium">Location in Report</th>
+              <th className="w-44 px-4 py-2 text-left font-medium">Created at</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((r) => (
               <tr
                 key={r.id}
-                onClick={() => onOpen(r.id)}
-                className="cursor-pointer border-b border-slate-100 hover:bg-slate-50/60"
+                className="border-b border-slate-100 hover:bg-slate-50/60"
               >
-                <td className="truncate px-4 py-3 font-mono text-[12px] text-slate-700">{r.id}</td>
-                <td className="truncate px-4 py-3 text-slate-900" title={r.label}>
-                  <div className="truncate font-medium">{r.label}</div>
-                  {r.description && (
-                    <div className="truncate text-xs text-slate-500">{r.description}</div>
-                  )}
+                <td className="truncate px-4 py-3 align-top">
+                  <span className="font-mono text-[12px] text-slate-700">{r.id}</span>
                 </td>
-                <td className="truncate px-4 py-3 text-slate-600" title={r.sectionTitle}>
-                  {r.sectionTitle}
+                <td className="px-4 py-3 align-top">
+                  <div className="truncate font-medium text-slate-900" title={r.label}>
+                    {r.label}
+                  </div>
                 </td>
-                <td className="px-4 py-3 text-slate-600 capitalize">{r.kind}</td>
-                <td className="px-4 py-3">
-                  <span className="inline-flex items-center gap-1.5 text-slate-700">
-                    <span className={`h-2 w-2 rounded-full ${statusDot[r.status]}`} />
-                    {statusLabel[r.status]}
-                  </span>
-                </td>
-                <td className="truncate px-4 py-3 text-slate-600">
-                  {r.assignedIds.length > 0 ? (
-                    <span className="inline-flex flex-wrap gap-1">
-                      {r.assignedIds.slice(0, 3).map((uid) => {
-                        const u = mockUsers.find((m) => m.id === uid);
-                        return (
-                          <span
-                            key={uid}
-                            title={u?.name ?? uid}
-                            className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-200 text-[10px] font-medium text-slate-700"
-                          >
-                            {u ? initials(u.name) : "?"}
-                          </span>
-                        );
-                      })}
-                      {r.assignedIds.length > 3 && (
-                        <span className="text-xs text-slate-400">+{r.assignedIds.length - 3}</span>
-                      )}
-                    </span>
+                <td
+                  className="px-4 py-3 align-top text-slate-700"
+                  title={r.response === "—" ? undefined : r.response}
+                >
+                  {r.response === "—" ? (
+                    <span className="italic text-slate-400">No response yet</span>
                   ) : (
-                    <span className="italic text-slate-400">Unassigned</span>
+                    <span className="line-clamp-2">{r.response}</span>
                   )}
                 </td>
-                <td className="truncate px-4 py-3 text-slate-500">
-                  {r.updatedAt
-                    ? new Date(r.updatedAt).toLocaleString([], {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      })
-                    : "—"}
+                <td className="px-4 py-3 align-top text-slate-700">
+                  <button
+                    onClick={() => onOpen(r.id)}
+                    className="text-left text-sm text-slate-700 hover:text-blue-700 hover:underline"
+                    title={`Open ${r.label} in the report`}
+                  >
+                    {r.sectionTitle}
+                  </button>
+                </td>
+                <td className="truncate px-4 py-3 align-top text-slate-500">
+                  {formatCreated(r.updatedAt)}
                 </td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">
+                <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-400">
                   No requirements match your filter.
                 </td>
               </tr>
