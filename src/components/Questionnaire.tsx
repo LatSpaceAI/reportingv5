@@ -2,10 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComputeContext, FieldsQuestion, Question, Section } from "@/lib/frameworkTypes";
-import { FieldHelp, FieldLabel, FieldRenderer, isFilled, isValid, type RowValues } from "@/components/Fields";
+import { FieldHelp, FieldLabel, FieldRenderer, isFilled, isValid, type RowValues, type CalculatedRef } from "@/components/Fields";
 import { TableField } from "@/components/TableField";
 import { AssistantPane } from "@/components/qualitative/AssistantPane";
 import { initials, mockUsers, readAssignees, writeAssignees, type Assignees } from "@/lib/storage";
+import {
+  calculatedValues,
+  calculatedForField,
+  calculatedForRow,
+  sotRowsForTableQuestion,
+  sotValuesForFieldsQuestion,
+  type CalculatedValue,
+} from "@/lib/cbamSOT";
 
 type Status = "not-started" | "in-progress" | "completed";
 
@@ -75,6 +83,74 @@ function blankState(q: Question): QuestionState {
   return { values: {}, rows, status: "not-started" };
 }
 
+/**
+ * For the CBAM framework, hydrate a fresh state with SOT-derived values for
+ * every (question, field) that has a calculated mapping. Cells the SOT does
+ * not cover stay blank.
+ */
+function sotHydratedState(q: Question, withSOT: boolean): QuestionState {
+  const base = blankState(q);
+  if (!withSOT) return base;
+  if (q.kind === "fields") {
+    const sot = sotValuesForFieldsQuestion(q.id, q.fields.map((f) => f.id));
+    if (sot) base.values = { ...base.values, ...sot };
+    return base;
+  }
+  const colIds = q.columns.map((c) => c.id);
+  const sotRows = sotRowsForTableQuestion(q.id, colIds);
+  if (sotRows && sotRows.length > 0) {
+    // Ensure at least `minRows` rows; fill SOT rows over the front.
+    const blank: RowValues = Object.fromEntries(colIds.map((c) => [c, null]));
+    const rows: RowValues[] = [];
+    const target = Math.max(q.minRows, sotRows.length);
+    for (let i = 0; i < target; i++) {
+      const sot = sotRows[i];
+      rows.push(sot ? { ...blank, ...sot } : { ...blank });
+    }
+    base.rows = rows;
+  }
+  return base;
+}
+
+/**
+ * Backfill SOT values into a previously saved QuestionState, but only into
+ * cells the user has not yet touched (null/undefined/empty).
+ */
+function mergeSOTBackfill(q: Question, saved: QuestionState): QuestionState {
+  if (q.kind === "fields") {
+    const next = { ...saved.values };
+    for (const f of q.fields) {
+      const cur = next[f.id];
+      if (cur === null || cur === undefined || cur === "") {
+        const cv = calculatedForField(q.id, f.id);
+        if (cv) next[f.id] = cv.value;
+      }
+    }
+    return { ...saved, values: next };
+  }
+  const colIds = q.columns.map((c) => c.id);
+  const sotRows = sotRowsForTableQuestion(q.id, colIds);
+  if (!sotRows || sotRows.length === 0) return saved;
+  const nextRows = [...saved.rows];
+  // Make sure we have at least sotRows.length rows.
+  while (nextRows.length < sotRows.length) {
+    const blank: RowValues = Object.fromEntries(colIds.map((c) => [c, null]));
+    nextRows.push(blank);
+  }
+  for (let i = 0; i < sotRows.length; i++) {
+    const merged = { ...nextRows[i] };
+    for (const cid of colIds) {
+      const cur = merged[cid];
+      if (cur === null || cur === undefined || cur === "") {
+        const sv = sotRows[i][cid];
+        if (sv !== null && sv !== undefined) merged[cid] = sv;
+      }
+    }
+    nextRows[i] = merged;
+  }
+  return { ...saved, rows: nextRows };
+}
+
 function deriveStatus(q: Question, s: QuestionState): Status {
   if (s.status === "completed") return "completed";
   if (q.kind === "fields") {
@@ -100,19 +176,20 @@ export function Questionnaire({
   initialQuestionId?: string;
 }) {
   const { sections, storageKey, frameworkId, frameworkName, version, onExport } = config;
+  const withSOT = frameworkId === "cbam";
   const allQuestions = useMemo(
     () => sections.flatMap((s) => s.questions.map((q) => ({ section: s, q }))),
     [sections]
   );
 
   const [answers, setAnswers] = useState<Record<string, QuestionState>>(() =>
-    Object.fromEntries(allQuestions.map(({ q }) => [q.id, blankState(q)]))
+    Object.fromEntries(allQuestions.map(({ q }) => [q.id, sotHydratedState(q, withSOT)]))
   );
 
   // When the framework changes (rare — happens via navigation), reset state.
   useEffect(() => {
-    setAnswers(Object.fromEntries(allQuestions.map(({ q }) => [q.id, blankState(q)])));
-  }, [storageKey, allQuestions]);
+    setAnswers(Object.fromEntries(allQuestions.map(({ q }) => [q.id, sotHydratedState(q, withSOT)])));
+  }, [storageKey, allQuestions, withSOT]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -122,11 +199,18 @@ export function Questionnaire({
       const saved = JSON.parse(raw) as Record<string, QuestionState>;
       setAnswers((prev) => {
         const next = { ...prev };
-        for (const { q } of allQuestions) if (saved[q.id]) next[q.id] = saved[q.id];
+        for (const { q } of allQuestions) {
+          if (saved[q.id]) {
+            // Backfill any SOT calculated cell the user hasn't already filled.
+            // This keeps the report behaviour consistent if the SOT map grows
+            // between sessions.
+            next[q.id] = withSOT ? mergeSOTBackfill(q, saved[q.id]) : saved[q.id];
+          }
+        }
         return next;
       });
     } catch {}
-  }, [allQuestions, storageKey]);
+  }, [allQuestions, storageKey, withSOT]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -239,6 +323,39 @@ export function Questionnaire({
   );
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"requirements" | "document">("document");
+  const [reqFocusId, setReqFocusId] = useState<string | null>(null);
+
+  // Switch to Requirements tab and focus the row for a given calculated value.
+  const jumpToRequirement = useCallback((valueId: string) => {
+    setReqFocusId(valueId);
+    setTab("requirements");
+    // Scroll after the tab paint settles.
+    setTimeout(() => {
+      const el = document.getElementById(`req-${valueId}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+  }, []);
+
+  // Build a (qid, fid) → CalculatedRef builder, only for CBAM.
+  const calcFieldRef = useCallback(
+    (qid: string, fid: string): CalculatedRef | null => {
+      if (!withSOT) return null;
+      const v = calculatedForField(qid, fid);
+      if (!v) return null;
+      return { valueId: v.id, label: v.label, source: v.source, onJump: jumpToRequirement };
+    },
+    [withSOT, jumpToRequirement]
+  );
+
+  const calcRowRef = useCallback(
+    (qid: string, rowIdx: number, cid: string): CalculatedRef | null => {
+      if (!withSOT) return null;
+      const v = calculatedForRow(qid, cid, rowIdx);
+      if (!v) return null;
+      return { valueId: v.id, label: v.label, source: v.source, onJump: jumpToRequirement };
+    },
+    [withSOT, jumpToRequirement]
+  );
 
   const active = allQuestions.find((x) => x.q.id === activeId)!;
 
@@ -343,6 +460,17 @@ export function Questionnaire({
       />
       <QuestionnaireTabs tab={tab} onChange={setTab} />
       {tab === "requirements" ? (
+        withSOT ? (
+          <CalculatedRequirementsView
+            sections={sections}
+            answers={answers}
+            focusId={reqFocusId}
+            onJumpToReport={(qid) => {
+              setActiveId(qid);
+              setTab("document");
+            }}
+          />
+        ) : (
         <RequirementsView
           sections={sections}
           answers={answers}
@@ -352,6 +480,7 @@ export function Questionnaire({
             setTab("document");
           }}
         />
+        )
       ) : (
       <div className="flex flex-1 overflow-hidden">
         {panes.leftCollapsed ? (
@@ -396,6 +525,8 @@ export function Questionnaire({
             canComplete(active.q, answers[active.q.id]) && setStatus(active.q.id, "completed")
           }
           computeCtx={computeCtx}
+          calcFieldRef={(fid) => calcFieldRef(active.q.id, fid)}
+          calcRowRef={(rowIdx, cid) => calcRowRef(active.q.id, rowIdx, cid)}
         />
         {panes.rightCollapsed ? (
           <CollapsedRail
@@ -610,6 +741,212 @@ function RequirementsView({
             )}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * CBAM Requirements tab — every calculated value from the Hindalco Renukoot
+ * SOT, with the report fields it feeds into. Each row is anchored as
+ * `id="req-<valueId>"` so the document can deep-link into it.
+ */
+function CalculatedRequirementsView({
+  sections,
+  answers,
+  focusId,
+  onJumpToReport,
+}: {
+  sections: Section[];
+  answers: Record<string, QuestionState>;
+  focusId: string | null;
+  onJumpToReport: (questionId: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+
+  // Index questions by id, for label lookup.
+  const questionById = useMemo(() => {
+    const m = new Map<string, { sectionTitle: string; questionLabel: string; question: Question }>();
+    for (const s of sections) {
+      for (const q of s.questions) {
+        m.set(q.id, { sectionTitle: s.title, questionLabel: q.label, question: q });
+      }
+    }
+    return m;
+  }, [sections]);
+
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return calculatedValues;
+    return calculatedValues.filter(
+      (v) =>
+        v.id.toLowerCase().includes(needle) ||
+        v.label.toLowerCase().includes(needle) ||
+        v.sotSection.toLowerCase().includes(needle) ||
+        v.source.toLowerCase().includes(needle)
+    );
+  }, [search]);
+
+  // Group by SOT section.
+  const groups = useMemo(() => {
+    const m = new Map<string, CalculatedValue[]>();
+    for (const v of filtered) {
+      const arr = m.get(v.sotSection) ?? [];
+      arr.push(v);
+      m.set(v.sotSection, arr);
+    }
+    return Array.from(m.entries());
+  }, [filtered]);
+
+  const formatValue = (n: number, unit: string): string => {
+    if (n === 0) return `0 ${unit}`;
+    const abs = Math.abs(n);
+    let s: string;
+    if (abs >= 1000) s = n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    else if (abs >= 1) s = n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+    else s = n.toPrecision(4);
+    return `${s} ${unit}`;
+  };
+
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden bg-white">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-6 py-3">
+        <div className="relative max-w-sm flex-1">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search calculated values, sources, SOT sections..."
+            className="w-full rounded-md border border-slate-200 py-1.5 pl-8 pr-3 text-sm outline-none focus:border-brand"
+          />
+          <svg
+            className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            viewBox="0 0 24 24"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" strokeLinecap="round" />
+          </svg>
+        </div>
+        <span className="text-xs text-slate-500">
+          {filtered.length} of {calculatedValues.length} calculated values
+        </span>
+      </div>
+      <div className="flex-1 overflow-auto">
+        <div className="mx-auto max-w-6xl px-6 py-4">
+          <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-slate-700">
+            <div className="flex items-start gap-2">
+              <svg viewBox="0 0 24 24" className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 8v4M12 16h.01" strokeLinecap="round" />
+              </svg>
+              <div>
+                <div className="font-medium text-slate-900">Calculated values from SOT</div>
+                <div className="mt-0.5 text-xs text-slate-600">
+                  Source: <span className="font-mono">SOT - CBAM Calculation Hindalco Renukoot.xlsx</span>.
+                  These numbers are pre-populated into the report — they appear in <span className="font-medium text-blue-700">blue</span> in the Document tab.
+                  Click the ↗ icon on any blue value to jump back here.
+                </div>
+              </div>
+            </div>
+          </div>
+          {groups.map(([groupLabel, vals]) => (
+            <div key={groupLabel} className="mb-6">
+              <div className="mb-2 flex items-baseline gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  {groupLabel}
+                </span>
+                <span className="text-xs text-slate-400">·</span>
+                <span className="text-xs text-slate-500">{vals.length} value{vals.length === 1 ? "" : "s"}</span>
+              </div>
+              <div className="overflow-hidden rounded-md border border-slate-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
+                    <tr className="border-b border-slate-200">
+                      <th className="w-44 px-3 py-2 text-left font-medium">ID</th>
+                      <th className="px-3 py-2 text-left font-medium">Calculated value</th>
+                      <th className="w-48 px-3 py-2 text-right font-medium">Value</th>
+                      <th className="px-3 py-2 text-left font-medium">Mapped to (report)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vals.map((v) => {
+                      const focused = focusId === v.id;
+                      return (
+                        <tr
+                          key={v.id}
+                          id={`req-${v.id}`}
+                          className={`border-b border-slate-100 last:border-b-0 ${
+                            focused ? "bg-blue-50 ring-1 ring-inset ring-blue-300" : "hover:bg-slate-50/60"
+                          }`}
+                        >
+                          <td className="px-3 py-3 align-top">
+                            <span className="font-mono text-[11px] text-slate-600">{v.id}</span>
+                          </td>
+                          <td className="px-3 py-3 align-top">
+                            <div className="font-medium text-slate-900">{v.label}</div>
+                            <div className="mt-1 text-xs text-slate-500">{v.source}</div>
+                          </td>
+                          <td className="px-3 py-3 text-right align-top tabular-nums">
+                            <span className="font-semibold text-blue-700">
+                              {formatValue(v.value, v.unit)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 align-top">
+                            <ul className="space-y-1">
+                              {v.targets.map((t, idx) => {
+                                const qInfo = questionById.get(t.questionId);
+                                const a = answers[t.questionId];
+                                let curStr = "—";
+                                if (a) {
+                                  if (t.rowIndex !== undefined && a.rows[t.rowIndex]) {
+                                    const cv = a.rows[t.rowIndex][t.fieldId];
+                                    if (cv !== null && cv !== undefined && cv !== "") {
+                                      curStr = typeof cv === "number" ? formatValue(cv, v.unit) : String(cv);
+                                    }
+                                  } else if (a.values && a.values[t.fieldId] !== undefined) {
+                                    const cv = a.values[t.fieldId];
+                                    if (cv !== null && cv !== undefined && cv !== "") {
+                                      curStr = typeof cv === "number" ? formatValue(cv, v.unit) : String(cv);
+                                    }
+                                  }
+                                }
+                                return (
+                                  <li key={idx} className="flex items-start justify-between gap-3">
+                                    <button
+                                      onClick={() => onJumpToReport(t.questionId)}
+                                      className="text-left text-xs text-blue-700 hover:underline"
+                                      title={`Open ${qInfo?.questionLabel ?? t.questionId} in the report`}
+                                    >
+                                      <span className="font-mono">{t.questionId}</span>
+                                      {t.rowIndex !== undefined && (
+                                        <span className="text-slate-500"> · row {t.rowIndex + 1}</span>
+                                      )}{" "}
+                                      · <span className="text-slate-600">{t.fieldId}</span>
+                                    </button>
+                                    <span className="shrink-0 text-[11px] tabular-nums text-slate-500">
+                                      {curStr}
+                                    </span>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+          {filtered.length === 0 && (
+            <div className="rounded-md border border-dashed border-slate-200 px-6 py-12 text-center text-sm text-slate-400">
+              No calculated values match your search.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -908,6 +1245,8 @@ function QuestionPanel({
   onStatusChange,
   onComplete,
   computeCtx,
+  calcFieldRef,
+  calcRowRef,
 }: {
   section: Section;
   question: Question;
@@ -920,6 +1259,8 @@ function QuestionPanel({
   onStatusChange: (s: Status) => void;
   onComplete: () => void;
   computeCtx: ComputeContext;
+  calcFieldRef?: (fieldId: string) => CalculatedRef | null;
+  calcRowRef?: (rowIndex: number, columnId: string) => CalculatedRef | null;
 }) {
   const valid = canComplete(question, state);
   return (
@@ -960,9 +1301,23 @@ function QuestionPanel({
 
         <div className="mt-6">
           {question.kind === "fields" ? (
-            <FieldsForm q={question} values={state.values} onChange={onValues} computeCtx={computeCtx} />
+            <FieldsForm
+              q={question}
+              values={state.values}
+              onChange={onValues}
+              computeCtx={computeCtx}
+              calcFieldRef={calcFieldRef}
+            />
           ) : (
-            <TableField q={question} rows={state.rows} onChange={onRows} computeCtx={computeCtx} />
+            <TableField
+              q={question}
+              rows={state.rows}
+              onChange={onRows}
+              computeCtx={computeCtx}
+              calculatedRef={
+                calcRowRef ? (rowIdx, cid) => calcRowRef(rowIdx, cid) : undefined
+              }
+            />
           )}
         </div>
 
@@ -1012,16 +1367,19 @@ function FieldsForm({
   values,
   onChange,
   computeCtx,
+  calcFieldRef,
 }: {
   q: FieldsQuestion;
   values: RowValues;
   onChange: (v: RowValues) => void;
   computeCtx?: ComputeContext;
+  calcFieldRef?: (fieldId: string) => CalculatedRef | null;
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {q.fields.map((f) => {
         const wide = f.kind === "longtext";
+        const calc = calcFieldRef ? calcFieldRef(f.id) ?? undefined : undefined;
         return (
           <div key={f.id} className={wide ? "md:col-span-2" : ""}>
             <FieldLabel field={f} />
@@ -1031,6 +1389,7 @@ function FieldsForm({
               siblings={values}
               onChange={(v) => onChange({ ...values, [f.id]: v })}
               computeCtx={computeCtx}
+              calculatedRef={calc}
             />
             <FieldHelp field={f} />
           </div>

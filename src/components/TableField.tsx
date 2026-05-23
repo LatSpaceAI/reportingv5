@@ -1,13 +1,15 @@
 "use client";
 
 import type { ComputeContext, TableQuestion } from "@/lib/frameworkTypes";
-import { FieldRenderer, type RowValues, isFilled, type FieldValue } from "./Fields";
+import { FieldRenderer, type RowValues, isFilled, type FieldValue, type CalculatedRef } from "./Fields";
 
 interface Props {
   q: TableQuestion;
   rows: RowValues[];
   onChange: (rows: RowValues[]) => void;
   computeCtx?: ComputeContext;
+  /** Optional: returns a calculated-value ref for a given (rowIndex, columnId). */
+  calculatedRef?: (rowIndex: number, columnId: string) => CalculatedRef | null;
 }
 
 function emptyRow(q: TableQuestion): RowValues {
@@ -16,7 +18,7 @@ function emptyRow(q: TableQuestion): RowValues {
   return r;
 }
 
-export function TableField({ q, rows, onChange, computeCtx }: Props) {
+export function TableField({ q, rows, onChange, computeCtx, calculatedRef }: Props) {
   const data = rows.length === 0 ? Array.from({ length: q.minRows }, () => emptyRow(q)) : rows;
 
   function updateCell(rowIdx: number, colId: string, value: FieldValue) {
@@ -78,18 +80,25 @@ export function TableField({ q, rows, onChange, computeCtx }: Props) {
                     {q.rowLabel ? q.rowLabel(i) : i + 1}
                   </div>
                 </td>
-                {q.columns.map((c) => (
-                  <td key={c.id} className="px-1 py-1 min-w-[140px]">
-                    <FieldRenderer
-                      field={c}
-                      value={row[c.id]}
-                      siblings={row}
-                      onChange={(v) => updateCell(i, c.id, v)}
-                      compact
-                      computeCtx={computeCtx}
-                    />
-                  </td>
-                ))}
+                {q.columns.map((c) => {
+                  const calc = calculatedRef ? calculatedRef(i, c.id) ?? undefined : undefined;
+                  return (
+                    <td
+                      key={c.id}
+                      className={`px-1 py-1 min-w-[140px] ${calc ? "bg-blue-50/30" : ""}`}
+                    >
+                      <FieldRenderer
+                        field={c}
+                        value={row[c.id]}
+                        siblings={row}
+                        onChange={(v) => updateCell(i, c.id, v)}
+                        compact
+                        computeCtx={computeCtx}
+                        calculatedRef={calc}
+                      />
+                    </td>
+                  );
+                })}
                 <td className="px-2 py-1 text-right">
                   <button
                     onClick={() => removeRow(i)}
