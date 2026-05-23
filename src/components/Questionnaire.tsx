@@ -1071,9 +1071,6 @@ function CalculatedRequirementsView({
                     <div className="truncate font-medium text-slate-900" title={v.label}>
                       {v.label}
                     </div>
-                    <div className="mt-0.5 truncate text-xs text-slate-500" title={v.source}>
-                      {v.source}
-                    </div>
                   </td>
                   <td className="px-4 py-3 align-top tabular-nums">
                     <span className="font-medium text-blue-700">{formatValue(v.value, v.unit)}</span>
