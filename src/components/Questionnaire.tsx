@@ -1355,6 +1355,7 @@ function CctsRequirementsView({
     return cctsRequirements.filter(
       (r) =>
         r.id.toLowerCase().includes(needle) ||
+        r.displayId.toLowerCase().includes(needle) ||
         r.label.toLowerCase().includes(needle) ||
         r.sectionTitle.toLowerCase().includes(needle) ||
         r.questionLabel.toLowerCase().includes(needle)
@@ -1422,13 +1423,19 @@ function CctsRequirementsView({
         </span>
       </div>
       <div className="flex-1 overflow-auto">
-        <table className="w-full text-sm">
+        <table className="w-full table-fixed text-sm">
+          <colgroup>
+            <col className="w-[28%]" />
+            <col className="w-[34%]" />
+            <col className="w-[10%]" />
+            <col className="w-[28%]" />
+          </colgroup>
           <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
             <tr className="border-b border-slate-200">
-              <th className="w-40 px-4 py-2 text-left font-medium">ID</th>
+              <th className="px-4 py-2 text-left font-medium">ID</th>
               <th className="px-4 py-2 text-left font-medium">Display Name</th>
-              <th className="w-44 px-4 py-2 text-left font-medium">Response</th>
-              <th className="w-80 px-4 py-2 text-left font-medium">Location in Report</th>
+              <th className="px-4 py-2 text-left font-medium">Response</th>
+              <th className="px-4 py-2 text-left font-medium">Location in Report</th>
             </tr>
           </thead>
           <tbody>
@@ -1447,21 +1454,29 @@ function CctsRequirementsView({
                       : "hover:bg-slate-50/60"
                   }`}
                 >
-                  <td className="truncate px-4 py-3 align-top">
-                    <span className="font-mono text-[12px] text-slate-700">{r.id}</span>
+                  <td className="px-4 py-3 align-top">
+                    <span
+                      className="block truncate font-mono text-[12px] text-slate-700"
+                      title={`${r.displayId}\nInternal ref: ${r.id}`}
+                    >
+                      {r.displayId}
+                    </span>
                   </td>
                   <td className="px-4 py-3 align-top">
-                    <div className="text-slate-900" title={cleanLabel}>{cleanLabel}</div>
+                    <div className="truncate text-slate-900" title={cleanLabel}>{cleanLabel}</div>
                   </td>
                   <td className="px-4 py-3 align-top tabular-nums">
-                    <span className={active ? "font-medium text-blue-700" : "text-slate-500"}>
+                    <span
+                      className={`block truncate ${active ? "font-medium text-blue-700" : "text-slate-500"}`}
+                      title={formatValue(r.value, r.unit)}
+                    >
                       {formatValue(r.value, r.unit)}
                     </span>
                   </td>
                   <td className="px-4 py-3 align-top text-slate-700">
                     <button
                       onClick={() => onJumpToReport(r.target.questionId)}
-                      className="text-left text-sm text-slate-700 hover:text-blue-700 hover:underline"
+                      className="block w-full truncate text-left text-sm text-slate-700 hover:text-blue-700 hover:underline"
                       title={`Open ${cleanQuestion} in the report`}
                     >
                       {r.sectionShort} / {cleanQuestion}
