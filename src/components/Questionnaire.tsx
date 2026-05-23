@@ -43,13 +43,27 @@ const statusDot: Record<Status, string> = {
 
 const PANES_KEY = "cbam-app/panes/v1";
 
+/**
+ * Options passed to the framework's onExport callback when the user invokes
+ * Export. Frameworks that don't need a period (RCO/CCTS/BRSR/CDP) can ignore
+ * the argument. CBAM uses `period` to stamp the reporting-period cells and
+ * to name the file.
+ */
+export interface ExportOptions {
+  period?:
+    | { kind: "annual"; year: number }
+    | { kind: "quarter"; year: number; quarter: 1 | 2 | 3 | 4 };
+}
+
 export interface QuestionnaireConfig {
   sections: Section[];
   storageKey: string;
   frameworkId: string; // used to scope assignee storage so it syncs with /table
   frameworkName: string; // shown in the header, e.g. "CBAM Communication Template — Installations"
   version?: string; // optional version label shown in header
-  onExport?: () => Promise<void> | void; // called by the header Export button; if absent, button is hidden
+  onExport?: (opts?: ExportOptions) => Promise<void> | void; // called by the header Export button; if absent, button is hidden
+  /** If true, the Export button opens a dialog asking for a reporting period (Quarterly vs Annual) instead of exporting immediately. */
+  exportNeedsPeriod?: boolean;
 }
 
 const LEFT_MIN = 240;
@@ -179,7 +193,7 @@ export function Questionnaire({
   config: QuestionnaireConfig;
   initialQuestionId?: string;
 }) {
-  const { sections, storageKey, frameworkId, frameworkName, version, onExport } = config;
+  const { sections, storageKey, frameworkId, frameworkName, version, onExport, exportNeedsPeriod } = config;
   const withSOT = frameworkId === "cbam";
   const allQuestions = useMemo(
     () => sections.flatMap((s) => s.questions.map((q) => ({ section: s, q }))),
@@ -594,6 +608,7 @@ export function Questionnaire({
         frameworkName={frameworkName}
         version={version}
         onExport={onExport}
+        exportNeedsPeriod={exportNeedsPeriod}
       />
       <QuestionnaireTabs
         tab={tab}
@@ -1194,27 +1209,39 @@ function QuestionnaireHeader({
   frameworkName,
   version,
   onExport,
+  exportNeedsPeriod,
 }: {
   overallPct: number;
   activeId: string;
   frameworkName: string;
   version?: string;
-  onExport?: () => Promise<void> | void;
+  onExport?: (opts?: ExportOptions) => Promise<void> | void;
+  exportNeedsPeriod?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncedAt, setSyncedAt] = useState<Date | null>(null);
-  const handleExport = async () => {
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+
+  const runExport = async (opts?: ExportOptions) => {
     if (busy || !onExport) return;
     setBusy(true);
     try {
-      await onExport();
+      await onExport(opts);
     } catch (e) {
       console.error(e);
       alert("Export failed. See browser console for details.");
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleExport = async () => {
+    if (exportNeedsPeriod) {
+      setExportDialogOpen(true);
+      return;
+    }
+    await runExport();
   };
   const handleSync = () => {
     if (syncing) return;
@@ -1225,6 +1252,7 @@ function QuestionnaireHeader({
     }, 900);
   };
   return (
+    <>
     <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-3">
       <div className="flex items-center gap-4">
         <a
@@ -1283,6 +1311,157 @@ function QuestionnaireHeader({
         )}
       </div>
     </header>
+    {exportDialogOpen && (
+      <ExportPeriodDialog
+        onCancel={() => setExportDialogOpen(false)}
+        onConfirm={async (period) => {
+          setExportDialogOpen(false);
+          await runExport({ period });
+        }}
+      />
+    )}
+    </>
+  );
+}
+
+function ExportPeriodDialog({
+  onCancel,
+  onConfirm,
+}: {
+  onCancel: () => void;
+  onConfirm: (period: NonNullable<ExportOptions["period"]>) => void | Promise<void>;
+}) {
+  const now = new Date();
+  const [periodKind, setPeriodKind] = useState<"annual" | "quarter">("annual");
+  const [year, setYear] = useState<number>(now.getUTCFullYear());
+  const [quarter, setQuarter] = useState<1 | 2 | 3 | 4>(
+    (Math.floor(now.getUTCMonth() / 3) + 1) as 1 | 2 | 3 | 4
+  );
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  const yearOptions: number[] = [];
+  for (let y = now.getUTCFullYear() + 1; y >= now.getUTCFullYear() - 5; y--) yearOptions.push(y);
+
+  const submit = () => {
+    if (periodKind === "annual") {
+      onConfirm({ kind: "annual", year });
+    } else {
+      onConfirm({ kind: "quarter", year, quarter });
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      onMouseDown={(e) => {
+        // close on backdrop click only (not on inner clicks)
+        if (e.target === e.currentTarget) onCancel();
+      }}
+    >
+      <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
+        <div className="border-b border-slate-200 px-5 py-3">
+          <h2 className="text-base font-semibold text-slate-900">Export period</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Pick the reporting period to stamp into the CBAM template. The reporting-period
+            cells on sheet A_InstData will be set to match.
+          </p>
+        </div>
+        <div className="space-y-4 px-5 py-4">
+          <div className="grid grid-cols-2 gap-2">
+            {(["annual", "quarter"] as const).map((k) => {
+              const active = periodKind === k;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setPeriodKind(k)}
+                  className={`rounded-md border px-3 py-2 text-sm font-medium ${
+                    active
+                      ? "border-brand bg-brand/5 text-slate-900"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`h-3 w-3 rounded-full border ${
+                        active ? "border-brand bg-brand" : "border-slate-300"
+                      }`}
+                    />
+                    {k === "annual" ? "Annual" : "Quarterly"}
+                  </div>
+                  <p className="mt-1 pl-5 text-left text-[11px] font-normal text-slate-500">
+                    {k === "annual"
+                      ? "Calendar-year reporting period (Jan 1 – Dec 31)."
+                      : "Three-month period (Q1, Q2, Q3 or Q4)."}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="block text-xs font-medium uppercase tracking-wider text-slate-500">
+                Year
+              </span>
+              <select
+                value={year}
+                onChange={(e) => setYear(Number(e.target.value))}
+                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand"
+              >
+                {yearOptions.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {periodKind === "quarter" && (
+              <label className="block">
+                <span className="block text-xs font-medium uppercase tracking-wider text-slate-500">
+                  Quarter
+                </span>
+                <select
+                  value={quarter}
+                  onChange={(e) => setQuarter(Number(e.target.value) as 1 | 2 | 3 | 4)}
+                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand"
+                >
+                  <option value={1}>Q1 — Jan to Mar</option>
+                  <option value={2}>Q2 — Apr to Jun</option>
+                  <option value={3}>Q3 — Jul to Sep</option>
+                  <option value={4}>Q4 — Oct to Dec</option>
+                </select>
+              </label>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Export
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

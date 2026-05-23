@@ -35,17 +35,18 @@ export default function ReportPage({ params }: { params: { id: string } }) {
         : fw.id === "rco"
         ? "30-Sep-2025"
         : fw.id === "ccts"
-        ? "BEE Cement PPC Pro-Forma"
+        ? "BEE Aluminium Pro-Forma (FY 2023-24 v1.4)"
         : fw.id === "brsr"
         ? "SEBI Annexure I"
         : fw.id === "cdp"
         ? "CDP 2026"
         : undefined,
+    exportNeedsPeriod: fw.id === "cbam",
     onExport:
       fw.id === "cbam"
-        ? async () => {
+        ? async (opts) => {
             const { exportCbamFilled } = await import("@/lib/cbamExport/export");
-            await exportCbamFilled();
+            await exportCbamFilled(opts?.period);
           }
         : fw.id === "rco"
         ? async () => {
