@@ -366,13 +366,26 @@ export function Questionnaire({
     }, 50);
   }, []);
 
+  // Tolerance for "still matches the SOT value" — pre-fill writes the exact
+  // float, but trip-edge a user typing the same digits back. 1e-6 relative
+  // (or 1e-9 absolute for near-zero) is well below the precision the UI ever
+  // displays.
+  const matchesSOT = (current: unknown, sot: number): boolean => {
+    if (typeof current !== "number" || Number.isNaN(current)) return false;
+    const denom = Math.max(Math.abs(sot), 1);
+    return Math.abs(current - sot) / denom < 1e-6;
+  };
+
   // Build a (qid, fid) → CalculatedRef builder, only for CBAM. Combines the
-  // static SOT mapping with any user-added picks.
+  // static SOT mapping with any user-added picks. A cell is treated as
+  // "calculated" only while its current value still matches the SOT — once
+  // the user types over it, the blue styling and ↗ jump button drop away.
   const calcFieldRef = useCallback(
     (qid: string, fid: string): CalculatedRef | null => {
       if (!withSOT) return null;
+      const cur = answers[qid]?.values?.[fid];
       const v = calculatedForField(qid, fid);
-      if (v) {
+      if (v && matchesSOT(cur, v.value)) {
         return { valueId: v.id, label: v.label, source: v.source, onJump: jumpToRequirement };
       }
       const ut = userTargets.find(
@@ -380,18 +393,21 @@ export function Questionnaire({
       );
       if (ut) {
         const cv = calculatedById.get(ut.valueId);
-        if (cv) return { valueId: cv.id, label: cv.label, source: cv.source, onJump: jumpToRequirement };
+        if (cv && matchesSOT(cur, cv.value)) {
+          return { valueId: cv.id, label: cv.label, source: cv.source, onJump: jumpToRequirement };
+        }
       }
       return null;
     },
-    [withSOT, jumpToRequirement, userTargets]
+    [withSOT, jumpToRequirement, userTargets, answers]
   );
 
   const calcRowRef = useCallback(
     (qid: string, rowIdx: number, cid: string): CalculatedRef | null => {
       if (!withSOT) return null;
+      const cur = answers[qid]?.rows?.[rowIdx]?.[cid];
       const v = calculatedForRow(qid, cid, rowIdx);
-      if (v) {
+      if (v && matchesSOT(cur, v.value)) {
         return { valueId: v.id, label: v.label, source: v.source, onJump: jumpToRequirement };
       }
       const ut = userTargets.find(
@@ -399,12 +415,36 @@ export function Questionnaire({
       );
       if (ut) {
         const cv = calculatedById.get(ut.valueId);
-        if (cv) return { valueId: cv.id, label: cv.label, source: cv.source, onJump: jumpToRequirement };
+        if (cv && matchesSOT(cur, cv.value)) {
+          return { valueId: cv.id, label: cv.label, source: cv.source, onJump: jumpToRequirement };
+        }
       }
       return null;
     },
-    [withSOT, jumpToRequirement, userTargets]
+    [withSOT, jumpToRequirement, userTargets, answers]
   );
+
+  // Prune any user-added target whose cell value no longer matches the SOT
+  // (the user edited the number after picking it). This keeps the
+  // Requirements table's "Location in Report" honest. Runs after answers
+  // change.
+  useEffect(() => {
+    if (!withSOT || userTargets.length === 0) return;
+    const stillValid = userTargets.filter((t) => {
+      const cv = calculatedById.get(t.valueId);
+      if (!cv) return false;
+      const a = answers[t.questionId];
+      if (!a) return false;
+      const cur =
+        t.rowIndex === undefined
+          ? a.values?.[t.fieldId]
+          : a.rows?.[t.rowIndex]?.[t.fieldId];
+      return matchesSOT(cur, cv.value);
+    });
+    if (stillValid.length !== userTargets.length) {
+      persistUserTargets(stillValid);
+    }
+  }, [withSOT, userTargets, answers, persistUserTargets]);
 
   // Apply a chosen calculated value into the currently focused cell:
   //   1. Write the value into answers (so it persists like any other entry).
