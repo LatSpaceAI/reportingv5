@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComputeContext, FieldsQuestion, Question, Section } from "@/lib/frameworkTypes";
 import { FieldHelp, FieldLabel, FieldRenderer, isFilled, isValid, type RowValues, type CalculatedRef } from "@/components/Fields";
@@ -20,8 +21,13 @@ import {
 import {
   cctsRequirements,
   cctsRequirementForField,
+  cctsRequirementById,
+  readCctsUserTargets,
+  writeCctsUserTargets,
   type CctsRequirement,
+  type CctsUserTarget,
 } from "@/lib/cctsRequirements";
+import { sections as cctsSections } from "@/lib/cctsSections";
 import { PickerPopover } from "@/components/qualitative/PickerPopover";
 
 type Status = "not-started" | "in-progress" | "completed";
@@ -70,18 +76,29 @@ export interface QuestionnaireConfig {
   /** If true, the Export button opens a dialog asking for a reporting period (Quarterly vs Annual) instead of exporting immediately. */
   exportNeedsPeriod?: boolean;
   /**
-   * Optional demo-mode seed: questionId → fieldId → value. Written to the
+   * Optional demo-mode seed: per-question pre-filled values written to the
    * questionnaire's localStorage key on first open (or after storage was
    * cleared) so users see populated values instead of a blank form. User
    * edits override and persist normally.
    *
+   * Per entry shape:
+   *  - { values: { fieldId → value } }  for fields-questions
+   *  - { rows: [ { columnId → value } ] } for table-questions
+   *  - Flat { fieldId → value } also accepted as shorthand for the values
+   *    form (legacy callers from before tables were supported).
+   *
    * Pair with `seedVersion` so regenerated seeds replace freshly-cleared
    * storage without overwriting existing edits.
    */
-  seed?: Record<string, Record<string, string | number>>;
+  seed?: Record<string, SeedEntry>;
   /** Version tag for the seed — when this changes, re-seed cleared storage. */
   seedVersion?: string;
 }
+
+export type SeedValue = string | number | boolean;
+export type SeedEntry =
+  | { values?: Record<string, SeedValue>; rows?: Array<Record<string, SeedValue>> }
+  | Record<string, SeedValue>;
 
 const LEFT_MIN = 240;
 const LEFT_MAX = 560;
@@ -284,48 +301,113 @@ export function Questionnaire({
       } catch {}
     }
 
-    // Seed branch: no compatible saved data, and the seed hasn't been
-    // applied at this version yet.
-    if (!saved && seed && seedVersion && appliedSeedVersion !== seedVersion) {
-      const seeded: Record<string, QuestionState> = {};
+    // Apply the seed into a baseline state. The seed shape per question is:
+    //   { values: {...}, rows: [...] }  (preferred)
+    //   { fieldId → value }              (legacy flat shorthand for values)
+    // Tables-questions only consume `rows`; fields-questions only consume
+    // `values`. Writes are non-destructive — only empty cells get filled, so
+    // existing SOT pre-fills and user edits are preserved.
+    const applySeed = (
+      base: Record<string, QuestionState>
+    ): Record<string, QuestionState> => {
+      if (!seed) return base;
+      const next = { ...base };
       for (const { q } of allQuestions) {
-        if (q.kind !== "fields") continue;
-        const seedValues = seed[q.id];
-        if (!seedValues) continue;
-        const values: RowValues = {};
-        for (const f of q.fields) values[f.id] = null;
-        // Only apply seed values for fields that actually exist on the
-        // question — guards against stale seeds when the schema changes.
-        const fieldIds = new Set(q.fields.map((f) => f.id));
-        for (const [fid, v] of Object.entries(seedValues)) {
-          if (fieldIds.has(fid)) values[fid] = v;
+        const raw = seed[q.id];
+        if (!raw) continue;
+        const seedValues =
+          "values" in raw || "rows" in raw
+            ? (raw as { values?: Record<string, SeedValue>; rows?: Array<Record<string, SeedValue>> })
+            : { values: raw as Record<string, SeedValue> };
+
+        if (q.kind === "fields") {
+          if (!seedValues.values) continue;
+          const fieldIds = new Set(q.fields.map((f) => f.id));
+          const prior = next[q.id] ?? blankState(q);
+          const values: RowValues = { ...prior.values };
+          let touched = false;
+          for (const [fid, v] of Object.entries(seedValues.values)) {
+            if (!fieldIds.has(fid)) continue;
+            const cur = values[fid];
+            if (cur === null || cur === undefined || cur === "") {
+              values[fid] = v;
+              touched = true;
+            }
+          }
+          if (touched) {
+            next[q.id] = {
+              ...prior,
+              values,
+              status: prior.status === "completed" ? "completed" : "in-progress",
+            };
+          }
+        } else {
+          if (!seedValues.rows || seedValues.rows.length === 0) continue;
+          const colIds = new Set(q.columns.map((c) => c.id));
+          const prior = next[q.id] ?? blankState(q);
+          const targetLen = Math.max(prior.rows.length, q.minRows, seedValues.rows.length);
+          const rows: RowValues[] = [];
+          const blank: RowValues = Object.fromEntries(q.columns.map((c) => [c.id, null]));
+          let touched = false;
+          for (let i = 0; i < targetLen; i++) {
+            const priorRow = prior.rows[i] ?? { ...blank };
+            const seedRow = seedValues.rows[i];
+            if (!seedRow) {
+              rows.push(priorRow);
+              continue;
+            }
+            const merged: RowValues = { ...priorRow };
+            for (const [cid, v] of Object.entries(seedRow)) {
+              if (!colIds.has(cid)) continue;
+              const cur = merged[cid];
+              if (cur === null || cur === undefined || cur === "") {
+                merged[cid] = v;
+                touched = true;
+              }
+            }
+            rows.push(merged);
+          }
+          if (touched) {
+            next[q.id] = {
+              ...prior,
+              rows,
+              status: prior.status === "completed" ? "completed" : "in-progress",
+            };
+          }
         }
-        seeded[q.id] = { values, rows: [], status: "in-progress" };
       }
-      setAnswers((prev) => ({ ...prev, ...seeded }));
+      return next;
+    };
+
+    // Fresh-seed branch: no compatible saved data, and the seed hasn't been
+    // applied at this version yet. Build state from the SOT pre-fill the
+    // useState initializer produced and overlay the seed.
+    if (!saved && seed && seedVersion && appliedSeedVersion !== seedVersion) {
+      setAnswers((prev) => applySeed(prev));
       localStorage.setItem(seedVersionKey, seedVersion);
       hydratedRef.current = true;
       return;
     }
 
     if (!saved) {
-      // No saved data and no seed — still mark hydrated so subsequent
-      // user edits will persist.
       hydratedRef.current = true;
       return;
     }
+
+    // Saved-data branch: load saved values onto the SOT-prefilled state, then
+    // overlay the seed for any cells the saved data left blank. This ensures
+    // users with partial saved storage from a prior version still pick up
+    // newly-seeded fields, while their existing edits are never overwritten.
     setAnswers((prev) => {
-      const next = { ...prev };
+      const merged = { ...prev };
       for (const { q } of allQuestions) {
         if (saved![q.id]) {
-          // Backfill any SOT calculated cell the user hasn't already filled.
-          // This keeps the report behaviour consistent if the SOT map grows
-          // between sessions.
-          next[q.id] = withSOT ? mergeSOTBackfill(q, saved![q.id]) : saved![q.id];
+          merged[q.id] = withSOT ? mergeSOTBackfill(q, saved![q.id]) : saved![q.id];
         }
       }
-      return next;
+      return applySeed(merged);
     });
+    if (seed && seedVersion) localStorage.setItem(seedVersionKey, seedVersion);
     hydratedRef.current = true;
   }, [allQuestions, storageKey, withSOT, seed, seedVersion]);
 
@@ -459,6 +541,17 @@ export function Questionnaire({
     writeUserTargets(next);
   }, []);
 
+  // Same pattern for CCTS — runtime user-picked requirement targets.
+  const [cctsUserTargets, setCctsUserTargetsState] = useState<CctsUserTarget[]>([]);
+  useEffect(() => {
+    if (!withCctsRequirements) return;
+    setCctsUserTargetsState(readCctsUserTargets());
+  }, [withCctsRequirements]);
+  const persistCctsUserTargets = useCallback((next: CctsUserTarget[]) => {
+    setCctsUserTargetsState(next);
+    writeCctsUserTargets(next);
+  }, []);
+
   // Tracks which number cell is currently focused (or was the last one to
   // receive focus, until something steals focus elsewhere). Carries enough
   // info to write back into the answers store + anchor the picker.
@@ -493,12 +586,12 @@ export function Questionnaire({
     return Math.abs(current - sot) / denom < 1e-6;
   };
 
-  // Equality check tuned for CCTS string/number values. Strings compare
-  // verbatim; numbers use the same relative-tolerance check as matchesSOT.
-  const matchesCctsRequirement = (current: unknown, expected: string | number): boolean => {
-    if (typeof expected === "string") return typeof current === "string" && current === expected;
-    if (typeof expected === "number") return matchesSOT(current, expected);
-    return false;
+  // Equality check for CCTS numeric requirements. Same relative-tolerance
+  // rule as the CBAM SOT check — only numeric values qualify as requirements,
+  // so once the user types a non-number or edits past the tolerance the cell
+  // drops out of blue / Requirements anchoring.
+  const matchesCctsRequirement = (current: unknown, expected: number): boolean => {
+    return matchesSOT(current, expected);
   };
 
   // Build a (qid, fid) → CalculatedRef builder. For CBAM, combines the static
@@ -527,15 +620,24 @@ export function Questionnaire({
       }
       if (withCctsRequirements) {
         const cur = answers[qid]?.values?.[fid];
+        // Native (seed-anchored) requirement.
         const r = cctsRequirementForField(qid, fid);
         if (r && matchesCctsRequirement(cur, r.value)) {
           return { valueId: r.id, label: r.label, source: "", onJump: jumpToRequirement };
+        }
+        // Runtime user pick — show blue while the cell still carries the picked value.
+        const ut = cctsUserTargets.find((t) => t.questionId === qid && t.fieldId === fid);
+        if (ut) {
+          const ref = cctsRequirementById.get(ut.valueId);
+          if (ref && matchesCctsRequirement(cur, ref.value)) {
+            return { valueId: ref.id, label: ref.label, source: "", onJump: jumpToRequirement };
+          }
         }
         return null;
       }
       return null;
     },
-    [withSOT, withCctsRequirements, jumpToRequirement, userTargets, answers]
+    [withSOT, withCctsRequirements, jumpToRequirement, userTargets, cctsUserTargets, answers]
   );
 
   const calcRowRef = useCallback(
@@ -581,6 +683,22 @@ export function Questionnaire({
       persistUserTargets(stillValid);
     }
   }, [withSOT, userTargets, answers, persistUserTargets]);
+
+  // Same prune logic for CCTS runtime targets.
+  useEffect(() => {
+    if (!withCctsRequirements || cctsUserTargets.length === 0) return;
+    const stillValid = cctsUserTargets.filter((t) => {
+      const ref = cctsRequirementById.get(t.valueId);
+      if (!ref) return false;
+      const a = answers[t.questionId];
+      if (!a) return false;
+      const cur = a.values?.[t.fieldId];
+      return matchesCctsRequirement(cur, ref.value);
+    });
+    if (stillValid.length !== cctsUserTargets.length) {
+      persistCctsUserTargets(stillValid);
+    }
+  }, [withCctsRequirements, cctsUserTargets, answers, persistCctsUserTargets]);
 
   // Apply a chosen calculated value into the currently focused cell:
   //   1. Write the value into answers (so it persists like any other entry).
@@ -628,6 +746,33 @@ export function Questionnaire({
       setPickerOpen(false);
     },
     [focusedCell, userTargets, persistUserTargets]
+  );
+
+  // CCTS equivalent of applyPick. CCTS questions are all field-kind (no tables),
+  // so the rowIndex branch isn't needed.
+  const applyCctsPick = useCallback(
+    (valueId: string) => {
+      const ref = cctsRequirementById.get(valueId);
+      const cell = focusedCell;
+      if (!ref || !cell) return;
+      setAnswers((prev) => {
+        const cur = prev[cell.questionId];
+        if (!cur) return prev;
+        const values = { ...cur.values, [cell.fieldId]: ref.value };
+        return {
+          ...prev,
+          [cell.questionId]: { ...cur, values, updatedAt: new Date().toISOString() },
+        };
+      });
+      // Idempotent upsert.
+      const next = cctsUserTargets.filter(
+        (t) => !(t.questionId === cell.questionId && t.fieldId === cell.fieldId)
+      );
+      next.push({ valueId, questionId: cell.questionId, fieldId: cell.fieldId });
+      persistCctsUserTargets(next);
+      setPickerOpen(false);
+    },
+    [focusedCell, cctsUserTargets, persistCctsUserTargets]
   );
 
   const active = allQuestions.find((x) => x.q.id === activeId)!;
@@ -736,7 +881,7 @@ export function Questionnaire({
         tab={tab}
         onChange={setTab}
         rightSlot={
-          withSOT ? (
+          withSOT || withCctsRequirements ? (
             <button
               type="button"
               disabled={!focusedCell || tab !== "document"}
@@ -746,7 +891,7 @@ export function Questionnaire({
                 tab !== "document"
                   ? "Switch to the Document tab and click a number field first."
                   : focusedCell
-                  ? "Pick a calculated value to insert into this field"
+                  ? "Pick a requirement value to insert into this field"
                   : "Click a number field on the Document tab first"
               }
             >
@@ -776,6 +921,24 @@ export function Questionnaire({
           emptyLabel="No calculated values match your search."
         />
       )}
+      {withCctsRequirements && pickerOpen && focusedCell && (
+        <PickerPopover
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          title="Insert requirement value"
+          items={cctsRequirements.map((r) => ({
+            id: r.id,
+            primary: r.label,
+            secondary: `${r.value.toLocaleString(undefined, { maximumFractionDigits: 4 })}${r.unit ? ` ${r.unit}` : ""} · ${r.sectionShort}`,
+          }))}
+          onPick={(id) => applyCctsPick(id)}
+          position={{
+            top: Math.min(window.innerHeight - 360, focusedCell.rect.bottom + 6),
+            left: Math.min(window.innerWidth - 340, focusedCell.rect.left),
+          }}
+          emptyLabel="No requirements match your search."
+        />
+      )}
       {tab === "requirements" ? (
         withSOT ? (
           <CalculatedRequirementsView
@@ -783,6 +946,7 @@ export function Questionnaire({
             answers={answers}
             focusId={reqFocusId}
             userTargets={userTargets}
+            frameworkId={frameworkId}
             onJumpToReport={(qid) => {
               setActiveId(qid);
               setTab("document");
@@ -790,8 +954,10 @@ export function Questionnaire({
           />
         ) : withCctsRequirements ? (
           <CctsRequirementsView
+            frameworkId={frameworkId}
             answers={answers}
             focusId={reqFocusId}
+            userTargets={cctsUserTargets}
             onJumpToReport={(qid) => {
               setActiveId(qid);
               setTab("document");
@@ -855,7 +1021,7 @@ export function Questionnaire({
           calcFieldRef={(fid) => calcFieldRef(active.q.id, fid)}
           calcRowRef={(rowIdx, cid) => calcRowRef(active.q.id, rowIdx, cid)}
           onFieldFocus={
-            withSOT
+            withSOT || withCctsRequirements
               ? (fid, rect) => setFocusedCell({ questionId: active.q.id, fieldId: fid, rect })
               : undefined
           }
@@ -1136,12 +1302,14 @@ function CalculatedRequirementsView({
   focusId,
   onJumpToReport,
   userTargets,
+  frameworkId,
 }: {
   sections: Section[];
   answers: Record<string, QuestionState>;
   focusId: string | null;
   onJumpToReport: (questionId: string) => void;
   userTargets: UserTarget[];
+  frameworkId: string;
 }) {
   const [search, setSearch] = useState("");
 
@@ -1240,7 +1408,13 @@ function CalculatedRequirementsView({
                     </div>
                   </td>
                   <td className="px-4 py-3 align-top tabular-nums">
-                    <span className="font-medium text-blue-700">{formatValue(v.value, v.unit)}</span>
+                    <Link
+                      href={`/report/${frameworkId}/drilldown/${encodeURIComponent(v.id)}`}
+                      className="block truncate font-medium text-blue-700 hover:underline"
+                      title={`Drilldown into ${formatValue(v.value, v.unit)}`}
+                    >
+                      {formatValue(v.value, v.unit)}
+                    </Link>
                   </td>
                   <td className="px-4 py-3 align-top text-slate-700">
                     {(() => {
@@ -1320,31 +1494,45 @@ function CalculatedRequirementsView({
 /**
  * CCTS Requirements tab — every seeded baseline-year value from the BEE
  * Aluminium pro-forma exposed as a row. Each row is anchored at
- * `id="req-<fieldId>"` so the report's blue numbers can deep-link in.
+ * `id="req-<fieldId>"` so the report's blue numbers can deep-link in. Rows
+ * also list any runtime user-picked locations under "Location in Report"
+ * with an "Added" badge, mirroring the CBAM Requirements tab pattern.
  */
 function CctsRequirementsView({
+  frameworkId,
   answers,
   focusId,
+  userTargets,
   onJumpToReport,
 }: {
+  frameworkId: string;
   answers: Record<string, QuestionState>;
   focusId: string | null;
+  userTargets: CctsUserTarget[];
   onJumpToReport: (questionId: string) => void;
 }) {
   const [search, setSearch] = useState("");
 
+  // Resolve question metadata once for the user-pick "Location" rendering.
+  const questionLookup = useMemo(() => {
+    const m = new Map<string, { sectionTitle: string; questionLabel: string }>();
+    for (const s of cctsSections) {
+      for (const q of s.questions) {
+        m.set(q.id, { sectionTitle: s.title, questionLabel: q.label });
+      }
+    }
+    return m;
+  }, []);
+
   // A requirement is "active" when the matching cell still carries the
-  // seeded value — once the user edits, the blue link breaks. We still
-  // show all rows; the active state just dims/un-dims the row.
+  // seeded numeric value within the same relative tolerance the blue-
+  // styling uses. Edits past that tolerance dim the row.
   const isActive = useCallback(
     (req: CctsRequirement): boolean => {
       const cur = answers[req.target.questionId]?.values?.[req.target.fieldId];
-      if (typeof req.value === "string") return typeof cur === "string" && cur === req.value;
-      if (typeof req.value === "number" && typeof cur === "number") {
-        const denom = Math.max(Math.abs(req.value), 1);
-        return Math.abs(cur - req.value) / denom < 1e-6;
-      }
-      return false;
+      if (typeof cur !== "number" || !Number.isFinite(cur)) return false;
+      const denom = Math.max(Math.abs(req.value), 1);
+      return Math.abs(cur - req.value) / denom < 1e-6;
     },
     [answers]
   );
@@ -1362,8 +1550,7 @@ function CctsRequirementsView({
     );
   }, [search]);
 
-  const formatValue = (v: string | number, unit?: string): string => {
-    if (typeof v === "string") return v;
+  const formatValue = (v: number, unit?: string): string => {
     if (v === 0) return unit ? `0 ${unit}` : "0";
     const abs = Math.abs(v);
     let s: string;
@@ -1466,21 +1653,70 @@ function CctsRequirementsView({
                     <div className="truncate text-slate-900" title={cleanLabel}>{cleanLabel}</div>
                   </td>
                   <td className="px-4 py-3 align-top tabular-nums">
-                    <span
-                      className={`block truncate ${active ? "font-medium text-blue-700" : "text-slate-500"}`}
-                      title={formatValue(r.value, r.unit)}
+                    <Link
+                      href={`/report/${frameworkId}/drilldown/${encodeURIComponent(r.id)}`}
+                      className={`block truncate hover:underline ${active ? "font-medium text-blue-700" : "text-blue-700/80"}`}
+                      title={`Drilldown into ${formatValue(r.value, r.unit)}`}
                     >
                       {formatValue(r.value, r.unit)}
-                    </span>
+                    </Link>
                   </td>
                   <td className="px-4 py-3 align-top text-slate-700">
-                    <button
-                      onClick={() => onJumpToReport(r.target.questionId)}
-                      className="block w-full truncate text-left text-sm text-slate-700 hover:text-blue-700 hover:underline"
-                      title={`Open ${cleanQuestion} in the report`}
-                    >
-                      {r.sectionShort} / {cleanQuestion}
-                    </button>
+                    {(() => {
+                      // Native (seed) location plus any runtime user-picked
+                      // locations that aren't a duplicate of the native one.
+                      const userExtras = userTargets
+                        .filter((t) => t.valueId === r.id)
+                        .filter(
+                          (t) =>
+                            !(
+                              t.questionId === r.target.questionId &&
+                              t.fieldId === r.target.fieldId
+                            )
+                        );
+                      const entries: Array<{
+                        questionId: string;
+                        questionLabel: string;
+                        sectionShort: string;
+                        userAdded: boolean;
+                      }> = [
+                        {
+                          questionId: r.target.questionId,
+                          questionLabel: cleanQuestion,
+                          sectionShort: r.sectionShort,
+                          userAdded: false,
+                        },
+                        ...userExtras.map((t) => {
+                          const qInfo = questionLookup.get(t.questionId);
+                          return {
+                            questionId: t.questionId,
+                            questionLabel: stripEnumerator(qInfo?.questionLabel ?? t.questionId),
+                            sectionShort: (qInfo?.sectionTitle ?? "").replace(/^[A-Z0-9]+\.\s*/, ""),
+                            userAdded: true,
+                          };
+                        }),
+                      ];
+                      return (
+                        <ul className="space-y-0.5">
+                          {entries.map((e, idx) => (
+                            <li key={idx}>
+                              <button
+                                onClick={() => onJumpToReport(e.questionId)}
+                                className="text-left text-sm text-slate-700 hover:text-blue-700 hover:underline"
+                                title={`Open ${e.questionLabel} in the report`}
+                              >
+                                {e.sectionShort} / {e.questionLabel}
+                                {e.userAdded && (
+                                  <span className="ml-1 rounded-sm bg-blue-100 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-blue-700">
+                                    Added
+                                  </span>
+                                )}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      );
+                    })()}
                   </td>
                 </tr>
               );

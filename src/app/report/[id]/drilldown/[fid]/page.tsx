@@ -3,27 +3,84 @@
 /**
  * Drilldown demo page.
  *
- * Reached by clicking the Response value on a row in the CCTS Requirements
- * tab. Currently a narrow demo: shows two boxes connected by a dotted line —
- * Output (the requirement value) and Input (12 monthly values whose sum is
- * the Output). Monthly values are synthesized as `annual / 12` for now.
+ * Reached by clicking the Response value on a row in the Requirements
+ * tab. Layout (top-to-bottom):
  *
- * URL: /report/<framework>/drilldown/<fieldId>
+ *   Output card                — the requirement's annual value
+ *      |
+ *      | dotted connector
+ *      v
+ *   Formula card (CBAM only)   — when the value has a known derivation,
+ *                                e.g. FRP_net = FRP_gross − (PP1 + PP2 + …)
+ *      |
+ *      v
+ *   Inputs                     — either
+ *                                  • a single monthly table (no formula), or
+ *                                  • a tab strip with one monthly table per
+ *                                    formula input (CBAM, with formula)
+ *
+ * URL: /report/<framework>/drilldown/<requirementId>
  *      e.g. /report/ccts/drilldown/FS1!I43
- *
- * Future extensions: editable monthly cells that recompute the Output, full
- * Watershed-style pipeline (Input → Standardization → Regrouping → Activity
- * data → Calculation → Categorization → Footprint → Query result), source
- * tagging per row, etc.
+ *           /report/cbam/drilldown/frp_net_production_gross_internal_scrap
  */
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { cctsRequirementById } from "@/lib/cctsRequirements";
+import { calculatedById } from "@/lib/cbamSOT";
+import { cbamFormulaFor, type CbamFormula } from "@/lib/cbamFormulas";
 
 const MONTH_LABELS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ] as const;
+
+interface ResolvedRequirement {
+  id: string;
+  displayId: string;
+  label: string;
+  unit?: string;
+  value: number;
+  sectionTitle: string;
+  questionLabel: string;
+  formula: CbamFormula | null;
+}
+
+function resolveRequirement(
+  frameworkId: string,
+  fid: string
+): ResolvedRequirement | null {
+  if (frameworkId === "ccts") {
+    const r = cctsRequirementById.get(fid);
+    if (!r) return null;
+    return {
+      id: r.id,
+      displayId: r.displayId,
+      label: r.label,
+      unit: r.unit,
+      value: r.value,
+      sectionTitle: r.sectionTitle,
+      questionLabel: r.questionLabel,
+      formula: null,
+    };
+  }
+  if (frameworkId === "cbam") {
+    const r = calculatedById.get(fid);
+    if (!r) return null;
+    // CBAM SOT entries can carry multiple targets; pick the first for header context.
+    const t = r.targets[0];
+    return {
+      id: r.id,
+      displayId: r.id,
+      label: r.label,
+      unit: r.unit,
+      value: r.value,
+      sectionTitle: r.sotSection,
+      questionLabel: t ? t.questionId : r.sotSection,
+      formula: cbamFormulaFor(r.id),
+    };
+  }
+  return null;
+}
 
 export default function DrilldownPage({ params }: { params: { id: string; fid: string } }) {
   const { id: frameworkId, fid: fieldIdRaw } = params;
@@ -37,35 +94,31 @@ export default function DrilldownPage({ params }: { params: { id: string; fid: s
     }
   }, [fieldIdRaw]);
 
-  // Right now drilldown is only wired for CCTS; CBAM/RCO/etc would need
-  // their own requirement registries. The requirement lookup is unconditional
-  // so we don't violate the rules of hooks below — early-return branches
-  // happen after all hooks have run.
-  const requirement = frameworkId === "ccts" ? cctsRequirementById.get(fid) ?? null : null;
+  const requirement = useMemo(
+    () => resolveRequirement(frameworkId, fid),
+    [frameworkId, fid]
+  );
 
-  // Synthesize monthly values from the annual figure. Keep two decimals so
-  // the sum visibly equals the Output without floating-point dust.
-  const monthly = useMemo(() => {
+  // For the single-monthly-table case (no formula): synthesise 12 months from
+  // the annual value.
+  const monthlyOutput = useMemo(() => {
     if (!requirement) return [];
-    const perMonth = requirement.value / 12;
-    const rounded = Math.round(perMonth * 100) / 100;
-    return MONTH_LABELS.map((m, i) => ({
-      label: `${m} 2024`,
-      value: rounded,
-      monthIndex: i,
-    }));
+    return synthesizeMonthly(requirement.value);
   }, [requirement]);
 
   const ytdSum = useMemo(
-    () => monthly.reduce((acc, m) => acc + m.value, 0),
-    [monthly]
+    () => monthlyOutput.reduce((acc, m) => acc + m.value, 0),
+    [monthlyOutput]
   );
 
-  if (frameworkId !== "ccts") {
+  // Track the active input tab when there's a formula. Default = first input.
+  const [activeInputIdx, setActiveInputIdx] = useState(0);
+
+  if (frameworkId !== "ccts" && frameworkId !== "cbam") {
     return (
       <NotAvailable
         title="Drilldown not available"
-        message={`Drilldown is currently only implemented for the CCTS Aluminium pro-forma. (Framework: ${frameworkId})`}
+        message={`Drilldown is currently only implemented for CCTS and CBAM. (Framework: ${frameworkId})`}
         backHref={`/report/${frameworkId}`}
       />
     );
@@ -80,6 +133,8 @@ export default function DrilldownPage({ params }: { params: { id: string; fid: s
     );
   }
 
+  const hasFormula = !!requirement.formula && requirement.formula.inputs.length > 0;
+
   return (
     <div className="flex h-full flex-col bg-slate-50">
       <Header
@@ -92,15 +147,28 @@ export default function DrilldownPage({ params }: { params: { id: string; fid: s
       />
       <PipelineRail
         stages={[
-          { id: "input", label: "Input", subline: `${monthly.length} monthly rows` },
-          { id: "calculation", label: "Calculation", subline: `Sum (YTD 2024)`, active: true },
-          { id: "output", label: "Output", subline: `${formatNumber(requirement.value)}${requirement.unit ? ` ${requirement.unit}` : ""}` },
+          {
+            id: "input",
+            label: "Input",
+            subline: hasFormula
+              ? `${requirement.formula!.inputs.length} input${requirement.formula!.inputs.length === 1 ? "" : "s"}`
+              : `${monthlyOutput.length} monthly rows`,
+          },
+          {
+            id: "calculation",
+            label: "Calculation",
+            subline: hasFormula ? "Formula" : "Sum (YTD 2024)",
+            active: true,
+          },
+          {
+            id: "output",
+            label: "Output",
+            subline: `${formatNumber(requirement.value)}${requirement.unit ? ` ${requirement.unit}` : ""}`,
+          },
         ]}
       />
       <main className="flex-1 overflow-auto px-8 py-10">
-        <div className="mx-auto max-w-3xl">
-          {/* Output card on top, dotted line, Input card on bottom — mirrors the
-              user-supplied mock. */}
+        <div className="mx-auto max-w-4xl">
           <div className="relative flex flex-col items-center gap-6">
             <OutputCard
               value={requirement.value}
@@ -108,11 +176,24 @@ export default function DrilldownPage({ params }: { params: { id: string; fid: s
               label={requirement.label}
             />
             <DottedConnector />
-            <InputCard
-              monthly={monthly}
-              total={ytdSum}
-              unit={requirement.unit}
-            />
+            {hasFormula && (
+              <>
+                <FormulaCard formula={requirement.formula!} />
+                <DottedConnector />
+                <InputsTabbed
+                  formula={requirement.formula!}
+                  activeIdx={activeInputIdx}
+                  onSelect={setActiveInputIdx}
+                />
+              </>
+            )}
+            {!hasFormula && (
+              <InputCard
+                monthly={monthlyOutput}
+                total={ytdSum}
+                unit={requirement.unit}
+              />
+            )}
           </div>
           <FooterMeta requirement={requirement} />
         </div>
@@ -284,6 +365,99 @@ function InputCard({
   );
 }
 
+// ── Formula card ────────────────────────────────────────────────────────────
+
+function FormulaCard({ formula }: { formula: CbamFormula }) {
+  return (
+    <div className="w-full max-w-3xl rounded-xl border border-slate-300 bg-white px-6 py-5 shadow-sm">
+      <div className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
+        Formula
+      </div>
+      <div className="mt-2 text-sm leading-relaxed text-slate-800">
+        <span className="font-mono">{formula.expression}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Inputs tabbed ───────────────────────────────────────────────────────────
+
+function InputsTabbed({
+  formula,
+  activeIdx,
+  onSelect,
+}: {
+  formula: CbamFormula;
+  activeIdx: number;
+  onSelect: (i: number) => void;
+}) {
+  const active = formula.inputs[activeIdx] ?? formula.inputs[0];
+  const monthly = useMemo(() => synthesizeMonthly(active.value), [active.value]);
+  const ytd = useMemo(() => monthly.reduce((acc, m) => acc + m.value, 0), [monthly]);
+  return (
+    <div className="w-full max-w-3xl rounded-xl border border-slate-300 bg-white shadow-sm">
+      <div className="border-b border-slate-200 px-5 py-3">
+        <div className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
+          Inputs · Monthly values
+        </div>
+      </div>
+      <div role="tablist" className="flex flex-wrap gap-1 border-b border-slate-200 px-3 pt-3">
+        {formula.inputs.map((inp, i) => {
+          const isActive = i === activeIdx;
+          return (
+            <button
+              key={inp.key}
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => onSelect(i)}
+              className={`-mb-px rounded-t-md border px-3 py-1.5 text-xs font-medium transition ${
+                isActive
+                  ? "border-slate-300 border-b-white bg-white text-slate-900"
+                  : "border-transparent bg-slate-50 text-slate-600 hover:bg-slate-100"
+              }`}
+              title={inp.label}
+            >
+              <span className="block max-w-[260px] truncate">{inp.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="px-5 py-3 text-xs text-slate-500">
+        <span className="font-medium text-slate-700">Annual value:</span>{" "}
+        <span className="tabular-nums">{formatNumber(active.value)}</span>
+        {active.unit && <span className="ml-1 text-slate-500">{active.unit}</span>}
+      </div>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] uppercase tracking-wider text-slate-500">
+            <th className="px-5 py-2 text-left font-medium">Month</th>
+            <th className="px-5 py-2 text-right font-medium">
+              Value{active.unit ? ` (${active.unit})` : ""}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {monthly.map((row) => (
+            <tr key={row.monthIndex} className="border-b border-slate-50 last:border-b-0">
+              <td className="px-5 py-2 text-slate-700">{row.label}</td>
+              <td className="px-5 py-2 text-right tabular-nums text-slate-900">
+                {formatNumber(row.value)}
+              </td>
+            </tr>
+          ))}
+          <tr className="border-t border-slate-200 bg-slate-50">
+            <td className="px-5 py-2.5 font-medium text-slate-700">Total (YTD)</td>
+            <td className="px-5 py-2.5 text-right font-semibold tabular-nums text-blue-700">
+              {formatNumber(ytd)}
+              {active.unit && <span className="ml-1.5 text-xs font-normal text-slate-500">{active.unit}</span>}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Footer metadata ─────────────────────────────────────────────────────────
 
 function FooterMeta({
@@ -335,6 +509,17 @@ function NotAvailable({
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+function synthesizeMonthly(annual: number): { label: string; value: number; monthIndex: number }[] {
+  // Two decimals so the displayed sum visibly equals the annual figure.
+  const perMonth = annual / 12;
+  const rounded = Math.round(perMonth * 100) / 100;
+  return MONTH_LABELS.map((m, i) => ({
+    label: `${m} 2024`,
+    value: rounded,
+    monthIndex: i,
+  }));
+}
 
 function formatNumber(n: number): string {
   if (!Number.isFinite(n)) return "—";
