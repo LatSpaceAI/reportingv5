@@ -18,13 +18,14 @@ export const electricitySource = [
   "D.4.2 — own generation within installation",
   "D.4.3.1 — CHP captive",
   "D.4.3.2 — other captive",
+  "Mix",
 ] as const;
 
 export const dataQualityLevel = [
   "Mostly measurements & analyses",
-  "Mostly measurements & national standard factors",
-  "Mostly measurements & sector-specific standard factors",
-  "Mostly measurements & international standard factors",
+  "Mostly measurements & national standard factors for e.g. the emission factor",
+  "Mostly measurements & sector-specific standard factors for e.g. the emission factor",
+  "Mostly measurements & international standard factors for e.g. the emission factor",
   "Mostly default values provided by the European Commission",
 ] as const;
 

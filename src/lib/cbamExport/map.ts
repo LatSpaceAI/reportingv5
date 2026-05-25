@@ -19,7 +19,7 @@ export interface FieldBinding {
   sheet: string;
   cell: string;
   /** Optional transformer (e.g. "Yes"/"No" → boolean Excel cell). */
-  transform?: "yesNoFromBool" | "dateFromIso" | "pct100to1" | "cnCodeOnly" | "countryCodeFromName";
+  transform?: "yesNoFromBool" | "boolRaw" | "dateFromIso" | "pct100to1" | "cnCodeOnly" | "countryCodeFromName" | "countryNameFromLabel";
 }
 
 export interface TableBinding {
@@ -30,8 +30,15 @@ export interface TableBinding {
   anchorRow: number;
   /** Rows added per subsequent row/block. */
   rowStride: number;
-  /** Column letter for each field id in the row. */
-  columns: Record<string, { col: string; offset?: number; transform?: FieldBinding["transform"] }>;
+  /** Column letter for each field id in the row.
+   *
+   * `readOnly: true` means the seed-generator reads this cell to populate
+   * the in-app default (e.g. an aggregated good name shown in the row), but
+   * the export skips writing it because the template computes the cell from
+   * other inputs (CNTR_List lookups, shared formulas, etc.) and overwriting
+   * it would either drop the formula or break exceljs's shared-formula
+   * accounting. Keep export-writable cells `readOnly: false` or omitted. */
+  columns: Record<string, { col: string; offset?: number; transform?: FieldBinding["transform"]; readOnly?: boolean }>;
   /** Max rows we will write (protects us from exceeding the template's provision). */
   maxRows: number;
 }
@@ -56,7 +63,7 @@ export const bindings: Binding[] = [
   { kind: "field", questionId: "A.2", fieldId: "postcode",         sheet: "A_InstData", cell: "I23" },
   { kind: "field", questionId: "A.2", fieldId: "poBox",            sheet: "A_InstData", cell: "I24" },
   { kind: "field", questionId: "A.2", fieldId: "city",             sheet: "A_InstData", cell: "I25" },
-  { kind: "field", questionId: "A.2", fieldId: "country",          sheet: "A_InstData", cell: "I26" },
+  { kind: "field", questionId: "A.2", fieldId: "country",          sheet: "A_InstData", cell: "I26", transform: "countryNameFromLabel" },
   { kind: "field", questionId: "A.2", fieldId: "unlocode",         sheet: "A_InstData", cell: "I27" },
   { kind: "field", questionId: "A.2", fieldId: "lat",              sheet: "A_InstData", cell: "I28" },
   { kind: "field", questionId: "A.2", fieldId: "lng",              sheet: "A_InstData", cell: "I29" },
@@ -68,15 +75,16 @@ export const bindings: Binding[] = [
   { kind: "field", questionId: "A.3", fieldId: "verifierStreet",     sheet: "A_InstData", cell: "I38" },
   { kind: "field", questionId: "A.3", fieldId: "verifierCity",       sheet: "A_InstData", cell: "I39" },
   { kind: "field", questionId: "A.3", fieldId: "verifierPostcode",   sheet: "A_InstData", cell: "I40" },
-  { kind: "field", questionId: "A.3", fieldId: "verifierCountry",    sheet: "A_InstData", cell: "I41" },
+  { kind: "field", questionId: "A.3", fieldId: "verifierCountry",    sheet: "A_InstData", cell: "I41", transform: "countryNameFromLabel" },
   { kind: "field", questionId: "A.3", fieldId: "verifierRepName",    sheet: "A_InstData", cell: "I45" },
   { kind: "field", questionId: "A.3", fieldId: "verifierRepEmail",   sheet: "A_InstData", cell: "I46" },
   { kind: "field", questionId: "A.3", fieldId: "verifierRepTel",     sheet: "A_InstData", cell: "I47" },
-  { kind: "field", questionId: "A.3", fieldId: "accreditationMS",    sheet: "A_InstData", cell: "I51" },
+  { kind: "field", questionId: "A.3", fieldId: "accreditationMS",    sheet: "A_InstData", cell: "I51", transform: "countryNameFromLabel" },
   { kind: "field", questionId: "A.3", fieldId: "accreditationBody",  sheet: "A_InstData", cell: "I52" },
   { kind: "field", questionId: "A.3", fieldId: "accreditationRegNo", sheet: "A_InstData", cell: "I53" },
 
-  // A.4 Aggregated goods table (rows 62-71, 10 rows). Cols: E=good, I–N=routes
+  // A.4 Aggregated goods table (rows 62-71, 10 rows). Cols: E=good, I–N=routes,
+  // AH=PFC emissions relevant flag.
   {
     kind: "table",
     questionId: "A.4",
@@ -85,14 +93,19 @@ export const bindings: Binding[] = [
     rowStride: 1,
     maxRows: 10,
     columns: {
-      good:   { col: "E" },
-      route1: { col: "I" },
-      route2: { col: "J" },
+      good:         { col: "E" },
+      route1:       { col: "I" },
+      route2:       { col: "J" },
       // route3..6 unused in our UI; template has cols K-N for those.
+      // pfcRelevant is computed by the template from the good (column E)
+      // via a Parameters_Constants lookup, so seed reads it but export must
+      // not write — writing replaces the formula and drops the live flag.
+      pfcRelevant:  { col: "AH", transform: "yesNoFromBool", readOnly: true },
     },
   },
 
-  // A.5 Purchased precursors (rows 102-121, 20 rows). Cols: E=good, F=countryCode, G-K=routes
+  // A.5 Purchased precursors (rows 102-121, 20 rows). Cols: E=good,
+  // F=countryCode, G-K=routes, L=supplier free-text label.
   {
     kind: "table",
     questionId: "A.5",
@@ -101,9 +114,10 @@ export const bindings: Binding[] = [
     rowStride: 1,
     maxRows: 20,
     columns: {
-      good:    { col: "E" },
-      country: { col: "F", transform: "countryCodeFromName" },
-      route:   { col: "G" },
+      good:     { col: "E" },
+      country:  { col: "F", transform: "countryCodeFromName" },
+      route:    { col: "G" },
+      supplier: { col: "L" },
     },
   },
 
@@ -132,6 +146,7 @@ export const bindings: Binding[] = [
   },
 
   // B.2 PFC — B_EmInst rows 98 onward (row 97 is the example).
+  // Headers at row 96: AG=Frequency, AH=Duration, AI=SEF(CF4), AL=OVC, AM=F(C2F6).
   {
     kind: "table",
     questionId: "B.2",
@@ -143,28 +158,30 @@ export const bindings: Binding[] = [
       method:      { col: "D" },
       tech:        { col: "E" },
       tAl:         { col: "F" },
-      aeFreq:      { col: "H" },
-      aeDur:       { col: "J" },
-      overvoltage: { col: "L" },
-      slopeCF4:    { col: "N" },
-      slopeC2F6:   { col: "P" },
+      aeFreq:      { col: "AG" },
+      aeDur:       { col: "AH" },
+      slopeCF4:    { col: "AI" },
+      overvoltage: { col: "AL" },
+      slopeC2F6:   { col: "AM" },
     },
   },
 
-  // B.3 CEMS — B_EmInst rows 111 onward.
+  // B.3 CEMS — B_EmInst rows 113 onward (rows 111-112 are EU examples).
+  // Headers at row 110: D=Name, E=GHG, V=hourly conc avg, X=hours operating,
+  // Z=flue gas flow average.
   {
     kind: "table",
     questionId: "B.3",
     sheet: "B_EmInst",
-    anchorRow: 111,
+    anchorRow: 113,
     rowStride: 1,
     maxRows: 10,
     columns: {
       name:  { col: "D" },
       ghg:   { col: "E" },
-      conc:  { col: "F" },
-      flow:  { col: "H" },
-      hours: { col: "J" },
+      conc:  { col: "V" },
+      hours: { col: "X" },
+      flow:  { col: "Z" },
     },
   },
 
@@ -210,16 +227,55 @@ export const bindings: Binding[] = [
     rowStride: 65,
     maxRows: 10,
     columns: {
-      good:         { col: "E" },
-      output:       { col: "L", offset: 1 },
-      directEm:     { col: "L", offset: 39 },
-      heatProduced: { col: "L", offset: 42 },
-      heatConsumed: { col: "L", offset: 43 },
-      heatImported: { col: "L", offset: 42 },
-      heatExported: { col: "M", offset: 42 },
-      elecMWh:      { col: "L", offset: 50 },
-      elecEF:       { col: "L", offset: 51 },
-      elecSource:   { col: "L", offset: 52 },
+      // Aggregated good shown at L11 of each block (offset -4 from the
+      // anchorRow=15 header). The template auto-computes this from
+      // CNTR_List_ExistProdProc, so the seed reads it but the export skips
+      // writing — overwriting the formula here also trips exceljs's
+      // shared-formula accounting at E16.
+      good:               { col: "L", offset: -4, readOnly: true },
+      // ── Production amounts by route (L16-L19) ─────────────────────
+      prodPrimary:        { col: "L", offset: 1 },
+      prodSecondary:      { col: "L", offset: 2 },
+      prodOther:          { col: "L", offset: 3 },
+      prodUnknown:        { col: "L", offset: 4 },
+      // L24 (offset 9) is =SUM(L16:L23); the template computes the total,
+      // so `output` is read-only on export (the SOT pre-fill still shows
+      // the value in the UI).
+      output:             { col: "L", offset: 9, readOnly: true },
+      // ── Production details (toMarket at L27) ───────────────────────
+      toMarket:           { col: "L", offset: 12 },
+      // ── Internal consumption (L32-L40 — one row per "other"
+      //    production process referenced by name in section (c)).
+      //    Note: the row mapping depends on the current process index —
+      //    P1 lists FRP, Extrusion at L32/L33; P2 lists Unwrought,
+      //    Extrusion at L97/L98; P3 lists Unwrought, FRP at L162/L163.
+      //    See applyD1InternalConsumption() in export.ts for the
+      //    process-aware re-mapping. We leave these blank in the static
+      //    binding because the cell column is the same but the *meaning*
+      //    of "row 1 / row 2" depends on the current process.
+      // ── Non-CBAM consumption (L41) ────────────────────────────────
+      nonCbam:            { col: "L", offset: 26 },
+      // ── Applicable elements (K50/L50 — booleans for whether
+      //    measurable heat / waste gases are relevant) ───────────────
+      hasHeat:            { col: "K", offset: 35, transform: "boolRaw" },
+      hasWasteGas:        { col: "L", offset: 35, transform: "boolRaw" },
+      // ── Attributed direct emissions (L54) ──────────────────────────
+      directEm:           { col: "L", offset: 39 },
+      // ── Measurable heat balance (L57 imp / M57 exp / L58 EF) ──────
+      heatImported:       { col: "L", offset: 42 },
+      heatExported:       { col: "M", offset: 42 },
+      heatEF:             { col: "L", offset: 43 },
+      // ── Waste gas balance (L61 imp / M61 exp / L62 EF) ────────────
+      wasteGasImported:   { col: "L", offset: 46 },
+      wasteGasExported:   { col: "M", offset: 46 },
+      wasteGasEF:         { col: "L", offset: 47 },
+      // ── Indirect-emission electricity (L65 cons / L66 EF / L67 src) ─
+      elecMWh:            { col: "L", offset: 50 },
+      elecEF:             { col: "L", offset: 51 },
+      elecSource:         { col: "L", offset: 52 },
+      // ── Electricity exported from the process (L71 / L72) ─────────
+      elecExportedMWh:    { col: "L", offset: 56 },
+      elecExportedEF:     { col: "L", offset: 57 },
     },
   },
 
@@ -235,16 +291,45 @@ export const bindings: Binding[] = [
     rowStride: 44,
     maxRows: 20,
     columns: {
-      good:         { col: "E" },
-      country:      { col: "F", transform: "countryCodeFromName" },
-      mass:         { col: "L", offset: 1 },
-      seeDirect:    { col: "L", offset: 33 },
-      elecPerT:     { col: "L", offset: 34 },
-      elecEF:       { col: "L", offset: 35 },
-      seeIndirect:  { col: "L", offset: 36 },
-      measurement:  { col: "M", offset: 33 },
-      elecSource:   { col: "M", offset: 35 },
-      justification:{ col: "K", offset: 38 },
+      // Aggregated good shown at L14 of each block (offset -2 from the
+      // anchorRow=16 header). The template auto-computes this from
+      // CNTR_List_ExistPurchPrec, so the seed reads it but the export skips
+      // writing (see D.1 `good` for the same shared-formula reason).
+      good:             { col: "L", offset: -2, readOnly: true },
+      // Country and supplier live on A_InstData (A.5 binding handles
+      // them at rows 102+); E_PurchPrec doesn't carry them. We omit the
+      // bindings here entirely — these fields show up in the in-app E.1
+      // table because the schema lists them, and the cross-sheet seed
+      // post-processing in scripts/gen-cbam-seed.mjs / the country
+      // mirror in export.ts populates them from A.5.
+      // ── Total purchased by production route (L17-L20) ─────────────
+      purchPrimary:     { col: "L", offset: 1 },
+      purchSecondary:   { col: "L", offset: 2 },
+      purchOther:       { col: "L", offset: 3 },
+      purchUnknown:     { col: "L", offset: 4 },
+      // L25 (offset 9) is =SUM(L17:L24); the template computes the total,
+      // so `mass` is read-only on export.
+      mass:             { col: "L", offset: 9, readOnly: true },
+      // ── Consumption by process within installation (L28-L30):
+      //    by convention block-row 1 = Unwrought, 2 = FRP, 3 = Extrusion. ─
+      toUnwrought:      { col: "L", offset: 12 },
+      toFRP:            { col: "L", offset: 13 },
+      toExtrusion:      { col: "L", offset: 14 },
+      // ── Consumed for other purposes (L38) ─────────────────────────
+      consumedOther:    { col: "L", offset: 22 },
+      // ── SEE direct (L49) + its source (M49) ───────────────────────
+      seeDirect:        { col: "L", offset: 33 },
+      seeDirectSource:  { col: "M", offset: 33 },
+      // ── Specific electricity (L50) + its source (M50) ─────────────
+      elecPerT:         { col: "L", offset: 34 },
+      elecPerTSource:   { col: "M", offset: 34 },
+      // ── Electricity EF (L51) + its source (M51) ───────────────────
+      elecEF:           { col: "L", offset: 35 },
+      elecSource:       { col: "M", offset: 35 },
+      // ── SEE indirect (L52) — formula =L50*L51, read-only on export.
+      seeIndirect:      { col: "L", offset: 36, readOnly: true },
+      // ── Defaults justification (K54) ───────────────────────────────
+      justification:    { col: "K", offset: 38 },
     },
   },
 
@@ -262,12 +347,41 @@ export const bindings: Binding[] = [
   { kind: "field", questionId: "F.2", fieldId: "amountDue",   sheet: "F_Tools", cell: "H102" },
   { kind: "field", questionId: "F.2", fieldId: "notes",       sheet: "F_Tools", cell: "E130" },
 
-  // ───────────── G. Further guidance ─────────────
-  { kind: "field", questionId: "G.1", fieldId: "notes", sheet: "G_FurtherGuidance", cell: "E10" },
+  // ───────────── Summary of products ─────────────
+  // Summary_Products — single table starting at row 10 (row 9 is the EU
+  // example). Hindalco filled rows 10-15. Most columns downstream of the
+  // process name are formula-derived in the EU template; we still bind them
+  // so the seed can read the cached results and round-trip through the UI.
+  {
+    kind: "table",
+    questionId: "summary.1",
+    sheet: "Summary_Products",
+    anchorRow: 10,
+    rowStride: 1,
+    maxRows: 30,
+    columns: {
+      // Only D (process name), F (CN code), and H (product name) are
+      // writable cells in the template. Every other column is a formula
+      // that derives from D/F via CNTR_List or InputOutput lookups —
+      // overwriting these drops the live formulas and trips exceljs's
+      // shared-formula accounting on export. The seed still reads them so
+      // the in-app summary table renders the right SEE / embedded-elec
+      // values, but they're never written back to the workbook.
+      process:      { col: "D" },
+      good:         { col: "E", readOnly: true },
+      cnCode:       { col: "F" },
+      cnName:       { col: "G", readOnly: true },
+      productName:  { col: "H" },
+      seeDirect:    { col: "I", readOnly: true },
+      seeIndirect:  { col: "J", readOnly: true },
+      seeTotal:     { col: "K", readOnly: true },
+      defaultShare: { col: "M", transform: "pct100to1", readOnly: true },
+      elecEFSource: { col: "N", readOnly: true },
+      embeddedElec: { col: "O", readOnly: true },
+    },
+  },
 
-  // ───────────── SP, SC — Summaries ─────────────
-  // The template computes these automatically from A-F. Where users have entered data
-  // into our SP/SC questions (they can override), write them to the summary sheet's
-  // manual-entry cells. These sheets are heavily formula-driven so we skip them safely.
-  // A future iteration can map SP.1 rows to Summary_Products.
+  // G_FurtherGuidance and Summary_Communication are still generated entirely
+  // by template formulas from A-F; no user input is required so those sheets
+  // are not surfaced in the UI and have no bindings here.
 ];

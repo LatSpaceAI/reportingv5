@@ -3,21 +3,29 @@ import { sections } from "@/lib/cctsSections";
 import { CCTS_ANSWERS_KEY, readAnswers, type Answers } from "@/lib/storage";
 
 const TEMPLATE_URL = "/ccts-template.xlsx";
-const TARGET_SHEET = "Form-Sb";
+
+// Field-id prefix → workbook sheet name. Field ids in cctsSections.ts carry an
+// explicit sheet prefix because the aluminium pro-forma routes user inputs
+// across two sheets (Form Sa1 + Annex CPP), unlike the cement pro-forma which
+// only used Form-Sb.
+const SHEET_PREFIX: Record<string, string> = {
+  FS1: "Form Sa1",
+  ACPP: "Annex CPP",
+};
 
 /**
- * CCTS Pro-Forma export — surgical XML patcher.
+ * CCTS Aluminium-Sector Pro-Forma export — surgical XML patcher.
  *
- * Mirrors the RCO export approach: open the BEE Cement Pro-Forma workbook as
- * a zip and rewrite only the cells we filled. Every other sheet (General
- * Information, Form 1, Form E2, Baseline Parameters, Summary Sheet, NF-1…NF-8,
- * Form-PE, Emission Factor & GWP Backup, …) ships verbatim — formulas intact —
- * so Excel computes the rest when the user opens the file.
+ * Opens the BEE Aluminium Pro-Forma workbook as a zip and rewrites only the
+ * cells the user filled. Every other sheet (General Information, Form 1,
+ * Form E2, Form PE, Baseline Parameter, Summary Sheet, NF-2…NF-8,
+ * Emission Factor & GWP Backup, Annex Addl Eqp List, Annex Project Activities,
+ * N1-BQ Bauxite Quality, …) ships verbatim — formulas intact — so Excel
+ * computes the rest when the user opens the file.
  *
- * Cell binding is implicit: every field in cctsSections.ts has an id of the
- * shape `I<row>` (e.g. "I31"), which is exactly the cell on Form-Sb to write.
- * The Year-1 baseline columns (E/F/G) are intentionally left blank — only the
- * Current/Assessment Year column (I) is populated by this build.
+ * Cell binding: each field id in cctsSections.ts is "<SHEET>!<cellref>"
+ * (e.g. "FS1!I43", "ACPP!K25"), which maps to the cell on the named sheet
+ * via SHEET_PREFIX above.
  */
 export async function exportCctsFilled(): Promise<void> {
   const FileSaverMod = await import("file-saver");
@@ -33,20 +41,34 @@ export async function exportCctsFilled(): Promise<void> {
 
   const zip = await JSZip.loadAsync(buffer);
   const sheetNameToPath = await buildSheetMap(zip);
-  const formSbPath = sheetNameToPath.get(TARGET_SHEET);
-  if (!formSbPath) throw new Error(`Sheet "${TARGET_SHEET}" not found in template`);
 
   const answers = readAnswers(CCTS_ANSWERS_KEY);
-  const patches = collectPatches(answers);
-  if (patches.length === 0) {
+  const allPatches = collectPatches(answers);
+  if (allPatches.length === 0) {
     console.warn("[ccts-export] no answers to write — exporting empty template");
   }
 
-  const formSbFile = zip.file(formSbPath);
-  if (!formSbFile) throw new Error(`Sheet xml for ${TARGET_SHEET} missing`);
-  const xml = await formSbFile.async("string");
-  const updated = applyPatches(xml, patches);
-  zip.file(formSbPath, updated);
+  // Group patches by target sheet name and apply each sheet's XML in one pass.
+  const patchesBySheet = new Map<string, Patch[]>();
+  for (const p of allPatches) {
+    if (!patchesBySheet.has(p.sheetName)) patchesBySheet.set(p.sheetName, []);
+    patchesBySheet.get(p.sheetName)!.push(p);
+  }
+  for (const [sheetName, patches] of patchesBySheet) {
+    const path = sheetNameToPath.get(sheetName);
+    if (!path) {
+      console.warn(`[ccts-export] sheet "${sheetName}" not found in template — skipping ${patches.length} patches`);
+      continue;
+    }
+    const file = zip.file(path);
+    if (!file) {
+      console.warn(`[ccts-export] sheet xml missing for "${sheetName}" (${path})`);
+      continue;
+    }
+    const xml = await file.async("string");
+    const updated = applyPatches(xml, patches, sheetName);
+    zip.file(path, updated);
+  }
 
   // Drop calcChain so Excel rebuilds it on open. Stale calcChain triggers the
   // "recovered file" dialog Excel uses for corrupt workbooks.
@@ -61,15 +83,17 @@ export async function exportCctsFilled(): Promise<void> {
     compression: "DEFLATE",
   });
   const stamp = new Date().toISOString().slice(0, 10);
-  saveAs(out, `CCTS-Cement-Proforma-${stamp}.xlsx`);
+  saveAs(out, `CCTS-Aluminium-Proforma-${stamp}.xlsx`);
 }
 
 // ────────────────────────────────────────────────────────────────────────────
 // Patch collection — walk sections → questions → fields and stage one patch
-// per filled answer. Each field id is already the cell ref on Form-Sb.
+// per filled answer. Field ids are of the shape "<PREFIX>!<COL><ROW>" and the
+// prefix selects the target sheet via SHEET_PREFIX.
 // ────────────────────────────────────────────────────────────────────────────
 
 interface Patch {
+  sheetName: string;
   cellRef: string;
   rowNum: number;
   colLetter: string;
@@ -89,14 +113,28 @@ function collectPatches(answers: Answers): Patch[] {
         const raw = (values as Record<string, unknown>)[field.id];
         const coerced = coerce(raw);
         if (coerced === undefined) continue;
-        const ref = field.id; // e.g. "I31"
-        if (!/^[A-Z]+\d+$/.test(ref)) continue; // safety — skip ids that aren't cell refs
-        const split = splitRef(ref);
-        patches.push({ cellRef: ref, rowNum: split.row, colLetter: split.col, value: coerced });
+        const parsed = parseFieldId(field.id);
+        if (!parsed) continue;
+        patches.push({
+          sheetName: parsed.sheetName,
+          cellRef: parsed.cellRef,
+          rowNum: parsed.row,
+          colLetter: parsed.col,
+          value: coerced,
+        });
       }
     }
   }
   return patches;
+}
+
+function parseFieldId(id: string): { sheetName: string; cellRef: string; col: string; row: number } | null {
+  // Expected shape: "<PREFIX>!<COL><ROW>" e.g. "FS1!I43", "ACPP!K25".
+  const m = /^([A-Z0-9]+)!([A-Z]+)(\d+)$/.exec(id);
+  if (!m) return null;
+  const sheetName = SHEET_PREFIX[m[1]];
+  if (!sheetName) return null;
+  return { sheetName, cellRef: m[2] + m[3], col: m[2], row: Number(m[3]) };
 }
 
 function coerce(v: unknown): string | number | undefined {
@@ -140,7 +178,7 @@ async function buildSheetMap(zip: JSZip): Promise<Map<string, string>> {
 // Sheet XML editing
 // ────────────────────────────────────────────────────────────────────────────
 
-function applyPatches(xml: string, patches: Patch[]): string {
+function applyPatches(xml: string, patches: Patch[], sheetName: string): string {
   if (patches.length === 0) return xml;
 
   const byRow = new Map<number, Patch[]>();
@@ -154,7 +192,7 @@ function applyPatches(xml: string, patches: Patch[]): string {
     const rowRe = new RegExp(`<row\\b([^>]*?\\sr="${rowNum}")([^>]*)>([\\s\\S]*?)</row>`, "g");
     const match = rowRe.exec(result);
     if (!match) {
-      console.warn(`[ccts-export] row ${rowNum} not found in Form-Sb`);
+      console.warn(`[ccts-export] row ${rowNum} not found in ${sheetName}`);
       continue;
     }
     const [whole, , attrsTail, inner] = match;

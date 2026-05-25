@@ -1,4 +1,4 @@
-// One-time indexing pipeline for a guidance PDF (CBAM, CDP, ...).
+// One-time indexing pipeline for the CBAM guidance PDF.
 //
 // Reads the PDF, splits it into leaf-section chunks (respecting numbered
 // headings like 1, 1.1, 1.1.1...), runs Anthropic Contextual Retrieval to
@@ -7,14 +7,14 @@
 // runtime route loads on cold start.
 //
 // Usage:
-//   node scripts/build-index.mjs                                 # CBAM (default), incremental
-//   node scripts/build-index.mjs --framework cdp --pdf "./CDP resources/CDP 2026 questionnaire guidance.pdf"
+//   node scripts/build-index.mjs                                 # CBAM, incremental
 //   node scripts/build-index.mjs --force                         # rebuild from scratch
 //   node scripts/build-index.mjs --dry-run                       # parse + chunk only, no API calls
 //   node scripts/build-index.mjs --first-page 5                  # override skipped front-matter pages
 
 import { config as loadEnv } from "dotenv";
-loadEnv({ path: [".env.local", ".env"] });
+// override: true so .env.local wins over any empty/stale shell env vars.
+loadEnv({ path: [".env.local", ".env"], override: true });
 import { createRequire } from "node:module";
 import Anthropic from "@anthropic-ai/sdk";
 import { PDFParse } from "pdf-parse";
@@ -58,19 +58,15 @@ const FRAMEWORK_DEFAULTS = {
     pdfPath: "../CBAM rsources/Guidance document on CBAM implementation for installation operators outside the EU.pdf",
     firstBodyPage: 7,
     skipContextual: false,
-    headingMode: "inline",
+    chunker: "cbam",
   },
-  cdp: {
-    pdfPath: "./CDP resources/CDP 2026 questionnaire guidance.pdf",
-    firstBodyPage: 1,
-    skipContextual: true,
-    headingMode: "standalone",
-  },
-  brsr: {
-    pdfPath: "./BRSR-guidelines.pdf",
-    firstBodyPage: 1,
+  ccts: {
+    pdfPath: "Detailed Procedure for Compliance Mechanism - BEE document (1).pdf",
+    // Page 7 is the TOC (parsed for top-level section titles). Page 8 onward is body.
+    firstBodyPage: 7,
     skipContextual: false,
-    headingMode: "brsr-table",
+    chunker: "bee",
+    tocPage: 7,
   },
 };
 
@@ -83,11 +79,12 @@ if (!fwDefaults) {
 const PDF_PATH = resolve(PROJECT_ROOT, flagValue("--pdf") ?? fwDefaults.pdfPath);
 const INDEX_DIR = join(PROJECT_ROOT, "agent-runner", "data", "rag", FRAMEWORK);
 const SKIP_CONTEXTUAL = SKIP_CONTEXTUAL_FLAG || fwDefaults.skipContextual === true;
-const HEADING_MODE = fwDefaults.headingMode ?? "inline";
 const CHUNKS_PATH = join(INDEX_DIR, "chunks.json");
 const VECTORS_PATH = join(INDEX_DIR, "vectors.json");
 const META_PATH = join(INDEX_DIR, "meta.json");
 const CONTEXTUALIZED_CHECKPOINT = join(INDEX_DIR, ".contextualized.json");
+const CHUNKER = fwDefaults.chunker ?? "cbam";
+const TOC_PAGE = fwDefaults.tocPage ?? null;
 
 // Tunables
 const FIRST_BODY_PAGE = FIRST_BODY_PAGE_OVERRIDE ? Number(FIRST_BODY_PAGE_OVERRIDE) : fwDefaults.firstBodyPage;
@@ -137,11 +134,6 @@ function sanitizeText(s) {
 // "4.3.2 What needs to be monitored...". The TOC is excluded by FIRST_BODY_PAGE.
 const HEADING_RE = /^(\d+(?:\.\d+){0,4})\s+(.+?)\s*$/;
 
-// CDP-style: question code on its own line ("1.1", "7.73.1a"), then the
-// question text on the next line. The optional trailing letter handles
-// "1.4a", "C2.2a" style variants.
-const STANDALONE_CODE_RE = /^(\d+(?:\.\d+){0,4}[a-z]?)\s*$/i;
-
 // Heuristic for the same-line CBAM format: a line matching the regex is a
 // heading only if it's reasonably short (titles aren't sentences) and the
 // title isn't all-lowercase prose.
@@ -169,58 +161,19 @@ function looksLikeHeading(line) {
   return { number, title: title.trim() };
 }
 
-// CDP variant: detect "1.1\nQuestion text..." pairs. The code sits on its
-// own line; the next non-empty line is the question. We also accept a
-// trailing "*(mandatory)" decoration on the code line, which CDP uses to
-// flag mandatory questions ("1.1 *(mandatory)").
-function looksLikeCdpHeading(line, nextLine) {
-  // Strip the *(mandatory) / *(mandatory columns) decorations so they
-  // don't disqualify an otherwise-valid code line.
-  const stripped = line.replace(/\s*\*\(mandatory[^)]*\)\s*$/i, "").trim();
-  const m = stripped.match(STANDALONE_CODE_RE);
-  if (!m) return null;
-  const number = m[1];
-  const parts = number.split(".").map((s) => parseInt(s, 10));
-  // CDP modules go from 1 to ~30; reject 4-digit years and out-of-range values.
-  if (parts[0] < 1 || parts[0] > 30) return null;
-  if (parts.some((n) => Number.isNaN(n))) return null;
-  // The next line must look like a question/title — non-empty, reasonably
-  // short for a single line, and not just punctuation or a tag dump.
-  if (!nextLine) return null;
-  const title = nextLine.trim();
-  if (!title || title.length < 4 || title.length > 300) return null;
-  // Reject lines that are obviously not titles (currency codes, country
-  // names dump, comma-separated tag lines).
-  if (/^[A-Z]{3}$/.test(title)) return null;
-  return { number, title };
-}
-
-function chunkBySection(pages, headingMode = "inline") {
+function chunkBySection(pages) {
   // Walk every line, splitting on detected headings. Each section accumulates
   // lines until the next heading. Track page span for citations.
-  // headingMode: "inline" (CBAM — number + title on same line) or "standalone"
-  // (CDP — number on its own line, title on the next line).
   const sections = [];
   let current = null;
 
   for (const page of pages) {
     const lines = page.text.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].replace(/\t/g, " ").trim();
+    for (const rawLine of lines) {
+      const line = rawLine.replace(/\t/g, " ").trim();
       if (!line) continue;
 
-      let heading = null;
-      let consumeNext = false;
-      if (headingMode === "standalone") {
-        // Find the next non-empty line as the candidate title.
-        let nextIdx = i + 1;
-        while (nextIdx < lines.length && !lines[nextIdx].trim()) nextIdx++;
-        const nextLine = nextIdx < lines.length ? lines[nextIdx].replace(/\t/g, " ").trim() : "";
-        heading = looksLikeCdpHeading(line, nextLine);
-        if (heading) consumeNext = true;
-      } else {
-        heading = looksLikeHeading(line);
-      }
+      const heading = looksLikeHeading(line);
 
       if (heading) {
         if (current) sections.push(current);
@@ -231,12 +184,6 @@ function chunkBySection(pages, headingMode = "inline") {
           lastPage: page.num,
           body: [],
         };
-        if (consumeNext) {
-          // Skip past the title line so it isn't repeated as body text.
-          let nextIdx = i + 1;
-          while (nextIdx < lines.length && !lines[nextIdx].trim()) nextIdx++;
-          i = nextIdx;
-        }
         continue;
       }
       if (!current) {
@@ -251,196 +198,334 @@ function chunkBySection(pages, headingMode = "inline") {
   return sections;
 }
 
-// BRSR-style: a guidance note structured as nested tables. The hierarchy is
-// established by textual headings (SECTION A/B/C, PRINCIPLE 1-9, Essential /
-// Leadership Indicators) rather than numbered headings, and the chunk unit
-// is a single Q.No. row of the inner table.
+// ---------- BEE-style section detection ----------
 //
-// Synthesized "section number" used as the citation key:
-//   Section A/B → A.Q14, B.Q5
-//   Section C   → C.P3.E.Q5  (Essential), C.P7.L.Q1 (Leadership)
-const BRSR_SECTION_RE = /^(?:I{1,4}|VI{0,3}|V|IV|IX)\.\s*SECTION\s+([A-C])\s*:/i;
-const BRSR_PRINCIPLE_RE = /^PRINCIPLE\s+(\d+)\b/i;
-const BRSR_INDICATOR_RE = /^(Essential|Leadership)\s+Indicators?\s*$/i;
-const BRSR_PAGE_HEADER_RE = /^Page\s+\d+\s+of\s+\d+\s*$/i;
-// Q row: a line that is purely a small integer (1-50) with optional trailing
-// dot, optional comma-separated continuation ("5, 6"), optionally followed
-// by the start of the field name on the same line.
-const BRSR_QROW_RE = /^(\d{1,2}(?:\s*,\s*\d{1,2})*)\.?\s*(.*)$/;
-// Lines we should never treat as Q rows: column-header line of the inner
-// table, plain "Q. No." labels, etc.
-const BRSR_TABLE_HEADER_RE = /^Q\.?\s*No\.?\s*(Field\s+Name)?/i;
-
-function chunkBrsrTable(pages) {
-  const sections = [];
-  let current = null;
-  let state = {
-    section: null, // "A" | "B" | "C"
-    principle: null, // number 1-9, only meaningful in C
-    indicator: null, // "E" | "L", only meaningful in C
-  };
-  // Per-state-block highest Q.No. seen so far. Q.No. is monotonically
-  // increasing within a (section, principle, indicator) block, so a smaller
-  // number that "looks like" a Q row is almost certainly a sub-bullet inside
-  // the current Q row's body.
-  let lastQ = 0;
-  function stateKey() {
-    return `${state.section}|${state.principle ?? ""}|${state.indicator ?? ""}`;
+// The BEE "Detailed Procedure for Compliance Mechanism" PDF has a different
+// layout from CBAM:
+//   - Top-level section titles ("1. Definitions", "2. Introduction", ...) appear
+//     only in the TOC and as page-bottom captions, not as inline headings.
+//   - Subsection headings ("4.1. Inclusion of Obligated Entities...", "5.10
+//     Internal Laboratory Analysis") appear inline at the top of their content,
+//     usually with a trailing period after the number.
+//   - Numbered list items ("1.", "2.", "3.") inside body prose are noisy — they
+//     match the same shape as top-level captions.
+//
+// Strategy:
+//   1. Parse the TOC (single page) to get the canonical {number, title} list
+//      of top-level sections.
+//   2. For each body page, decide which top-level section it belongs to by
+//      detecting the page-bottom caption line matching a TOC entry: that page
+//      is the LAST page of that top-level section.
+//   3. Within a top-level section, detect subsection headers (multi-component
+//      number with trailing period, e.g. "4.1.", "5.10.") and split there.
+//   4. If a top-level has no detected subsections, emit one section containing
+//      the whole top-level's text.
+function parseBeeToc(tocPage) {
+  // TOC lines look like: "1. \tDefinitions \t01" or "10. Banking of Carbon Credit Certificates \t28".
+  // Number is followed by a period then the title then a page number.
+  const lines = tocPage.text.split("\n");
+  const entries = [];
+  const re = /^(\d{1,2})\.\s+(.+?)\s+(\d{1,3})\s*$/;
+  for (const raw of lines) {
+    const line = raw.replace(/\t/g, " ").replace(/\s+/g, " ").trim();
+    const m = line.match(re);
+    if (!m) continue;
+    const num = Number(m[1]);
+    const title = m[2].trim();
+    const startPage = Number(m[3]);
+    if (num < 1 || num > 50) continue;
+    if (title.length < 3 || title.length > 100) continue;
+    entries.push({ number: String(num), title, tocPage: startPage });
   }
-  let lastQByState = new Map();
+  return entries;
+}
 
-  const sectionTitles = {
-    A: "Section A: General Disclosures",
-    B: "Section B: Management and Process Disclosures",
-    C: "Section C: Principle Wise Performance Disclosure",
-  };
+// Roman numeral → arabic for Annexure detection.
+const ROMAN_TO_ARABIC = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9, X: 10 };
 
-  function pushCurrent() {
-    if (current && current.body.length) sections.push(current);
-    current = null;
+// Match a BEE Annexure marker. These appear at the BOTTOM of the first page of
+// each annexure, on two lines: "Annexure X" then a title line.
+function looksLikeAnnexureMarker(line) {
+  const m = line.match(/^Annexure\s+(I{1,3}|IV|V|VI|VII|VIII|IX|X)\s*$/i);
+  if (!m) return null;
+  const roman = m[1].toUpperCase();
+  const num = ROMAN_TO_ARABIC[roman];
+  if (!num) return null;
+  return { number: `A${num}`, roman };
+}
+
+// Match BEE inline subsection headers: multi-component number with trailing
+// period, e.g. "4.1.", "5.10.", "6.2.1.". Single-component numbers (just "1.")
+// are rejected — those are list items, not headings.
+const BEE_SUBSECTION_RE = /^(\d+\.\d+(?:\.\d+){0,2})\.?\s+(.+?)\s*$/;
+
+function looksLikeBeeSubsection(line) {
+  const m = line.match(BEE_SUBSECTION_RE);
+  if (!m) return null;
+  const [, number, title] = m;
+  // Numeric sanity check.
+  const parts = number.split(".").map(Number);
+  if (parts.some((n) => Number.isNaN(n))) return null;
+  if (parts[0] < 1 || parts[0] > 14) return null;
+  // Title needs to be short, headline-style — not prose. Headings in BEE are
+  // typically ≤ ~80 chars and don't contain sentence-ending punctuation.
+  if (title.length < 3 || title.length > 100) return null;
+  if (/[.][\s]\S/.test(title)) return null;
+  return { number, title: title.trim() };
+}
+
+// Find the page-bottom caption that names the current top-level section.
+// E.g. page 8 ends with line "1. Definitions"; page 10 with "2. Introduction".
+// We match against the TOC entry titles so list-item lines like "1. Activity data
+// means..." don't trigger.
+function matchTopLevelCaption(line, tocEntries) {
+  const m = line.match(/^(\d{1,2})\.\s+(.+?)\s*$/);
+  if (!m) return null;
+  const num = m[1];
+  const captionTitle = m[2].trim().toLowerCase();
+  const entry = tocEntries.find((e) => e.number === num);
+  if (!entry) return null;
+  // The caption may wrap onto two lines in the PDF (e.g. "8. Issuance and Surrender of \n Carbon Credit Certificate").
+  // We accept a partial-prefix match too — if the caption text is a prefix of the TOC title (or vice versa).
+  const tocTitle = entry.title.toLowerCase();
+  if (captionTitle === tocTitle) return entry;
+  if (tocTitle.startsWith(captionTitle) && captionTitle.length >= 6) return entry;
+  if (captionTitle.startsWith(tocTitle.slice(0, Math.min(20, tocTitle.length)))) return entry;
+  return null;
+}
+
+function chunkBySectionBee(pages, tocPageNum) {
+  // Find and parse the TOC page.
+  const tocPage = pages.find((p) => p.num === tocPageNum);
+  if (!tocPage) {
+    throw new Error(`BEE chunker: TOC page ${tocPageNum} not in parsed pages`);
   }
-
-  function startQRow(qNumber, firstBodyLine, page) {
-    pushCurrent();
-    let key;
-    const path = [sectionTitles[state.section]];
-    if (state.section === "C") {
-      key = `C.P${state.principle}.${state.indicator}.Q${qNumber}`;
-      path.push(`Principle ${state.principle}`);
-      path.push(state.indicator === "E" ? "Essential Indicators" : "Leadership Indicators");
-    } else {
-      key = `${state.section}.Q${qNumber}`;
-    }
-    // Title is filled in lazily from the first non-empty body line(s) — the
-    // "Field Name" column. We seed body with whatever appeared on the Q.No.
-    // line itself (if anything).
-    current = {
-      number: key,
-      title: "",
-      titleParts: [],
-      titleLocked: false,
-      firstPage: page,
-      lastPage: page,
-      body: [],
-    };
-    if (firstBodyLine) appendBodyLine(firstBodyLine, page);
+  const tocEntries = parseBeeToc(tocPage);
+  if (tocEntries.length < 5) {
+    throw new Error(`BEE chunker: parsed only ${tocEntries.length} TOC entries; expected ~14`);
   }
+  console.log(`Parsed ${tocEntries.length} TOC entries:`);
+  for (const e of tocEntries) console.log(`  ${e.number}. ${e.title}`);
 
-  function appendBodyLine(line, page) {
-    if (!current) return;
-    current.body.push(line);
-    current.lastPage = page;
-    // Heuristic for filling in the Field Name column: until we see a line
-    // that looks like a numbered guidance bullet ("1.", "2.", "•") or a
-    // sentence (ends in a period and is fairly long), accumulate the line
-    // into the title.
-    if (!current.titleLocked) {
-      const isBullet = /^(\d+\.\s|[•\-]\s|\(\w\)\s)/.test(line);
-      const looksLikeProse = line.length > 80 || /[.!?]$/.test(line);
-      if (isBullet || looksLikeProse) {
-        current.titleLocked = true;
-        current.title = current.titleParts.join(" ").trim();
-      } else {
-        current.titleParts.push(line);
+  // Walk body pages (everything after the TOC). Determine the current top-level
+  // by detecting page-bottom captions; everything before the first caption
+  // belongs to top-level "1".
+  const bodyPages = pages.filter((p) => p.num > tocPageNum);
+
+  // First pass: build a map of topLevelNumber → startPageNum by scanning each
+  // page's bottom region for a page-bottom caption that matches a TOC entry.
+  // Captions appear near the bottom of the FIRST page of each top-level section
+  // (BEE convention — a decorative page footer naming the section that starts
+  // on that page). If a section has multiple body pages, only the first carries
+  // the caption; continuation pages have no caption.
+  const startPageOf = new Map(); // topLevelNumber → startPageNum
+  for (const p of bodyPages) {
+    const lines = p.text.split("\n").map((l) => l.replace(/\t/g, " ").replace(/\s+/g, " ").trim()).filter(Boolean);
+    // Scan last ~6 lines for a caption. First match wins per page.
+    for (let i = Math.max(0, lines.length - 6); i < lines.length; i++) {
+      const entry = matchTopLevelCaption(lines[i], tocEntries);
+      if (entry && !startPageOf.has(entry.number)) {
+        startPageOf.set(entry.number, p.num);
+        break;
       }
     }
   }
 
-  for (const page of pages) {
-    const lines = page.text.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      const raw = lines[i].replace(/\t/g, " ").trim();
-      if (!raw) continue;
-      if (BRSR_PAGE_HEADER_RE.test(raw)) continue;
-
-      // Section heading
-      const sm = raw.match(BRSR_SECTION_RE);
-      if (sm) {
-        pushCurrent();
-        state = { section: sm[1].toUpperCase(), principle: null, indicator: null };
-        continue;
-      }
-      // Principle heading (only meaningful in C, but we accept anywhere)
-      const pm = raw.match(BRSR_PRINCIPLE_RE);
-      if (pm) {
-        pushCurrent();
-        state.principle = Number(pm[1]);
-        state.indicator = "E"; // default to Essential until we see the heading
-        continue;
-      }
-      // Indicator-class heading
-      const im = raw.match(BRSR_INDICATOR_RE);
-      if (im) {
-        pushCurrent();
-        state.indicator = /^E/i.test(im[1]) ? "E" : "L";
-        continue;
-      }
-      // Track per-state lastQ for the monotonicity check below.
-      lastQ = lastQByState.get(stateKey()) ?? 0;
-      // Inner-table column header — skip
-      if (BRSR_TABLE_HEADER_RE.test(raw)) continue;
-
-      // Outside any section, skip (the General Guidance preamble on page 1-2
-      // doesn't have Q.No. rows; treat it as front matter).
-      if (!state.section) continue;
-
-      // Q.No. row?
-      // A real Q row line is essentially just a number (with optional dot,
-      // optional comma-list like "5, 6"), and any text on the same line is
-      // the START of the field-name column — short, no sentence-ending
-      // punctuation, no trailing colon, never a complete sentence.
-      // A sub-bullet "1. The entity shall..." is the same regex shape but
-      // has long prose attached, so we discriminate by the tail.
-      const qm = raw.match(BRSR_QROW_RE);
-      if (qm && state.section) {
-        const num = qm[1].split(",")[0].trim();
-        const numericStart = Number(num);
-        const tail = qm[2].trim();
-        // A real Q row line has either an empty tail (number on its own) or
-        // a SHORT noun-phrase fragment that's the start of the Field Name
-        // column. Sub-bullets ("5. Apart from turnover, entities may...")
-        // are typically prose: longer, ending in mid-sentence, or starting
-        // with a sentence-stem word.
-        const SUB_BULLET_STEMS = /^(The|A|An|Apart|Under|If|When|For|Entities?|This|These|It|Of|In|With|On|By|From|To|At|As|Such|All|Any|For|Where|While|During|Where|However|Further|Refers?|Means|Includes?|Whether)\b/;
-        // Field-name tails always start with a capital letter (English title-
-        // case noun phrase like "Details of...", "Sustainable sourcing", etc.)
-        // — never with a digit, lowercase, or punctuation. This filters out
-        // URL-fragment artifacts like "20 35669.htm" that pdf-parse emits
-        // when an embedded URL wraps mid-page.
-        const tailIsValidStart = tail === "" || /^[A-Z“"'(]/.test(tail);
-        const tailLooksLikeProse =
-          tail.length > 35 ||
-          /[.!?:]$/.test(tail) ||
-          SUB_BULLET_STEMS.test(tail);
-        // Monotonicity: within the current state-block, Q.No. is strictly
-        // increasing. A "Q3" appearing after we've already seen Q11 is a
-        // sub-bullet, not a new row. The very first Q in a state-block
-        // bypasses this check.
-        const isMonotonic = lastQ === 0 || numericStart > lastQ;
-        if (
-          numericStart >= 1 &&
-          numericStart <= 50 &&
-          !tailLooksLikeProse &&
-          tailIsValidStart &&
-          isMonotonic
-        ) {
-          startQRow(num, tail, page.num);
-          lastQByState.set(stateKey(), numericStart);
-          continue;
+  // §14 Annexures doesn't follow the same page-bottom-caption convention. If
+  // it wasn't detected above, find the first page containing an "Annexure I"
+  // marker and treat that as §14's start.
+  if (!startPageOf.has("14")) {
+    for (const p of bodyPages) {
+      const lines = p.text.split("\n").map((l) => l.replace(/\t/g, " ").trim()).filter(Boolean);
+      for (const line of lines) {
+        const m = looksLikeAnnexureMarker(line);
+        if (m && m.number === "A1") {
+          startPageOf.set("14", p.num);
+          break;
         }
       }
-
-      // Otherwise: body line for the current Q row.
-      if (current) appendBodyLine(raw, page.num);
+      if (startPageOf.has("14")) break;
     }
   }
-  pushCurrent();
 
-  // Normalize: ensure title is set even if titleLocked never tripped.
-  for (const s of sections) {
-    if (!s.title) s.title = (s.titleParts ?? []).join(" ").trim();
-    delete s.titleParts;
-    delete s.titleLocked;
+  // Build a sorted list of (topLevelNumber, startPage) so we can assign every
+  // body page to the closest preceding-or-equal start.
+  const orderedTopLevels = tocEntries
+    .filter((e) => startPageOf.has(e.number))
+    .map((e) => ({ ...e, startPage: startPageOf.get(e.number) }))
+    .sort((a, b) => a.startPage - b.startPage);
+
+  const assignedTopLevel = new Map(); // pageNum → topLevelNumber
+  for (const p of bodyPages) {
+    let chosen = null;
+    for (const tl of orderedTopLevels) {
+      if (p.num >= tl.startPage) chosen = tl;
+      else break;
+    }
+    if (chosen) assignedTopLevel.set(p.num, chosen.number);
+  }
+
+  // Second pass: walk pages in order, building sections. Within each top-level,
+  // split on inline subsection headers; if none found in that top-level's pages,
+  // emit one section for the whole top-level.
+  const tocByNumber = new Map(tocEntries.map((e) => [e.number, e]));
+  const sections = [];
+
+  // Group pages by assigned top-level (preserve order).
+  const pagesByTopLevel = new Map();
+  for (const p of bodyPages) {
+    const tl = assignedTopLevel.get(p.num);
+    if (!tl) continue;
+    if (!pagesByTopLevel.has(tl)) pagesByTopLevel.set(tl, []);
+    pagesByTopLevel.get(tl).push(p);
+  }
+
+  for (const [topLevel, pagesInTL] of pagesByTopLevel) {
+    const tocEntry = tocByNumber.get(topLevel);
+    if (!tocEntry) continue;
+
+    // §14 Annexures uses Roman-numeral markers ("Annexure I", "Annexure II", ...)
+    // instead of numeric subsections. Handle it separately.
+    if (topLevel === "14") {
+      const annexures = chunkAnnexures(pagesInTL, tocEntry, tocEntries);
+      sections.push(...annexures);
+      continue;
+    }
+
+    // Walk this top-level's pages line-by-line, splitting on inline subsection headers.
+    const subsections = [];
+    let current = null;
+    let hasAnySubsection = false;
+
+    for (const page of pagesInTL) {
+      const rawLines = page.text.split("\n");
+      for (const raw of rawLines) {
+        const line = raw.replace(/\t/g, " ").trim();
+        if (!line) continue;
+
+        // Skip page-bottom captions (they're not body content).
+        if (matchTopLevelCaption(line, tocEntries)) continue;
+
+        // Only consider multi-component numbers that ALSO start with the current top-level.
+        const sub = looksLikeBeeSubsection(line);
+        if (sub && sub.number.startsWith(topLevel + ".")) {
+          hasAnySubsection = true;
+          if (current) subsections.push(current);
+          current = {
+            number: sub.number,
+            title: sub.title,
+            firstPage: page.num,
+            lastPage: page.num,
+            body: [],
+            topLevel,
+          };
+          continue;
+        }
+
+        if (current) {
+          // Inject a paragraph break when a numbered/lettered list item starts
+          // (e.g. "1.", "2.", "a.", "i.", "(i)"). PDF flattens line breaks so
+          // splitSection's paragraph-splitter needs these hints to subdivide
+          // long sections.
+          if (current.body.length > 0 && /^(\d{1,2}|[a-z]|[ivx]{1,4})\.\s/.test(line)) {
+            current.body.push("");
+          }
+          current.body.push(line);
+          current.lastPage = page.num;
+        } else {
+          // No subsection seen yet — accumulate under a synthetic top-level section.
+          if (!current) {
+            current = {
+              number: topLevel,
+              title: tocEntry.title,
+              firstPage: page.num,
+              lastPage: page.num,
+              body: [],
+              topLevel,
+            };
+          }
+        }
+      }
+    }
+    if (current) subsections.push(current);
+
+    if (!hasAnySubsection && subsections.length === 1) {
+      // Force the single accumulated section to use the top-level identity.
+      subsections[0].number = topLevel;
+      subsections[0].title = tocEntry.title;
+    }
+
+    sections.push(...subsections);
+  }
+
+  return { sections, tocByNumber };
+}
+
+// Split the Annexures (§14) into one section per Annexure. The PDF places
+// "Annexure X" and the annexure title as TWO lines near the bottom of the
+// FIRST page of each annexure (same page-footer pattern as top-level captions).
+function chunkAnnexures(pages, tocEntry, tocEntries) {
+  // First pass: find each Annexure's start page by scanning page bottoms.
+  // The marker on the first page is two lines: "Annexure I" then the title.
+  const annexStarts = []; // { number, title, startPage }
+  for (const p of pages) {
+    const lines = p.text.split("\n").map((l) => l.replace(/\t/g, " ").trim()).filter(Boolean);
+    for (let i = Math.max(0, lines.length - 6); i < lines.length; i++) {
+      const m = looksLikeAnnexureMarker(lines[i]);
+      if (m) {
+        // The next non-empty line below should be the annexure title.
+        const title = lines[i + 1] && lines[i + 1].length <= 100 ? lines[i + 1] : `Annexure ${m.roman}`;
+        if (!annexStarts.some((a) => a.number === m.number)) {
+          annexStarts.push({ number: m.number, title, startPage: p.num, roman: m.roman });
+        }
+        break;
+      }
+    }
+  }
+
+  if (annexStarts.length === 0) {
+    // No annexure markers found — emit a single §14 chunk for the whole range.
+    const body = pages.flatMap((p) => p.text.split("\n").map((l) => l.trim()).filter(Boolean));
+    return [
+      {
+        number: "14",
+        title: tocEntry.title,
+        firstPage: pages[0]?.num ?? 0,
+        lastPage: pages[pages.length - 1]?.num ?? 0,
+        body,
+        topLevel: "14",
+      },
+    ];
+  }
+
+  // Sort by start page.
+  annexStarts.sort((a, b) => a.startPage - b.startPage);
+
+  // Second pass: assign every page to the nearest preceding-or-equal annexure.
+  const sections = [];
+  for (let i = 0; i < annexStarts.length; i++) {
+    const start = annexStarts[i].startPage;
+    const end = i + 1 < annexStarts.length ? annexStarts[i + 1].startPage - 1 : pages[pages.length - 1].num;
+    const annexPages = pages.filter((p) => p.num >= start && p.num <= end);
+    const body = [];
+    for (const p of annexPages) {
+      for (const raw of p.text.split("\n")) {
+        const line = raw.replace(/\t/g, " ").trim();
+        if (!line) continue;
+        // Skip top-level captions and Annexure markers themselves.
+        if (matchTopLevelCaption(line, tocEntries)) continue;
+        if (looksLikeAnnexureMarker(line)) continue;
+        body.push(line);
+      }
+    }
+    sections.push({
+      number: `14.${i + 1}`,
+      title: `${annexStarts[i].title} (Annexure ${annexStarts[i].roman})`,
+      firstPage: start,
+      lastPage: end,
+      body,
+      topLevel: "14",
+    });
   }
   return sections;
 }
@@ -528,29 +613,6 @@ function buildSectionPaths(allSections) {
     }
     return path;
   };
-}
-
-// Decode a BRSR synthesized section number back into a human-readable
-// breadcrumb path used for embedding context and citations.
-function brsrSectionPath(row) {
-  const sectionTitles = {
-    A: "Section A: General Disclosures",
-    B: "Section B: Management and Process Disclosures",
-    C: "Section C: Principle Wise Performance Disclosure",
-  };
-  const parts = row.number.split(".");
-  const path = [];
-  if (parts[0] && sectionTitles[parts[0]]) path.push(sectionTitles[parts[0]]);
-  for (const p of parts.slice(1)) {
-    if (/^P\d+$/.test(p)) path.push(`Principle ${p.slice(1)}`);
-    else if (p === "E") path.push("Essential Indicators");
-    else if (p === "L") path.push("Leadership Indicators");
-    else if (/^Q\d+$/.test(p)) {
-      const t = row.title ? `${p} ${row.title}` : p;
-      path.push(t);
-    }
-  }
-  return path;
 }
 
 // ---------- Step 3: Contextual Retrieval (Anthropic) ----------
@@ -735,7 +797,6 @@ async function main() {
   console.log(`Framework: ${FRAMEWORK}`);
   console.log(`Index dir: ${INDEX_DIR}`);
   console.log(`First body page: ${FIRST_BODY_PAGE}`);
-  console.log(`Heading mode: ${HEADING_MODE}`);
   console.log(`Contextual retrieval: ${SKIP_CONTEXTUAL ? "SKIPPED" : "enabled"}`);
 
   const pages = await parsePdf();
@@ -744,20 +805,31 @@ async function main() {
   );
 
   let chunks = [];
-  if (HEADING_MODE === "brsr-table") {
-    // BRSR's hierarchy is textual (Section / Principle / Indicator-class /
-    // Q.No.) and every Q row is already a leaf with its breadcrumb baked in.
-    const rows = chunkBrsrTable(pages);
-    console.log(`Detected ${rows.length} BRSR Q-rows.`);
-    for (const row of rows) {
-      // Reconstruct path for the chunker output. The path components are
-      // implicit in the synthesized number (A.Q14 / C.P3.E.Q5).
-      const path = brsrSectionPath(row);
-      chunks = chunks.concat(splitSection(row, path));
+  if (CHUNKER === "bee") {
+    if (!TOC_PAGE) {
+      throw new Error(`BEE chunker requires tocPage in FRAMEWORK_DEFAULTS for ${FRAMEWORK}`);
+    }
+    const { sections, tocByNumber } = chunkBySectionBee(pages, TOC_PAGE);
+    console.log(`BEE chunker produced ${sections.length} leaf sections.`);
+    const sectionPathForBee = (sec) => {
+      const path = [];
+      // Walk top-level → subsection.
+      const parts = sec.number.split(".");
+      // First component → top-level title from TOC.
+      const topNum = parts[0];
+      const top = tocByNumber.get(topNum);
+      if (top) path.push(`${topNum} ${top.title}`);
+      // For multi-component, append the leaf itself if it's not already the top.
+      if (parts.length > 1) path.push(`${sec.number} ${sec.title}`);
+      return path;
+    };
+    for (const sec of sections) {
+      const path = sectionPathForBee(sec);
+      chunks = chunks.concat(splitSection(sec, path));
     }
   } else {
-    const sections = chunkBySection(pages, HEADING_MODE);
-    console.log(`Detected ${sections.length} numbered sections (mode=${HEADING_MODE}).`);
+    const sections = chunkBySection(pages);
+    console.log(`Detected ${sections.length} numbered sections.`);
     const leaves = keepLeafSections(sections);
     console.log(`${leaves.length} are leaf sections (no deeper subsections).`);
 

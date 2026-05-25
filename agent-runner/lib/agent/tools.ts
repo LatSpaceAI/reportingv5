@@ -47,13 +47,9 @@ const FRAMEWORK_INFO: Record<Framework, { docName: string; sectionExample: strin
     docName: "the official EU CBAM guidance document",
     sectionExample: "§6.4.3",
   },
-  cdp: {
-    docName: "the official CDP 2026 questionnaire guidance document",
-    sectionExample: "§C2.2a",
-  },
-  brsr: {
-    docName: "the SEBI BRSR guidance note (Annexure II)",
-    sectionExample: "§C.P3.E.Q5",
+  ccts: {
+    docName: "the BEE Detailed Procedure for Compliance Mechanism document for India's CCTS",
+    sectionExample: "§5.10",
   },
 };
 

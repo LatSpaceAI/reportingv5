@@ -20,7 +20,7 @@ const require = createRequire(import.meta.url);
 const { VoyageAIClient } = require("voyageai") as typeof import("voyageai");
 type VoyageAIClient = InstanceType<typeof VoyageAIClient>;
 
-export type Framework = "cbam" | "cdp" | "brsr";
+export type Framework = "cbam" | "ccts";
 
 const INDEX_DIR = (framework: Framework) => join(process.cwd(), "data", "rag", framework);
 
