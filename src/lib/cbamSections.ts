@@ -143,6 +143,7 @@ export const sections: Section[] = [
             map: goodToRoutes,
             fallback: ["All production routes", "Unknown"],
           },
+          { id: "supplier", kind: "text", label: "Supplier name", help: "Free-text label used in the EU template's purchased-precursor section (e.g. \"Hindalco Industries Limited (Hirakud)\")." },
         ],
       },
     ],
@@ -268,22 +269,51 @@ export const sections: Section[] = [
         id: "D.1",
         kind: "table",
         label: "Production processes",
-        description: "One row per production process (P1–P10).",
+        description:
+          "One row per production process (P1–P10). Mirrors every input cell of the EU template's D_Processes sheet: production by route, internal/external consumption splits, attributed emissions, heat & waste-gas balances, and electricity in/out.",
         minRows: 1,
         maxRows: 10,
         rowLabel: (i) => `P${i + 1}`,
         columns: [
+          // ── Identity ─────────────────────────────────────────────────
           { id: "good", kind: "selectGood", label: "Aggregated good", required: true },
-          { id: "output", kind: "number", label: "Output", min: 0, unit: "t" },
-          { id: "directEm", kind: "number", label: "Attributed direct emissions", min: 0, unit: "tCO₂e" },
-          { id: "indirectEm", kind: "number", label: "Attributed indirect emissions", min: 0, unit: "tCO₂e" },
-          { id: "heatProduced", kind: "number", label: "Heat produced", min: 0, unit: "TJ" },
-          { id: "heatConsumed", kind: "number", label: "Heat consumed", min: 0, unit: "TJ" },
-          { id: "heatImported", kind: "number", label: "Heat imported", min: 0, unit: "TJ" },
-          { id: "heatExported", kind: "number", label: "Heat exported", min: 0, unit: "TJ" },
-          { id: "elecMWh", kind: "number", label: "Electricity consumption", min: 0, unit: "MWh" },
-          { id: "elecSource", kind: "select", label: "Electricity source", options: electricitySource },
-          { id: "elecEF", kind: "number", label: "Electricity EF", min: 0, unit: "tCO₂/MWh" },
+          // ── Production amounts by route (D_Processes L16-L19 / L81-L84
+          //    / L146-L149 in each block, summed at L24 / L89 / L154) ──
+          { id: "prodPrimary",   kind: "number", label: "Production — route 1 (Primary / All)", min: 0, unit: "t" },
+          { id: "prodSecondary", kind: "number", label: "Production — route 2 (Secondary)",     min: 0, unit: "t" },
+          { id: "prodOther",     kind: "number", label: "Production — route 3 (Other)",         min: 0, unit: "t" },
+          { id: "prodUnknown",   kind: "number", label: "Production — route 4 (Unknown)",       min: 0, unit: "t" },
+          { id: "output",        kind: "number", label: "Total production within installation", min: 0, unit: "t" },
+          // ── Production details (L27 / L92 / L157) ───────────────────
+          { id: "toMarket",      kind: "number", label: "Produced for the market",              min: 0, unit: "t" },
+          // ── Internal consumption to other processes (L32-L40,
+          //    L97-L105, L162-L170 — first row is consumption by P1, etc.) ─
+          { id: "consumedP1",    kind: "number", label: "Consumed by P1 (Unwrought)",           min: 0, unit: "t" },
+          { id: "consumedP2",    kind: "number", label: "Consumed by P2 (FRP)",                 min: 0, unit: "t" },
+          { id: "consumedP3",    kind: "number", label: "Consumed by P3 (Extrusion)",           min: 0, unit: "t" },
+          { id: "nonCbam",       kind: "number", label: "Consumed for non-CBAM goods",          min: 0, unit: "t" },
+          // ── Applicable elements (K50/L50 — booleans for whether
+          //    measurable heat / waste gases are relevant) ──────────────
+          { id: "hasHeat",       kind: "boolean", label: "Measurable heat applicable?" },
+          { id: "hasWasteGas",   kind: "boolean", label: "Waste gases applicable?" },
+          // ── Attributed emissions ─────────────────────────────────────
+          { id: "directEm",      kind: "number", label: "Directly attributable emissions (DirEm*)", min: 0, unit: "tCO₂e" },
+          { id: "indirectEm",    kind: "number", label: "Attributed indirect emissions",         min: 0, unit: "tCO₂e" },
+          // ── Measurable heat balance (only if hasHeat=true) ──────────
+          { id: "heatImported",  kind: "number", label: "Heat imported",  min: 0, unit: "TJ" },
+          { id: "heatExported",  kind: "number", label: "Heat exported",  min: 0, unit: "TJ" },
+          { id: "heatEF",        kind: "number", label: "Heat EF",        min: 0, unit: "tCO₂/TJ" },
+          // ── Waste gas balance (only if hasWasteGas=true) ───────────
+          { id: "wasteGasImported", kind: "number", label: "Waste gas imported", min: 0, unit: "TJ" },
+          { id: "wasteGasExported", kind: "number", label: "Waste gas exported", min: 0, unit: "TJ" },
+          { id: "wasteGasEF",       kind: "number", label: "Waste gas EF",       min: 0, unit: "tCO₂/TJ" },
+          // ── Indirect-emission electricity ────────────────────────────
+          { id: "elecMWh",       kind: "number", label: "Electricity consumption", min: 0, unit: "MWh" },
+          { id: "elecEF",        kind: "number", label: "Electricity EF",          min: 0, unit: "tCO₂/MWh" },
+          { id: "elecSource",    kind: "select", label: "Electricity source",      options: electricitySource },
+          // ── Electricity exported from the process ───────────────────
+          { id: "elecExportedMWh", kind: "number", label: "Electricity exported",                min: 0, unit: "MWh" },
+          { id: "elecExportedEF",  kind: "number", label: "Exported electricity EF",             min: 0, unit: "tCO₂/MWh" },
         ],
       },
     ],
@@ -298,21 +328,40 @@ export const sections: Section[] = [
         id: "E.1",
         kind: "table",
         label: "Purchased precursors SEE",
-        description: "One row per precursor (PP1–PP20).",
+        description:
+          "One row per precursor (PP1–PP20). Mirrors every input cell of the EU template's E_PurchPrec sheet: purchase volumes by production route, consumption splits by process, and the SEE-direct / specific-electricity / electricity-EF block with their measurement provenance.",
         minRows: 1,
         maxRows: 20,
         rowLabel: (i) => `PP${i + 1}`,
         columns: [
+          // ── Identity ─────────────────────────────────────────────────
           { id: "good", kind: "selectGood", label: "Aggregated good", required: true },
           { id: "country", kind: "selectCountry", label: "Country of origin", required: true },
-          { id: "mass", kind: "number", label: "Mass consumed", min: 0, unit: "t" },
-          { id: "seeDirect", kind: "number", label: "SEE direct", min: 0, unit: "tCO₂e/t" },
-          { id: "seeIndirect", kind: "number", label: "SEE indirect", min: 0, unit: "tCO₂e/t" },
-          { id: "elecPerT", kind: "number", label: "Electricity consumption", min: 0, unit: "MWh/t" },
-          { id: "elecSource", kind: "select", label: "Electricity source", options: electricitySource },
-          { id: "elecEF", kind: "number", label: "Electricity EF", min: 0, unit: "tCO₂/MWh" },
-          { id: "measurement", kind: "select", label: "Measured / default / unknown", options: measurementOrDefault },
-          { id: "justification", kind: "select", label: "Justification for defaults", options: dataQualityJustification },
+          { id: "supplier", kind: "text", label: "Supplier name", help: "Free-text label used in the EU template's purchased-precursor section (e.g. \"Hindalco Industries Limited (Hirakud)\")." },
+          // ── Total purchased by production route (E_PurchPrec
+          //    L17/L18/L19/L20 in each block, summed at L25) ────────
+          { id: "purchPrimary",   kind: "number", label: "Purchased — route 1 (Primary / All)", min: 0, unit: "t" },
+          { id: "purchSecondary", kind: "number", label: "Purchased — route 2 (Secondary)",     min: 0, unit: "t" },
+          { id: "purchOther",     kind: "number", label: "Purchased — route 3 (Other)",         min: 0, unit: "t" },
+          { id: "purchUnknown",   kind: "number", label: "Purchased — route 4 (Unknown)",       min: 0, unit: "t" },
+          { id: "mass",           kind: "number", label: "Total purchase (denominator)",        min: 0, unit: "t" },
+          // ── Consumption by process within installation (L28-L37) ──
+          { id: "toUnwrought",    kind: "number", label: "Consumed by Unwrought",  min: 0, unit: "t" },
+          { id: "toFRP",          kind: "number", label: "Consumed by FRP",        min: 0, unit: "t" },
+          { id: "toExtrusion",    kind: "number", label: "Consumed by Extrusion",  min: 0, unit: "t" },
+          { id: "consumedOther",  kind: "number", label: "Consumed for non-CBAM / sold", min: 0, unit: "t" },
+          // ── SEE-direct, specific electricity, electricity EF
+          //    (L49/L50/L51) with their per-row source/method (M49/M50/M51) ─
+          { id: "seeDirect",        kind: "number", label: "SEE direct",                min: 0, unit: "tCO₂e/t" },
+          { id: "seeDirectSource",  kind: "select", label: "SEE-direct source",         options: measurementOrDefault },
+          { id: "elecPerT",         kind: "number", label: "Specific electricity",      min: 0, unit: "MWh/t" },
+          { id: "elecPerTSource",   kind: "select", label: "Specific-electricity source", options: measurementOrDefault },
+          { id: "elecEF",           kind: "number", label: "Electricity EF",            min: 0, unit: "tCO₂/MWh" },
+          { id: "elecSource",       kind: "select", label: "Electricity source",        options: electricitySource },
+          // ── Derived (L52 = elec × EF; readOnly in export, displayed) ──
+          { id: "seeIndirect",      kind: "number", label: "SEE indirect (derived)",    min: 0, unit: "tCO₂e/t" },
+          // ── Defaults justification (only when source = "Default values") ─
+          { id: "justification",    kind: "select", label: "Justification for defaults", options: dataQualityJustification },
         ],
       },
     ],
@@ -354,96 +403,36 @@ export const sections: Section[] = [
   },
 
   {
-    id: "G",
-    title: "G. Further guidance references",
-    sheetRef: 'Sheet "G_FurtherGuidance"',
+    id: "summary",
+    title: "Summary of products",
+    sheetRef: 'Sheet "Summary_Products"',
     questions: [
       {
-        id: "G.1",
-        kind: "fields",
-        label: "Methodology notes & assumptions",
-        description:
-          "Free-text notes for any deviations from standard guidance, interpretive choices, or footnotes to flag to the reporting declarant.",
-        fields: [{ id: "notes", kind: "longtext", label: "Notes" }],
-      },
-    ],
-  },
-
-  {
-    id: "SP",
-    title: "Summary — Products",
-    sheetRef: "Sheet Summary_Products",
-    questions: [
-      {
-        id: "SP.1",
+        id: "summary.1",
         kind: "table",
-        label: "Products by CN code",
-        description: "One row per CN code exported.",
+        label: "Products summary",
+        description:
+          "One row per CN-code-level product. Most columns are derived in the EU template from sheets A–F; surfaced here for review and so they round-trip through the seed.",
         minRows: 1,
-        maxRows: 100,
+        maxRows: 50,
         rowLabel: (i) => `${i + 1}`,
         columns: [
-          {
-            id: "cnCode",
-            kind: "select",
-            label: "CN code",
-            options: cnCodesAluminium.map((c) => `${c.code} — ${c.name}`),
-          },
-          { id: "productName", kind: "text", label: "Product name (commercial)" },
-          { id: "process", kind: "text", label: "Production process ID" },
-          { id: "seeDirect", kind: "number", label: "SEE direct", min: 0, unit: "tCO₂e/t" },
-          { id: "seeIndirect", kind: "number", label: "SEE indirect", min: 0, unit: "tCO₂e/t" },
-          { id: "seeTotal", kind: "number", label: "SEE total", min: 0, unit: "tCO₂e/t" },
-          { id: "defaultsShare", kind: "number", label: "Share from defaults", min: 0, max: 100, unit: "%" },
-          { id: "scrapPerT", kind: "number", label: "t scrap per t Al", min: 0 },
-          { id: "nonAlPct", kind: "number", label: "% non-aluminium elements", min: 0, max: 100, unit: "%" },
-          { id: "preScrapPct", kind: "number", label: "% pre-consumer scrap", min: 0, max: 100, unit: "%" },
+          { id: "process",       kind: "text",   label: "Production process", required: true },
+          { id: "good",          kind: "text",   label: "Aggregated good / precursor" },
+          { id: "cnCode",        kind: "text",   label: "CN Code", help: "8-digit CN code, e.g. 76011010." },
+          { id: "cnName",        kind: "text",   label: "CN Name" },
+          { id: "productName",   kind: "text",   label: "Product name", help: "Name used for communication with the reporting declarant (e.g. on invoices)." },
+          { id: "seeDirect",     kind: "number", label: "SEE (direct)", min: 0, unit: "tCO₂e/t" },
+          { id: "seeIndirect",   kind: "number", label: "SEE (indirect)", min: 0, unit: "tCO₂e/t" },
+          { id: "seeTotal",      kind: "number", label: "SEE (total)", min: 0, unit: "tCO₂e/t" },
+          { id: "defaultShare",  kind: "number", label: "Share of emissions by default value", min: 0, max: 100, unit: "%" },
+          { id: "elecEFSource",  kind: "text",   label: "Source for electricity EF" },
+          { id: "embeddedElec",  kind: "number", label: "Embedded electricity", min: 0, unit: "MWh/t" },
         ],
       },
     ],
   },
 
-  {
-    id: "SC",
-    title: "Summary — Communication to declarant",
-    sheetRef: "Sheet Summary_Communication",
-    questions: [
-      {
-        id: "SC.1",
-        kind: "fields",
-        label: "Installation snapshot",
-        description:
-          "Rendered in English for the EU importer. Most fields prefill from Sheet A when persistence is wired up.",
-        fields: [
-          { id: "installationName", kind: "text", label: "Installation name (English)" },
-          { id: "country", kind: "selectCountry", label: "Country" },
-          { id: "unlocode", kind: "text", label: "UNLOCODE" },
-          { id: "reportingStart", kind: "date", label: "Reporting period start" },
-          { id: "reportingEnd", kind: "date", label: "Reporting period end" },
-        ],
-      },
-      {
-        id: "SC.2",
-        kind: "fields",
-        label: "Emissions by methodology (tCO₂e)",
-        fields: [
-          { id: "calc", kind: "number", label: "Calculation-based (excl. PFC)", min: 0 },
-          { id: "pfc", kind: "number", label: "Total PFC", min: 0 },
-          { id: "measured", kind: "number", label: "Measurement-based", min: 0 },
-          { id: "other", kind: "number", label: "Other", min: 0 },
-        ],
-      },
-      {
-        id: "SC.3",
-        kind: "fields",
-        label: "Carbon price & additional information",
-        fields: [
-          { id: "instrument", kind: "select", label: "Carbon price instrument", options: carbonPriceType },
-          { id: "additional", kind: "longtext", label: "Any additional information" },
-        ],
-      },
-    ],
-  },
 ];
 
 // Re-export utility consts that the UI will reference.

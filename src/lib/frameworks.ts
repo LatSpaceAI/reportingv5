@@ -1,14 +1,10 @@
 import { sections as cbamSections } from "./cbamSections";
 import { sections as rcoSections } from "./rcoSections";
 import { sections as cctsSections } from "./cctsSections";
-import { sections as brsrSections } from "./brsrSections";
-import { sections as cdpSections } from "./cdpSections";
 import type { Section } from "./frameworkTypes";
 import {
-  BRSR_ANSWERS_KEY,
   CBAM_ANSWERS_KEY,
   CCTS_ANSWERS_KEY,
-  CDP_ANSWERS_KEY,
   RCO_ANSWERS_KEY,
   readAnswers,
   type Answers,
@@ -129,10 +125,10 @@ export const frameworkEntries: FrameworkEntry[] = [
     children: [
       {
         id: "ccts",
-        name: "Carbon Credit Trading Scheme — Cement Pro-Forma",
-        shortName: "Pro-Forma (Cement Sector)",
+        name: "Carbon Credit Trading Scheme — Aluminium Pro-Forma",
+        shortName: "Pro-Forma (Aluminium Sector)",
         description:
-          "BEE Cement-Sector pro-forma capturing production and energy consumption for CCTS baseline / target-year reporting (Form-Sb).",
+          "BEE Aluminium-Sector pro-forma capturing refinery & smelter production, captive-power-plant operating data, and energy consumption for CCTS baseline / assessment-year reporting (Form Sa1 + Annex CPP).",
         cadence: "Annual",
         category: "Regulatory",
         status: "active",
@@ -169,36 +165,6 @@ export const frameworkEntries: FrameworkEntry[] = [
         logoSrc: "/bee-logo.jpg",
       },
     ],
-  },
-  {
-    id: "brsr",
-    name: "Business Responsibility & Sustainability Report",
-    shortName: "BRSR",
-    description:
-      "SEBI Annexure I — annual ESG disclosure covering general entity information, NGRBC management & process disclosures, and principle-wise performance against the nine NGRBC principles (Essential + Leadership indicators).",
-    cadence: "Annual",
-    category: "Sustainability",
-    status: "active",
-    storageKey: BRSR_ANSWERS_KEY,
-    sections: brsrSections,
-    logoInitials: "BR",
-    logoColor: "bg-violet-100 text-violet-700",
-    logoSrc: "/SEBI_logo.png",
-  },
-  {
-    id: "cdp",
-    name: "CDP Climate Change Questionnaire",
-    shortName: "CDP",
-    description:
-      "Annual environmental disclosure to CDP — covers governance, strategy, risks & opportunities, value-chain engagement, scenario analysis, and detailed Scope 1/2/3 emissions, energy, targets, initiatives and project-based credits.",
-    cadence: "Annual",
-    category: "Climate",
-    status: "active",
-    storageKey: CDP_ANSWERS_KEY,
-    sections: cdpSections,
-    logoInitials: "CD",
-    logoColor: "bg-rose-100 text-rose-700",
-    logoSrc: "/cdp-logo.png",
   },
 ];
 

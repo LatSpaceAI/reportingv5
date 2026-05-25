@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile for the CBAM/CDP/BRSR reporting app.
+# Multi-stage Dockerfile for the CBAM reporting app.
 #
 # DEPRECATED — kept ONLY so the previous commit (db52df1 "fix: drop SSE…")
 # can still build for emergency rollback. The current architecture moves the

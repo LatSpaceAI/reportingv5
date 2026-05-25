@@ -1,0 +1,11 @@
+{
+  "framework": "ccts",
+  "pdfPath": "C:\\Users\\ishan\\CBAM\\reportingv5\\Detailed Procedure for Compliance Mechanism - BEE document (1).pdf",
+  "builtAt": "2026-05-25T18:36:13.888Z",
+  "embedModel": "voyage-3-large",
+  "contextualizerModel": "claude-haiku-4-5",
+  "contextualRetrieval": true,
+  "chunkCount": 37,
+  "pageCount": 56,
+  "firstBodyPage": 7
+}
