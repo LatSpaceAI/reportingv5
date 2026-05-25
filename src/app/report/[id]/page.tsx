@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { Questionnaire, type QuestionnaireConfig } from "@/components/Questionnaire";
 import { QualitativeReport } from "@/components/qualitative/QualitativeReport";
 import { getFramework } from "@/lib/frameworks";
+import { CCTS_SEED, CCTS_SEED_VERSION } from "@/lib/cctsSeed";
+import { CBAM_SEED, CBAM_SEED_VERSION } from "@/lib/cbamSeed";
 
 export default function ReportPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -29,6 +31,26 @@ export default function ReportPage({ params }: { params: { id: string } }) {
     storageKey: fw.storageKey,
     frameworkId: fw.id,
     frameworkName: fw.shortName,
+    // Demo-mode seed:
+    //   - CCTS Aluminium → BEE Aluminium Pro-Forma baseline values
+    //     (Hindalco, FY 2023-24).
+    //   - CBAM → Hindalco Renukoot CY'25 Communication workbook values.
+    //     CBAM also has a hand-curated SOT pre-fill (52 calculated cells)
+    //     which takes priority; the seed only fills the rest.
+    // The seed only writes on first open (or after the seed version bumps);
+    // user edits persist.
+    seed:
+      fw.id === "ccts"
+        ? CCTS_SEED
+        : fw.id === "cbam"
+        ? CBAM_SEED
+        : undefined,
+    seedVersion:
+      fw.id === "ccts"
+        ? CCTS_SEED_VERSION
+        : fw.id === "cbam"
+        ? CBAM_SEED_VERSION
+        : undefined,
     version:
       fw.id === "cbam"
         ? "v2.1.1"
@@ -36,10 +58,6 @@ export default function ReportPage({ params }: { params: { id: string } }) {
         ? "30-Sep-2025"
         : fw.id === "ccts"
         ? "BEE Aluminium Pro-Forma (FY 2023-24 v1.4)"
-        : fw.id === "brsr"
-        ? "SEBI Annexure I"
-        : fw.id === "cdp"
-        ? "CDP 2026"
         : undefined,
     exportNeedsPeriod: fw.id === "cbam",
     onExport:
@@ -57,16 +75,6 @@ export default function ReportPage({ params }: { params: { id: string } }) {
         ? async () => {
             const { exportCctsFilled } = await import("@/lib/cctsExport/export");
             await exportCctsFilled();
-          }
-        : fw.id === "brsr"
-        ? async () => {
-            const { exportBrsrFilled } = await import("@/lib/brsrExport/export");
-            await exportBrsrFilled();
-          }
-        : fw.id === "cdp"
-        ? async () => {
-            const { exportCdpFilled } = await import("@/lib/cdpExport/export");
-            await exportCdpFilled();
           }
         : undefined,
   };

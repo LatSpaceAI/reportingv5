@@ -2,8 +2,6 @@ export const CBAM_ANSWERS_KEY = "cbam-app/v1";
 export const CBAM_ASSIGNEES_KEY = "cbam-app/assignees/v1";
 export const RCO_ANSWERS_KEY = "rco-app/v1";
 export const CCTS_ANSWERS_KEY = "ccts-app/v1";
-export const BRSR_ANSWERS_KEY = "brsr-app/v1";
-export const CDP_ANSWERS_KEY = "cdp-app/v1";
 
 export type Status = "not-started" | "in-progress" | "completed";
 

@@ -10,13 +10,10 @@ import {
   type FrameworkGroup,
   type FrameworkSummary,
 } from "@/lib/frameworks";
-import { formatUpdated } from "@/lib/storage";
 import { useToast } from "@/components/Toast";
 
 type CategoryFilter = "all" | "Climate" | "Sustainability" | "Regulatory";
 type StatusFilter = "all" | "active" | "coming-soon";
-
-const AUTOFILLED_IDS = new Set(["cbam", "ccts", "rco"]);
 
 export default function LandingPage() {
   const [search, setSearch] = useState("");
@@ -109,25 +106,12 @@ export default function LandingPage() {
         setCategory={setCategory}
         status={status}
         setStatus={setStatus}
-        onNewReport={() => show("New Report creation is coming soon.")}
       />
-      <div className="mt-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Available Disclosures &amp; Reports</h1>
-          <p className="text-sm text-slate-500">
-            Showing {leafCount} of {totalLeafCount} results
-          </p>
-        </div>
-        <button
-          onClick={() => show("Autofill is coming soon.")}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          title="Autofill from connected data sources"
-        >
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          Autofill
-        </button>
+      <div className="mt-6">
+        <h1 className="text-xl font-semibold text-slate-900">Available Disclosures &amp; Reports</h1>
+        <p className="text-sm text-slate-500">
+          Showing {leafCount} of {totalLeafCount} results
+        </p>
       </div>
 
       <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -176,7 +160,6 @@ function TopBar(props: {
   setCategory: (v: CategoryFilter) => void;
   status: StatusFilter;
   setStatus: (v: StatusFilter) => void;
-  onNewReport: () => void;
 }) {
   return (
     <div className="flex items-center gap-3">
@@ -217,14 +200,6 @@ function TopBar(props: {
         <option value="active">Active</option>
         <option value="coming-soon">Coming Soon</option>
       </select>
-      <div className="ml-auto">
-        <button
-          onClick={props.onNewReport}
-          className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-        >
-          <span className="text-lg leading-none">+</span> New Report
-        </button>
-      </div>
     </div>
   );
 }
@@ -240,8 +215,8 @@ function Row({
   nested?: boolean;
   mounted?: boolean;
 }) {
-  const progress = mounted ? computeProgress(f) : { pct: 0, completed: 0, total: 0, lastUpdated: undefined as string | undefined };
-  const { pct, lastUpdated } = progress;
+  const progress = mounted ? computeProgress(f) : { pct: 0, completed: 0, total: 0 };
+  const { pct } = progress;
   const isActive = f.status === "active";
   return (
     <div
@@ -302,19 +277,12 @@ function Row({
           </div>
         )}
       </div>
-      <div className="text-sm text-slate-600">
-        {isActive && mounted ? formatUpdated(lastUpdated) : ""}
-        {AUTOFILLED_IDS.has(f.id) && (
-          <div className="mt-0.5 inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-            Autofilled on 12/02/2026
-          </div>
-        )}
-      </div>
+      <div className="text-sm text-slate-400">-</div>
       <div>
         <button
           onClick={onExport}
           disabled={!isActive}
-          className="inline-flex items-center gap-1 text-sm text-slate-700 hover:text-slate-900 disabled:cursor-not-allowed disabled:text-slate-300"
+          className="inline-flex items-center gap-1 text-sm font-bold text-slate-700 hover:text-slate-900 disabled:cursor-not-allowed disabled:text-slate-300"
         >
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" strokeLinecap="round" strokeLinejoin="round" />
@@ -345,14 +313,9 @@ function GroupRow({
     0,
   );
   let completedQ = 0;
-  let lastUpdated: string | undefined;
   if (mounted) {
     for (const c of activeChildren) {
-      const p = computeProgress(c);
-      completedQ += p.completed;
-      if (p.lastUpdated && (!lastUpdated || p.lastUpdated > lastUpdated)) {
-        lastUpdated = p.lastUpdated;
-      }
+      completedQ += computeProgress(c).completed;
     }
   }
   const pct = totalQ === 0 ? 0 : Math.round((completedQ / totalQ) * 100);
@@ -406,14 +369,7 @@ function GroupRow({
             <div className="h-full bg-brand" style={{ width: `${pct}%` }} />
           </div>
         </div>
-        <div className="text-sm text-slate-600">
-          {mounted ? formatUpdated(lastUpdated) : ""}
-          {group.children.some((c) => AUTOFILLED_IDS.has(c.id)) && (
-            <div className="mt-0.5 inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-              Autofilled on 12/02/2026
-            </div>
-          )}
-        </div>
+        <div className="text-sm text-slate-400">-</div>
         <div />
       </button>
       {open &&

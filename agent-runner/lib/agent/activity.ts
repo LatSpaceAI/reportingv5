@@ -20,12 +20,7 @@ export function describeToolUse(
   framework: Framework
 ): AgentActivity {
   const args = (input ?? {}) as Record<string, unknown>;
-  const docName =
-    framework === "cdp"
-      ? "CDP guidance"
-      : framework === "brsr"
-        ? "BRSR guidance"
-        : "CBAM guidance";
+  const docName = "CBAM guidance";
 
   // MCP tool names look like `mcp__<server>__<name>`.
   if (toolName.endsWith("__search_guidance")) {

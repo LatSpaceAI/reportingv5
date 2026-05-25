@@ -56,7 +56,7 @@ const PANES_KEY = "cbam-app/panes/v1";
 
 /**
  * Options passed to the framework's onExport callback when the user invokes
- * Export. Frameworks that don't need a period (RCO/CCTS/BRSR/CDP) can ignore
+ * Export. Frameworks that don't need a period (RCO/CCTS) can ignore
  * the argument. CBAM uses `period` to stamp the reporting-period cells and
  * to name the file.
  */
@@ -271,7 +271,20 @@ export function Questionnaire({
     // render persisted the blank initial state before hydration completed
     // (an issue React Strict-Mode double-mount can trigger). Detecting and
     // re-seeding recovers those users without manual intervention.
+    //
+    // Finally, when the bundled seed version bumps and the user's saved
+    // data was previously populated *by* a seed (not entered by hand from
+    // a blank starting point), wipe the saved data so the fresh seed can
+    // re-apply. We detect this by the presence of an applied-seed-version
+    // stamp in storage that differs from the bundled version. This catches
+    // the demo-data case where a corrected seed needs to replace stale
+    // pre-filled values; users who manually edited won't have had a
+    // seedVersion stamped against their work (the stamp is only written
+    // by the seed-apply branches below), so their data stays.
     let saved: Record<string, QuestionState> | null = null;
+    const seedSupersedesSaved = Boolean(
+      seed && seedVersion && appliedSeedVersion && appliedSeedVersion !== seedVersion
+    );
     if (raw) {
       try {
         const parsed = JSON.parse(raw) as Record<string, QuestionState>;
@@ -285,15 +298,15 @@ export function Questionnaire({
           );
           return Boolean(inValues || inRows);
         });
-        if (overlap && hasAnyRealValue) {
+        if (overlap && hasAnyRealValue && !seedSupersedesSaved) {
           saved = parsed;
         } else if (Object.keys(parsed).length > 0) {
-          // Stale or null-only payload — wipe so the seed branch fires and
-          // we don't carry around orphan keys that mean nothing to the
-          // current form. Also clear the seedVersion stamp so the seed
-          // re-applies fresh, and reset the in-effect tracking variable so
-          // the version check below doesn't gate the re-seed on a stale
-          // value we just deleted.
+          // Stale or null-only payload (or superseded by a newer seed) —
+          // wipe so the seed branch fires and we don't carry around orphan
+          // keys that mean nothing to the current form. Also clear the
+          // seedVersion stamp so the seed re-applies fresh, and reset the
+          // in-effect tracking variable so the version check below doesn't
+          // gate the re-seed on a stale value we just deleted.
           localStorage.removeItem(storageKey);
           localStorage.removeItem(seedVersionKey);
           appliedSeedVersion = null;

@@ -1,0 +1,72 @@
+name: deploy
+
+# Builds the Docker image, pushes to ECR with both `latest` (App Runner
+# watches this tag and auto-deploys) and the git SHA (for audit/rollback).
+#
+# Auth uses GitHub OIDC + an IAM role in your AWS account — no long-lived
+# access keys. README has the one-time setup for the trust policy.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # required for OIDC
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: cbam-app
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Sanity-build outside Docker first. If the Next build fails, we want
+      # to know before spending time on a Docker layer cache miss.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # The Agent SDK only ships a linux-x64 native binary, so we must
+          # build for amd64 even if the runner is ARM. App Runner default
+          # is also amd64 — keep these aligned.
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # App Runner has autoDeploymentsEnabled=true on the :latest tag, so
+      # pushing the image is the trigger. We surface the deployment URL
+      # for visibility in the run logs.
+      - name: Show service URL
+        run: |
+          aws apprunner list-services \
+            --query "ServiceSummaryList[?ServiceName=='${{ env.ECR_REPOSITORY }}'].ServiceUrl" \
+            --output text

@@ -33,8 +33,7 @@ agent-runner/data/rag/*-build.log
 
 # Source PDFs for the RAG indices live outside source control to keep the
 # repo small and avoid licensing issues. The CBAM PDF lives in a sibling
-# folder; the CDP PDF currently sits inside the repo at "CDP resources/".
-CDP resources/
+# folder.
 
 # Logs
 logs/

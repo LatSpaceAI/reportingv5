@@ -78,7 +78,7 @@ interface PaneProps {
   onAcceptProposal?: (proposalId: string) => void;
   onRejectProposal?: (proposalId: string) => void;
   onScrollToProposal?: (proposalId: string) => void;
-  // Framework registry id (e.g. "cbam", "cbam-mmd", "cdp"). Forwarded to the
+  // Framework registry id (e.g. "cbam", "cbam-mmd"). Forwarded to the
   // chat/write APIs so the agent retrieves from the right guidance index.
   frameworkId?: string;
   // Excel-style: the question the user is currently looking at. Sent with each
@@ -132,18 +132,11 @@ interface ProposalEvent {
 // visually emphasised; the rest are outlined chips. Suggestion text is sent
 // verbatim when clicked.
 function askSuggestionsFor(frameworkId: string | undefined): string[] {
-  if (frameworkId === "cdp") {
+  if (frameworkId === "ccts") {
     return [
-      "What are my peers saying about this question?",
-      "Find my own related answers",
-      "Explain the guidance",
-    ];
-  }
-  if (frameworkId === "brsr") {
-    return [
-      "Explain the Essential vs Leadership indicators for this principle",
-      "What disclosures does the BRSR require for GHG emissions?",
-      "Which questions can I cross-reference from GRI / TCFD?",
+      "What does the BEE Detailed Procedure require for designated consumers?",
+      "Explain the compliance mechanism under CCTS",
+      "How are carbon credits issued and traded under CCTS?",
     ];
   }
   return [
@@ -154,18 +147,11 @@ function askSuggestionsFor(frameworkId: string | undefined): string[] {
 }
 
 function writeSuggestionsFor(frameworkId: string | undefined): string[] {
-  if (frameworkId === "cdp") {
+  if (frameworkId === "ccts") {
     return [
-      "Draft a base year emissions narrative",
-      "Add a section on scope 3 categories",
-      "Insert a paragraph on board-level oversight",
-    ];
-  }
-  if (frameworkId === "brsr") {
-    return [
-      "Draft the Principle 6 Essential disclosure on energy & GHG emissions",
-      "Insert a table for employee break-up by gender and category",
-      "Add a paragraph on the grievance redressal mechanism for stakeholders",
+      "Add a new section after Section 2 about the monitoring plan",
+      "Insert a paragraph below the Gate-to-Gate boundary heading",
+      "Draft a table summarising emission sources and source streams",
     ];
   }
   return [

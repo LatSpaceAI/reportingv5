@@ -1,0 +1,9 @@
+{
+  "app": "npx ts-node --prefer-ts-exts bin/app.ts",
+  "context": {
+    "@aws-cdk/aws-iam:minimizePolicies": true,
+    "@aws-cdk/core:newStyleStackSynthesis": true,
+    "anthropicSecretArn": "arn:aws:secretsmanager:ap-south-1:229788935252:secret:cbam-app/anthropic-api-key-q5bAZg",
+    "voyageSecretArn": "arn:aws:secretsmanager:ap-south-1:229788935252:secret:cbam-app/voyage-api-key-rs4ZAG"
+  }
+}

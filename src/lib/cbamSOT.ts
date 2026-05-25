@@ -57,7 +57,42 @@ export const calculatedValues: CalculatedValue[] = [
     value: 407602.4401,
     source: "SOT Input!Hot Metal-Potroom!C13 — sum of monthly smelter output.",
     sotSection: "Input §1",
-    targets: [{ questionId: "D.1", fieldId: "output", rowIndex: 0 }],
+    // Same physical quantity feeds three cells in the template:
+    //   • D.1 row 0 "output"      — net production figure for P1 Unwrought
+    //   • D.1 row 0 "prodPrimary" — Primary (electrolytic) smelting route
+    //   • B.2 row 0 "tAl"         — aluminium produced input to PFC slope
+    targets: [
+      { questionId: "D.1", fieldId: "output", rowIndex: 0 },
+      { questionId: "D.1", fieldId: "prodPrimary", rowIndex: 0 },
+      { questionId: "B.2", fieldId: "tAl", rowIndex: 0 },
+    ],
+  },
+  {
+    id: "frp_gross_production",
+    label: "FRP gross production",
+    unit: "MT",
+    value: 81433.062,
+    source: "SOT Input!D14 = FRP!D76 = sum of monthly FRP rolled output.",
+    sotSection: "Input §9",
+    // Same number feeds three D.1 cells for P2 (FRP) — Primary route (the
+    // only route for "Aluminium products"), and produced-for-market (all of
+    // FRP is for market).
+    targets: [
+      { questionId: "D.1", fieldId: "prodPrimary", rowIndex: 1 },
+      { questionId: "D.1", fieldId: "toMarket", rowIndex: 1 },
+    ],
+  },
+  {
+    id: "extrusion_gross_production",
+    label: "Extrusion gross production",
+    unit: "MT",
+    value: 40582.67,
+    source: "SOT Input!D15 = Extrusion!D86 = sum of monthly extrusion output.",
+    sotSection: "Input §9",
+    targets: [
+      { questionId: "D.1", fieldId: "prodPrimary", rowIndex: 2 },
+      { questionId: "D.1", fieldId: "toMarket", rowIndex: 2 },
+    ],
   },
   {
     id: "frp_net_production_gross_internal_scrap",
@@ -66,7 +101,13 @@ export const calculatedValues: CalculatedValue[] = [
     value: 78331.425,
     source: "SOT Output!R111 = FRP!D6 = FRP gross 81,433 − internal coil 3,102.",
     sotSection: "Output §L",
-    targets: [{ questionId: "D.1", fieldId: "output", rowIndex: 1 }],
+    // Same value: net FRP production (used as SEE denominator) and the
+    // P1 → P2 internal-consumption cell on D_Processes (the unwrought
+    // aluminium that flows from Smelter into FRP rolling).
+    targets: [
+      { questionId: "D.1", fieldId: "output", rowIndex: 1 },
+      { questionId: "D.1", fieldId: "consumedP2", rowIndex: 0 },
+    ],
   },
   {
     id: "extrusion_net_production_gross_scrap",
@@ -75,7 +116,22 @@ export const calculatedValues: CalculatedValue[] = [
     value: 35292.4367,
     source: "SOT Output!R112 = Extrusion!D6 = D86 − D134 (external billet excluded).",
     sotSection: "Output §L",
-    targets: [{ questionId: "D.1", fieldId: "output", rowIndex: 2 }],
+    // Net Extrusion production (SEE denominator) and the P1 → P3
+    // internal-consumption cell (Renukoot-made billet fed to extrusion).
+    targets: [
+      { questionId: "D.1", fieldId: "output", rowIndex: 2 },
+      { questionId: "D.1", fieldId: "consumedP3", rowIndex: 0 },
+    ],
+  },
+  {
+    id: "unwrought_aluminium_to_market",
+    label: "Unwrought aluminium produced for market (P1 → external sales)",
+    unit: "MT",
+    value: 293978.5784,
+    source:
+      "Derived: Hot Metal smelter production 407,602.44 − consumed by FRP 78,331.43 − consumed by Extrusion 35,292.44 ≈ 293,978.58 MT cast and sold (Pig/ICM/EC/Alloy rod/DC slab/Slab/Caster coil).",
+    sotSection: "Input §1",
+    targets: [{ questionId: "D.1", fieldId: "toMarket", rowIndex: 0 }],
   },
 
   // ─── Combined electricity emission factor ─────────────────────────────────
@@ -99,9 +155,9 @@ export const calculatedValues: CalculatedValue[] = [
     id: "total_smelter_downstream_electricity_mwh",
     label: "Electricity consumption — P1 Unwrought Aluminium",
     unit: "MWh",
-    value: 5828000,
+    value: 5827003.34,
     source:
-      "SOT Output!R113 — Total smelter + downstream electricity = 5,828,168 MWh (Smelter 5,792k + Cold-metal 36k).",
+      "SOT Output!R113 — Total smelter + downstream electricity = 5,827,003.34 MWh (Smelter 5,791,886 + Cold-metal 35,117).",
     sotSection: "Output §L",
     targets: [{ questionId: "D.1", fieldId: "elecMWh", rowIndex: 0 }],
   },
@@ -109,7 +165,7 @@ export const calculatedValues: CalculatedValue[] = [
     id: "frp_electricity_power",
     label: "Electricity consumption — P2 FRP",
     unit: "MWh",
-    value: 76667.5662,
+    value: 76667.6656,
     source: "SOT Output!R74 = FRP!D78 = 76,667,665.56 kWh ÷ 1000.",
     sotSection: "Output §H",
     targets: [{ questionId: "D.1", fieldId: "elecMWh", rowIndex: 1 }],
@@ -252,7 +308,15 @@ export const calculatedValues: CalculatedValue[] = [
     value: 2371.263,
     source: "SOT Input precursor table, row PP1, col 'Tonnes to P2 (FRP)'.",
     sotSection: "Input precursor",
-    targets: [{ questionId: "E.1", fieldId: "mass", rowIndex: 0 }],
+    // For PP1 (Hindalco-Hirakud, "Aluminium products"), the precursor has
+    // only one route (All) and is consumed entirely by P2 (FRP). The same
+    // tonnage feeds: total mass (denominator), route-1 split, and the
+    // "consumed by FRP" split.
+    targets: [
+      { questionId: "E.1", fieldId: "mass", rowIndex: 0 },
+      { questionId: "E.1", fieldId: "purchPrimary", rowIndex: 0 },
+      { questionId: "E.1", fieldId: "toFRP", rowIndex: 0 },
+    ],
   },
   {
     id: "pp1_see_direct_tco2e_t",
@@ -298,7 +362,11 @@ export const calculatedValues: CalculatedValue[] = [
     value: 702.504,
     source: "SOT Input precursor table, row PP2.",
     sotSection: "Input precursor",
-    targets: [{ questionId: "E.1", fieldId: "mass", rowIndex: 1 }],
+    targets: [
+      { questionId: "E.1", fieldId: "mass", rowIndex: 1 },
+      { questionId: "E.1", fieldId: "purchPrimary", rowIndex: 1 },
+      { questionId: "E.1", fieldId: "toFRP", rowIndex: 1 },
+    ],
   },
   {
     id: "pp2_see_direct_tco2e_t",
@@ -344,7 +412,13 @@ export const calculatedValues: CalculatedValue[] = [
     value: 4104.4313,
     source: "SOT Input precursor table, row PP3.",
     sotSection: "Input precursor",
-    targets: [{ questionId: "E.1", fieldId: "mass", rowIndex: 2 }],
+    // PP3 (Mahan, Unwrought aluminium) — route "Primary (electrolytic)
+    // smelting"; consumed entirely by P3 (Extrusion).
+    targets: [
+      { questionId: "E.1", fieldId: "mass", rowIndex: 2 },
+      { questionId: "E.1", fieldId: "purchPrimary", rowIndex: 2 },
+      { questionId: "E.1", fieldId: "toExtrusion", rowIndex: 2 },
+    ],
   },
   {
     id: "pp3_see_direct_tco2e_t",
@@ -390,7 +464,13 @@ export const calculatedValues: CalculatedValue[] = [
     value: 138.693,
     source: "SOT Input precursor table, row PP4.",
     sotSection: "Input precursor",
-    targets: [{ questionId: "E.1", fieldId: "mass", rowIndex: 3 }],
+    // PP4 (Allupuram, Unwrought aluminium) — route "Other production
+    // routes"; consumed entirely by P3 (Extrusion).
+    targets: [
+      { questionId: "E.1", fieldId: "mass", rowIndex: 3 },
+      { questionId: "E.1", fieldId: "purchOther", rowIndex: 3 },
+      { questionId: "E.1", fieldId: "toExtrusion", rowIndex: 3 },
+    ],
   },
   {
     id: "pp4_see_direct_tco2e_t",
@@ -436,7 +516,12 @@ export const calculatedValues: CalculatedValue[] = [
     value: 77.15,
     source: "SOT Input precursor table, row PP5.",
     sotSection: "Input precursor",
-    targets: [{ questionId: "E.1", fieldId: "mass", rowIndex: 4 }],
+    // PP5 (Almex, Unwrought aluminium) — route "Other"; consumed by P3.
+    targets: [
+      { questionId: "E.1", fieldId: "mass", rowIndex: 4 },
+      { questionId: "E.1", fieldId: "purchOther", rowIndex: 4 },
+      { questionId: "E.1", fieldId: "toExtrusion", rowIndex: 4 },
+    ],
   },
   {
     id: "pp5_see_direct_tco2e_t",
@@ -482,7 +567,13 @@ export const calculatedValues: CalculatedValue[] = [
     value: 969.959,
     source: "SOT Input precursor table, row PP6.",
     sotSection: "Input precursor",
-    targets: [{ questionId: "E.1", fieldId: "mass", rowIndex: 5 }],
+    // PP6 (CRM Green Tech, Unwrought aluminium) — route "Secondary melting
+    // (recycling)"; consumed by P3 (Extrusion).
+    targets: [
+      { questionId: "E.1", fieldId: "mass", rowIndex: 5 },
+      { questionId: "E.1", fieldId: "purchSecondary", rowIndex: 5 },
+      { questionId: "E.1", fieldId: "toExtrusion", rowIndex: 5 },
+    ],
   },
   {
     id: "pp6_see_direct_tco2e_t",
@@ -551,6 +642,63 @@ export const calculatedValues: CalculatedValue[] = [
     targets: [{ questionId: "F.1", fieldId: "elecOut" }],
   },
 
+  // ─── B.1 Source streams — activity data (AD) for the 4 fuels Hindalco
+  //     reports. Each AD cell aggregates to a specific row of SOT Output §L
+  //     (Cold-Metal LSHS/Propane/LPG totals) or §E (Net Anode Consumption).
+  {
+    id: "b1_ad_residual_fuel_oil_lshs",
+    label: "B.1 row 1 — Residual Fuel Oil (LSHS) activity data",
+    unit: "t",
+    value: 12011.71786,
+    source:
+      "SOT Output!R108 = Cold-metal LSHS total across all products = Sum of the 7 per-product cold-metal LSHS fuel figures.",
+    sotSection: "Output §L",
+    targets: [{ questionId: "B.1", fieldId: "ad", rowIndex: 0 }],
+  },
+  {
+    id: "b1_ad_propane",
+    label: "B.1 row 2 — Propane activity data",
+    unit: "t",
+    value: 637.318,
+    source:
+      "SOT Output!R109 = Cold-metal Propane total = Slab Casting propane + Billet Casting propane (carried at installation level).",
+    sotSection: "Output §L",
+    targets: [{ questionId: "B.1", fieldId: "ad", rowIndex: 1 }],
+  },
+  {
+    id: "b1_ad_lpg",
+    label: "B.1 row 3 — LPG activity data",
+    unit: "t",
+    value: 22.99,
+    source:
+      "SOT Output!R110 = Cold-metal LPG total = DC Slab LPG + Billet Casting LPG (carried at installation level).",
+    sotSection: "Output §L",
+    targets: [{ questionId: "B.1", fieldId: "ad", rowIndex: 2 }],
+  },
+  {
+    id: "b1_ad_pre_baked_anode_nac",
+    label: "B.1 row 4 — Pre-Baked Anode (NAC) activity data",
+    unit: "t",
+    value: 175418.31704,
+    source:
+      "SOT Output!R47 = Net Anode Consumption = Hot-metal production × specific anode consumption (Hot Metal-Potroom!C28).",
+    sotSection: "Output §E",
+    targets: [{ questionId: "B.1", fieldId: "ad", rowIndex: 3 }],
+  },
+
+  // ─── C.1 Fuel balance — Total fuel input across all combustion streams.
+  //     Maps to the "Direct fuel for CBAM processes" cell on the installation
+  //     fuel-balance card.
+  {
+    id: "c1_total_fuel_input_tj",
+    label: "C.1 — Total fuel input (combustion streams)",
+    unit: "TJ",
+    value: 516.5060,
+    source:
+      "SOT Output!R124 = Σ (AD × NCV / 1000) over the combustion streams in B.1. Anode consumption is a process stream and is excluded.",
+    sotSection: "Output §N",
+    targets: [{ questionId: "C.1", fieldId: "cbamDirect" }],
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
