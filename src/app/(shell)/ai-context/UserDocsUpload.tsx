@@ -1,12 +1,19 @@
 "use client";
 
-// Knowledge documents uploader for the AI-Context tab. The user uploads PDFs;
-// each is POSTed to /api/ingest which parses, chunks, embeds and stores a RAG
-// index in Vercel Blob. We track lightweight metadata in localStorage
-// (lib/userDocs.ts); the AssistantPane sends the ready docs with each chat /
-// write request so the agent can retrieve from them via search_user_docs.
+// Knowledge documents uploader for the AI-Context tab. The user uploads PDFs.
+//
+// Upload is two-step, to dodge Vercel's ~4.5 MB serverless request-body cap:
+//   1. the PDF is uploaded DIRECTLY to Vercel Blob from the browser via
+//      @vercel/blob/client `upload()` (authorized by /api/ingest/upload-token),
+//   2. then we POST the resulting Blob URL to /api/ingest, which fetches the
+//      PDF, parses/chunks/embeds it, and stores a RAG index in Blob.
+// We track lightweight metadata in localStorage (lib/userDocs.ts); the
+// AssistantPane sends the ready docs with each chat / write request so the
+// agent can retrieve from them via search_user_docs.
 
 import { useEffect, useRef, useState } from "react";
+
+import { upload } from "@vercel/blob/client";
 
 import { useToast } from "@/components/Toast";
 import {
@@ -19,6 +26,9 @@ import {
 
 const labelClass =
   "block text-[11px] text-brand tracking-[0.15em] uppercase font-medium mb-2";
+
+// Keep in sync with MAX_PDF_BYTES in /api/ingest and the upload-token route.
+const MAX_PDF_BYTES = 15 * 1024 * 1024; // 15 MB
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -70,9 +80,27 @@ export default function UserDocsUpload() {
     });
 
     try {
-      const body = new FormData();
-      body.append("file", file);
-      const res = await fetch("/api/ingest", { method: "POST", body });
+      // 1. Upload the raw PDF straight to Blob (bypasses the 4.5 MB body cap).
+      //    The .pdf suffix is required by the upload-token route's validation.
+      const safeName = file.name.toLowerCase().endsWith(".pdf")
+        ? file.name
+        : `${file.name}.pdf`;
+      const blob = await upload(`rag/user/_src/${safeName}`, file, {
+        access: "public",
+        handleUploadUrl: "/api/ingest/upload-token",
+        contentType: "application/pdf",
+      });
+
+      // 2. Hand the Blob URL to the ingest route (tiny JSON body).
+      const res = await fetch("/api/ingest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pdfUrl: blob.url,
+          name: file.name,
+          sizeBytes: file.size,
+        }),
+      });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(data.error || `Upload failed (HTTP ${res.status})`);
@@ -115,7 +143,21 @@ export default function UserDocsUpload() {
 
   const handleFiles = (files: FileList | null) => {
     if (!files) return;
-    for (const file of Array.from(files)) void uploadFile(file);
+    for (const file of Array.from(files)) {
+      const isPdf =
+        file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      if (!isPdf) {
+        show(`"${file.name}" isn't a PDF. Only PDF files are supported.`);
+        continue;
+      }
+      if (file.size > MAX_PDF_BYTES) {
+        show(
+          `"${file.name}" is ${formatBytes(file.size)} — over the ${MAX_PDF_BYTES / 1024 / 1024} MB limit.`
+        );
+        continue;
+      }
+      void uploadFile(file);
+    }
     if (inputRef.current) inputRef.current.value = "";
   };
 
