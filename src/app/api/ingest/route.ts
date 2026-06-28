@@ -1,8 +1,16 @@
-// PDF ingestion route — parses an uploaded PDF, chunks + embeds it, builds a
-// BM25 index, and writes a self-contained index JSON to Vercel Blob. The
-// AI-Context tab calls this; the returned blobUrl is stored in localStorage and
-// later handed to the agent runner (which fetches the index at query time via
-// the search_user_docs tool).
+// PDF ingestion route — parses a PDF, chunks + embeds it, builds a BM25 index,
+// and writes a self-contained index JSON to Vercel Blob. The AI-Context tab
+// calls this; the returned blobUrl is stored in localStorage and later handed
+// to the agent runner (which fetches the index at query time via the
+// search_user_docs tool).
+//
+// IMPORTANT: the browser does NOT POST the PDF bytes here. Vercel serverless
+// functions cap the request body at ~4.5 MB, which broke uploads of larger
+// PDFs (HTTP 413 before our code ran). Instead the browser uploads the PDF
+// directly to Vercel Blob (see /api/ingest/upload-token) and POSTs us only a
+// small JSON body { pdfUrl, name, sizeBytes }. We fetch the PDF back from Blob
+// and run the pipeline. This keeps our request body tiny and makes the 15 MB
+// limit real.
 //
 // We reuse the SAME chunking / embedding / BM25 primitives the runner uses by
 // importing from agent-runner/lib/rag/* (the canonical RAG lib). This route
@@ -11,7 +19,7 @@
 
 import { NextRequest } from "next/server";
 import { createRequire } from "node:module";
-import { put } from "@vercel/blob";
+import { put, del } from "@vercel/blob";
 import { PDFParse } from "pdf-parse";
 
 import { chunkPdfPages, type PdfPage } from "@/lib/rag/chunk";
@@ -48,26 +56,31 @@ export async function POST(req: NextRequest): Promise<Response> {
     return json({ error: "BLOB_READ_WRITE_TOKEN is not set on the server." }, 500);
   }
 
-  let form: FormData;
+  // The browser uploads the PDF to Blob first, then sends us the URL + metadata.
+  let payload: { pdfUrl?: string; name?: string; sizeBytes?: number };
   try {
-    form = await req.formData();
+    payload = (await req.json()) as typeof payload;
   } catch {
-    return json({ error: "Expected multipart/form-data with a 'file' field." }, 400);
+    return json({ error: "Expected JSON body { pdfUrl, name, sizeBytes }." }, 400);
   }
 
-  const file = form.get("file");
-  if (!(file instanceof File)) {
-    return json({ error: "No file uploaded under the 'file' field." }, 400);
+  const pdfUrl = payload.pdfUrl;
+  if (!pdfUrl || typeof pdfUrl !== "string") {
+    return json({ error: "Missing 'pdfUrl' (upload the PDF to Blob first)." }, 400);
   }
-  const name = file.name || "document.pdf";
-  const isPdf =
-    file.type === "application/pdf" || name.toLowerCase().endsWith(".pdf");
-  if (!isPdf) {
+  // Only accept URLs from our own Blob store, so this can't be used to fetch
+  // arbitrary remote content.
+  if (!/^https:\/\/[a-z0-9-]+\.public\.blob\.vercel-storage\.com\//i.test(pdfUrl)) {
+    return json({ error: "pdfUrl must be a Vercel Blob URL." }, 400);
+  }
+  const name = payload.name || "document.pdf";
+  if (!name.toLowerCase().endsWith(".pdf")) {
     return json({ error: "Only PDF files are supported." }, 415);
   }
-  if (file.size > MAX_PDF_BYTES) {
+  const sizeBytes = typeof payload.sizeBytes === "number" ? payload.sizeBytes : 0;
+  if (sizeBytes > MAX_PDF_BYTES) {
     return json(
-      { error: `PDF is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max is ${MAX_PDF_BYTES / 1024 / 1024} MB.` },
+      { error: `PDF is too large (${(sizeBytes / 1024 / 1024).toFixed(1)} MB). Max is ${MAX_PDF_BYTES / 1024 / 1024} MB.` },
       413
     );
   }
@@ -76,8 +89,20 @@ export async function POST(req: NextRequest): Promise<Response> {
   let warning: string | undefined;
 
   try {
+    // 0. Fetch the uploaded PDF back from Blob.
+    const pdfRes = await fetch(pdfUrl);
+    if (!pdfRes.ok) {
+      return json({ error: `Could not read the uploaded PDF (HTTP ${pdfRes.status}).` }, 502);
+    }
+    const buf = Buffer.from(await pdfRes.arrayBuffer());
+    if (buf.byteLength > MAX_PDF_BYTES) {
+      return json(
+        { error: `PDF is too large (${(buf.byteLength / 1024 / 1024).toFixed(1)} MB). Max is ${MAX_PDF_BYTES / 1024 / 1024} MB.` },
+        413
+      );
+    }
+
     // 1. Parse PDF → pages.
-    const buf = Buffer.from(await file.arrayBuffer());
     const parser = new PDFParse({ data: new Uint8Array(buf) });
     const result = await parser.getText({ pageJoiner: "" });
     await parser.destroy();
@@ -131,13 +156,21 @@ export async function POST(req: NextRequest): Promise<Response> {
       contentType: "application/json",
     });
 
+    // 7. The source PDF was only needed to build the index — drop it so we
+    //    don't accumulate orphaned raw PDFs in Blob. Best-effort.
+    try {
+      await del(pdfUrl);
+    } catch {
+      /* non-fatal */
+    }
+
     return json({
       id: docId,
       name,
       blobUrl: blob.url,
       chunkCount: chunks.length,
       pageCount: pages.length,
-      sizeBytes: file.size,
+      sizeBytes: sizeBytes || buf.byteLength,
       warning,
     });
   } catch (err) {
