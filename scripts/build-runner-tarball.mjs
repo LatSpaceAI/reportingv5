@@ -18,9 +18,25 @@
 //
 // Output: agent-runner-<sha>.tar.gz in the repo root.
 
+// Load .env.local / .env so BLOB_READ_WRITE_TOKEN (needed for --upload) is
+// available when this is run via `npm run publish:runner` outside Vercel/CI,
+// matching how smoke-runner.mjs and build-index.mjs read their secrets.
+import { config as loadEnv } from "dotenv";
+loadEnv({ path: ".env.local" });
+loadEnv({ path: ".env" });
+
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { gzipSync } from "node:zlib";
+import {
+  cpSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+  rmSync,
+  statSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,6 +57,70 @@ function run(cmd, cmdArgs, cwd) {
   if (result.status !== 0) {
     throw new Error(`${cmd} ${cmdArgs.join(" ")} failed with exit code ${result.status}`);
   }
+}
+
+// Locate a GNU tar. The Windows-shipped C:\Windows\System32\tar.exe is bsdtar,
+// which (a) rejects --force-local and (b) differs from GNU tar in subtle ways;
+// Git for Windows ships a real GNU tar at <Git>\usr\bin\tar.exe. We prefer an
+// explicit GNU tar and invoke it WITHOUT a shell so PATH resolution can't fall
+// back to System32. Returns the resolved tar path.
+function findGnuTar() {
+  const candidates =
+    process.platform === "win32"
+      ? [
+          "C:\\Program Files\\Git\\usr\\bin\\tar.exe",
+          "C:\\Program Files (x86)\\Git\\usr\\bin\\tar.exe",
+        ]
+      : ["/usr/bin/tar", "/bin/tar"];
+  for (const c of candidates) {
+    if (existsSync(c)) return c;
+  }
+  // Last resort: whatever "tar" is on PATH. On CI (Linux) this is GNU tar.
+  return "tar";
+}
+
+// Create a gzip tarball of everything in `cwd` (top-level entries, no wrapping
+// dir) at `outPath`. We don't use --force-local: the output path is RELATIVE to
+// cwd, so there's no Windows drive-letter colon for tar to misparse as a remote
+// host.
+//
+// IMPORTANT: we create an UNCOMPRESSED .tar (-cf, no -z) and gzip it in Node
+// with zlib afterwards. GNU tar's -z spawns the external `gzip` program as a
+// child; invoked with shell:false that child isn't found on Windows (Git's
+// gzip.exe isn't on the System PATH), which surfaces as "Broken pipe / Child
+// returned status 127". Doing the gzip in-process removes that dependency
+// entirely and is byte-for-byte deterministic across platforms/CI.
+//
+// We also tolerate GNU tar's benign "file changed as we read it" warning
+// (exit 1) that fires when npm's just-written staging dir mtime ticks during
+// the read — the archive is still valid, which we verify by size afterwards.
+function createTarGz(tarBin, cwd, relativeTarPath, finalGzPath) {
+  const result = spawnSync(tarBin, ["-cf", relativeTarPath, "."], {
+    cwd,
+    encoding: "utf8",
+    shell: false,
+  });
+  if (result.error) {
+    throw new Error(`Failed to spawn tar (${tarBin}): ${result.error.message}`);
+  }
+  const stderr = (result.stderr || "").trim();
+  if (result.status !== 0) {
+    const benign = /file changed as we read it|Removing leading/i.test(stderr);
+    if (!benign) {
+      throw new Error(
+        `tar failed with exit code ${result.status}:\n${stderr || "(no stderr)"}`
+      );
+    }
+    console.warn(`  tar warning (non-fatal): ${stderr.split("\n")[0]}`);
+  }
+
+  const tarPath = resolve(cwd, relativeTarPath);
+  if (!existsSync(tarPath)) {
+    throw new Error(`tar reported success but ${tarPath} is missing`);
+  }
+  // gzip the uncompressed tar in-process and write the final .tar.gz.
+  const gz = gzipSync(readFileSync(tarPath), { level: 9 });
+  writeFileSync(finalGzPath, gz);
 }
 
 function getCommitSha() {
@@ -114,20 +194,21 @@ try {
     stagingRunner
   );
 
-  // Step 3: tar it up. Contents are at the top level (no wrapping dir) so
-  // the sandbox extracts them directly into /vercel/sandbox. We invoke tar
-  // with cwd=stagingRunner and a relative output path: passing an absolute
-  // Windows path with a drive letter (e.g. C:\foo) breaks GNU tar, which
-  // parses it as a remote machine path.
+  // Step 3: tar it up. Contents are at the top level (no wrapping dir) so the
+  // sandbox extracts them directly into /vercel/sandbox. We write the archive
+  // INSIDE the staging parent (a relative path from cwd=stagingRunner), then
+  // move it to the repo root — this avoids passing tar an absolute Windows path
+  // with a drive-letter colon, and lets us use a real GNU tar without
+  // --force-local.
   console.log(`Creating ${tarballName}...`);
-  // GNU tar's --force-local flag tells it to treat colons as file-name
-  // characters rather than remote-host separators — required on Windows
-  // where bsdtar/gnutar will otherwise see "C:\path" as host=C path=\path.
-  run(
-    "tar",
-    ["--force-local", "-czf", tarballPath, "."],
-    stagingRunner
-  );
+  const tarBin = findGnuTar();
+  console.log(`  using tar: ${tarBin}`);
+  // tar writes an uncompressed .tar next to the staging dir (a relative path
+  // from cwd=stagingRunner, so no absolute drive-letter colon and it isn't
+  // archiving itself); createTarGz then gzips it in-process straight to the
+  // final repo-root .tar.gz path.
+  const relativeTar = join("..", `${tarballName.replace(/\.gz$/, "")}`);
+  createTarGz(tarBin, stagingRunner, relativeTar, tarballPath);
 
   const stats = statSync(tarballPath);
   const sizeMb = (stats.size / 1024 / 1024).toFixed(1);
