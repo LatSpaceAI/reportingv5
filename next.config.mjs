@@ -19,6 +19,18 @@ const nextConfig = {
     // the /api/ingest route at module load (HTTP 500 with an HTML error page).
     // Leave these as runtime requires instead of bundling them.
     serverComponentsExternalPackages: ["pdf-parse", "pdfjs-dist"],
+    // Externalizing the packages stops webpack bundling them, but with
+    // `output: "standalone"` the package files must still be TRACED into the
+    // lambda or the runtime `require` resolves to nothing and the function
+    // crashes at module load (FUNCTION_INVOCATION_FAILED, ~immediate, no
+    // outgoing requests, /500 HTML page). Force-include both packages so their
+    // files ship in the /api/ingest lambda.
+    outputFileTracingIncludes: {
+      "/api/ingest": [
+        "./node_modules/pdf-parse/**/*",
+        "./node_modules/pdfjs-dist/**/*",
+      ],
+    },
   },
 };
 export default nextConfig;

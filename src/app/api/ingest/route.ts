@@ -20,7 +20,6 @@
 import { NextRequest } from "next/server";
 import { createRequire } from "node:module";
 import { put, del } from "@vercel/blob";
-import { PDFParse } from "pdf-parse";
 
 import { chunkPdfPages, type PdfPage } from "@/lib/rag/chunk";
 import { buildBm25Index, embedDocuments, type VoyageEmbedder } from "@/lib/rag/core";
@@ -103,6 +102,12 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
 
     // 1. Parse PDF → pages.
+    // Import pdf-parse lazily INSIDE the try/catch: it (via pdfjs-dist) can
+    // fail at module load in the serverless bundle, and a top-level import
+    // would crash the whole function before our error handling runs (a bare
+    // /500 HTML page with no JSON body). Lazy-loading turns any such failure
+    // into a proper JSON error the client can show.
+    const { PDFParse } = await import("pdf-parse");
     const parser = new PDFParse({ data: new Uint8Array(buf) });
     const result = await parser.getText({ pageJoiner: "" });
     await parser.destroy();
