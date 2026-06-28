@@ -14,6 +14,11 @@ const nextConfig = {
     outputFileTracingExcludes: {
       "*": ["./agent-runner/**/*"],
     },
+    // pdf-parse pulls in pdfjs-dist, which does dynamic require()s of Node
+    // built-ins and optional native deps that webpack can't bundle — it crashes
+    // the /api/ingest route at module load (HTTP 500 with an HTML error page).
+    // Leave these as runtime requires instead of bundling them.
+    serverComponentsExternalPackages: ["pdf-parse", "pdfjs-dist"],
   },
 };
 export default nextConfig;
