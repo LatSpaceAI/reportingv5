@@ -547,7 +547,7 @@ export async function buildDocx(doc: QualitativeDoc): Promise<Blob> {
   }
 
   const document = new Document({
-    creator: "CBAM Reporting",
+    creator: "LatSpace Reporting",
     title: doc.title,
     styles: {
       default: {

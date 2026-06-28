@@ -20,7 +20,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, mkdtempSync, readFileSync, rmSync, existsSync, statSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -91,12 +91,13 @@ try {
   });
 
   // Step 2: install runner deps against staging copy. The --os/--cpu/--libc
-  // flags (npm 9+) force the optional-deps resolver to pick linux-x64 even
-  // when running on a non-Linux host — that's the only way to get the right
-  // native Claude Agent SDK binary into the tarball from a Mac/Windows dev.
-  // CI on ubuntu-latest doesn't strictly need these flags, but they're
-  // harmless there too.
-  console.log("Installing runner deps (forcing linux-x64 optional binaries)...");
+  // flags (npm 9+) force the optional-deps resolver to pick the linux-x64
+  // variant of any native dependency even when building from a non-Linux host,
+  // so the tarball works inside Vercel Sandbox (Linux x64). CI on
+  // ubuntu-latest doesn't strictly need these flags, but they're harmless.
+  // (The runner no longer ships the Claude Agent SDK native binary — all agent
+  // modes run on the OpenAI Agents SDK, which is pure JS.)
+  console.log("Installing runner deps (targeting linux-x64)...");
   run(
     "npm",
     [
@@ -112,21 +113,6 @@ try {
     ],
     stagingRunner
   );
-
-  // Sanity: confirm the linux-x64 binary actually got installed.
-  const linuxBinary = join(
-    stagingRunner,
-    "node_modules",
-    "@anthropic-ai",
-    "claude-agent-sdk-linux-x64",
-    "claude"
-  );
-  if (!existsSync(linuxBinary)) {
-    throw new Error(
-      `Expected linux-x64 binary at ${linuxBinary} but it's missing — npm did not pick the linux variant. Check npm_config_target_platform and the @anthropic-ai/claude-agent-sdk-linux-x64 optionalDependency.`
-    );
-  }
-  console.log(`Found linux-x64 binary at ${linuxBinary}`);
 
   // Step 3: tar it up. Contents are at the top level (no wrapping dir) so
   // the sandbox extracts them directly into /vercel/sandbox. We invoke tar

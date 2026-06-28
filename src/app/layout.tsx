@@ -3,9 +3,9 @@ import "./globals.css";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 
 export const metadata: Metadata = {
-  title: "LatSpace — CBAM Communication Template",
+  title: "LatSpace — Regulatory Disclosure Platform",
   description:
-    "Interactive interface for the CBAM Communication Template for Installations (v2.1.1).",
+    "Interactive interface for preparing regulatory disclosures and sustainability reports.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { dispatchToSandbox } from "@/lib/dispatcher/sandbox";
 import { resolveRagFramework } from "@/lib/dispatcher/frameworks";
+import { sanitizeUserDocs } from "@/lib/dispatcher/userDocs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +27,7 @@ interface WriteRequest {
   instruction: string;
   outline: OutlineItem[];
   framework?: string;
+  userDocs?: unknown;
 }
 
 export async function POST(req: NextRequest) {
@@ -50,6 +52,7 @@ export async function POST(req: NextRequest) {
       instruction: body.instruction,
       outline: body.outline,
       framework,
+      userDocs: sanitizeUserDocs(body.userDocs),
     },
   });
 }

@@ -1,20 +1,40 @@
-// Chat mode handler. Mirrors the body of the previous Next route at
-// src/app/api/chat/route.ts (pre-dispatcher refactor) one-for-one — same
-// agent options, same MCP server, same event types — except instead of
-// pushing to a ReadableStream we call emit() which writes one NDJSON line
-// per event to stdout.
+// Chat mode handler (OpenAI Agents SDK).
+//
+// Ported from the original Claude Agent SDK implementation. The event contract
+// to the client is unchanged — `retrieved`, `text`, `activity`, `done`,
+// `error` — so AssistantPane needs no changes. Tools (search_guidance,
+// search_user_docs, web search) are the OpenAI-SDK equivalents of the former
+// in-process MCP tools.
 
-import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { MessageParam } from "@anthropic-ai/sdk/resources";
+import { Agent, run, webSearchTool, user, assistant, type AgentInputItem } from "@openai/agents";
 import { getSystemPrompt } from "../lib/guidance.ts";
 import {
-  createAgentMcpServer,
-  toolSearchGuidance,
+  makeSearchGuidanceTool,
+  makeSearchUserDocsTool,
   type RetrievedSource,
-} from "../lib/agent/tools.ts";
+} from "../lib/agent/openaiTools.ts";
 import { resolveRagFramework } from "../lib/agent/frameworkMap.ts";
 import { describeToolUse } from "../lib/agent/activity.ts";
 import type { ChatJob, ChatContext, ChatMessage, EmitFn } from "./types.ts";
+
+const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-5";
+
+// Aggregate token usage across all model requests in the run, into the same
+// loose shape the client's `done` handler already tolerates.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function sumUsage(rawResponses: any[] | undefined) {
+  let input = 0;
+  let output = 0;
+  let total = 0;
+  for (const r of rawResponses ?? []) {
+    const u = r?.usage;
+    if (!u) continue;
+    input += u.inputTokens ?? 0;
+    output += u.outputTokens ?? 0;
+    total += u.totalTokens ?? 0;
+  }
+  return { input_tokens: input, output_tokens: output, total_tokens: total };
+}
 
 function formatContext(ctx: ChatContext): string {
   if (ctx.kind === "question") {
@@ -53,39 +73,28 @@ function formatContext(ctx: ChatContext): string {
   ].join("\n");
 }
 
-// The streaming-input prompt only accepts user messages. To preserve prior
-// assistant context across our stateless invocation, we fold each assistant
-// turn into the *next* user turn as a bracketed note. This wastes some
-// tokens vs. resuming a session, but keeps the runner stateless. The optional
-// `context` argument is injected into the *final* user message only — older
-// turns get no context, since stale context would confuse the model.
-async function* historyAsPrompt(
+// Build the conversation as proper input items. The optional `context` is
+// injected into the LAST user message only (older turns get no context, since
+// stale context would confuse the model) — same policy as the original.
+function buildInput(
   messages: ChatMessage[],
   context: ChatContext | null | undefined
-): AsyncIterable<SDKUserMessage> {
-  let pendingAssistant: string | null = null;
+): AgentInputItem[] {
   const lastUserIdx = messages.map((m) => m.role).lastIndexOf("user");
+  const items: AgentInputItem[] = [];
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
     if (m.role === "assistant") {
-      pendingAssistant = m.content;
+      items.push(assistant(m.content));
       continue;
     }
-    const parts: string[] = [];
     if (i === lastUserIdx && context) {
-      parts.push(`<context>\n${formatContext(context)}\n</context>`);
+      items.push(user(`<context>\n${formatContext(context)}\n</context>\n\n${m.content}`));
+    } else {
+      items.push(user(m.content));
     }
-    if (pendingAssistant) {
-      parts.push(`[Earlier in this conversation, you replied: ${pendingAssistant}]`);
-    }
-    parts.push(m.content);
-    pendingAssistant = null;
-    yield {
-      type: "user",
-      message: { role: "user", content: parts.join("\n\n") } as MessageParam,
-      parent_tool_use_id: null,
-    };
   }
+  return items;
 }
 
 export async function handleChat(job: ChatJob, emit: EmitFn): Promise<void> {
@@ -93,17 +102,20 @@ export async function handleChat(job: ChatJob, emit: EmitFn): Promise<void> {
     emit("error", { message: "messages is required" });
     return;
   }
-  const lastUser = [...job.messages].reverse().find((m) => m.role === "user");
-  if (!lastUser) {
+  if (!job.messages.some((m) => m.role === "user")) {
     emit("error", { message: "No user message" });
+    return;
+  }
+  if (!process.env.OPENAI_API_KEY) {
+    emit("error", { message: "OPENAI_API_KEY is not set in the sandbox env." });
     return;
   }
 
   const framework = resolveRagFramework(job.framework);
+  const userDocs = job.userDocs ?? [];
   const abortController = new AbortController();
 
-  // Source dedupe across multiple search_guidance calls in one turn.
-  // Section+pages identifies a chunk well enough for UI purposes.
+  // Dedupe sources across multiple search calls in one turn.
   const seenSources = new Set<string>();
   const onSearchHit = (sources: RetrievedSource[]) => {
     const fresh = sources.filter((s) => {
@@ -115,82 +127,68 @@ export async function handleChat(job: ChatJob, emit: EmitFn): Promise<void> {
     if (fresh.length) emit("retrieved", fresh);
   };
 
-  const mcpServer = createAgentMcpServer(framework, { onSearchHit });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tools: any[] = [
+    makeSearchGuidanceTool(framework, { onSearchHit }),
+    webSearchTool(),
+  ];
+  if (userDocs.length) {
+    tools.push(makeSearchUserDocsTool(framework, userDocs, { onSearchHit }));
+  }
 
-  const q = query({
-    prompt: historyAsPrompt(job.messages, job.context ?? null),
-    options: {
-      model: "claude-opus-4-7",
-      systemPrompt: getSystemPrompt(framework, "chat"),
-      mcpServers: { [framework]: mcpServer },
-      allowedTools: [toolSearchGuidance(framework), "WebSearch", "WebFetch"],
-      tools: ["WebSearch", "WebFetch"],
-      settingSources: [],
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
-      persistSession: false,
-      includePartialMessages: false,
-      // 16 turns. Compound regulatory questions sometimes need a long
-      // chain — search guidance, refine query, cross-reference an
-      // external standard via WebSearch, fetch a specific page, then
-      // synthesize. Pro's 800 s function ceiling gives us plenty of
-      // wall time for this; the bigger risk at high turn counts is
-      // tokens, not seconds. Drop to 4 on Hobby — see DEPLOY.md plan
-      // tuning.
-      maxTurns: 16,
-      abortController,
-      env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: `${framework}-app/1.0` },
-    },
+  const agent = new Agent({
+    name: `${framework}-chat`,
+    instructions: getSystemPrompt(framework, "chat"),
+    model: CHAT_MODEL,
+    tools,
   });
 
-  const seenBlockText = new Map<string, number>();
-  const seenToolUseIds = new Set<string>();
-  const toolErrorMessages: string[] = [];
+  const seenToolCalls = new Set<string>();
 
   try {
-    for await (const msg of q) {
-      if (msg.type === "assistant") {
-        const blocks = msg.message.content ?? [];
-        const acc: string[] = [];
-        for (const b of blocks) {
-          if (b.type === "text") {
-            acc.push(b.text);
-          } else if (b.type === "tool_use") {
-            if (!seenToolUseIds.has(b.id)) {
-              seenToolUseIds.add(b.id);
-              emit("activity", describeToolUse(b.name, b.input, framework));
+    const stream = await run(agent, buildInput(job.messages, job.context ?? null), {
+      stream: true,
+      maxTurns: 16,
+      signal: abortController.signal,
+    });
+
+    for await (const ev of stream) {
+      if (ev.type === "raw_model_stream_event") {
+        // Forward incremental assistant text to the client.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = ev.data as any;
+        if (data?.type === "output_text_delta" && typeof data.delta === "string") {
+          if (data.delta) emit("text", { text: data.delta });
+        }
+      } else if (ev.type === "run_item_stream_event" && ev.name === "tool_called") {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const raw = (ev.item as any)?.rawItem;
+        const name: string | undefined = raw?.name;
+        const callId: string = raw?.callId ?? raw?.id ?? `${name}-${seenToolCalls.size}`;
+        if (name && !seenToolCalls.has(callId)) {
+          seenToolCalls.add(callId);
+          let input: unknown = raw?.arguments;
+          if (typeof input === "string") {
+            try {
+              input = JSON.parse(input);
+            } catch {
+              /* leave as string */
             }
           }
-        }
-        const fullText = acc.join("");
-        const prev = seenBlockText.get(msg.uuid) ?? 0;
-        if (fullText.length > prev) {
-          const delta = fullText.slice(prev);
-          seenBlockText.set(msg.uuid, fullText.length);
-          if (delta) emit("text", { text: delta });
-        }
-      } else if (msg.type === "user" && msg.tool_use_result !== undefined) {
-        const r = msg.tool_use_result as
-          | { isError?: boolean; content?: Array<{ text?: string }> }
-          | undefined;
-        if (r?.isError) {
-          const t = r.content?.[0]?.text ?? "tool error";
-          toolErrorMessages.push(t);
-        }
-      } else if (msg.type === "result") {
-        if (msg.subtype === "success") {
-          emit("done", {
-            stop_reason: msg.stop_reason,
-            usage: msg.usage,
-            cost_usd: msg.total_cost_usd,
-          });
-        } else {
-          const errs = [...(msg.errors ?? []), ...toolErrorMessages];
-          const message = errs.join(" | ") || msg.subtype;
-          emit("error", { message });
+          emit("activity", describeToolUse(name, input, framework));
         }
       }
     }
+
+    await stream.completed;
+    if (stream.error) {
+      const e = stream.error;
+      emit("error", { message: e instanceof Error ? e.message : String(e) });
+      return;
+    }
+    emit("done", { usage: sumUsage(stream.rawResponses) });
+  } catch (err) {
+    emit("error", { message: err instanceof Error ? err.message : String(err) });
   } finally {
     abortController.abort();
   }

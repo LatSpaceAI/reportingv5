@@ -4,12 +4,12 @@
 // machinery for no real benefit. If the rules diverge the duplication will
 // be obvious; today they don't.
 
-export type Framework = "cbam" | "cdp" | "brsr";
+export type Framework = "cdp" | "brsr";
 
 export function resolveRagFramework(frameworkId: string | undefined | null): Framework {
-  if (!frameworkId) return "cbam";
+  if (!frameworkId) return "cdp";
   const id = frameworkId.toLowerCase();
-  if (id === "cdp") return "cdp";
   if (id === "brsr") return "brsr";
-  return "cbam";
+  // cdp and any other id default to the CDP index.
+  return "cdp";
 }

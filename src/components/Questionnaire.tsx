@@ -5,7 +5,9 @@ import type { ComputeContext, FieldsQuestion, Question, Section } from "@/lib/fr
 import { FieldHelp, FieldLabel, FieldRenderer, isFilled, isValid, type RowValues } from "@/components/Fields";
 import { TableField } from "@/components/TableField";
 import { AssistantPane } from "@/components/qualitative/AssistantPane";
+import { FillWithAI } from "@/components/FillWithAI";
 import { initials, mockUsers, readAssignees, writeAssignees, type Assignees } from "@/lib/storage";
+import { quantitativeCells } from "@/lib/quantitativeCells";
 
 type Status = "not-started" | "in-progress" | "completed";
 
@@ -29,13 +31,13 @@ const statusDot: Record<Status, string> = {
   completed: "bg-emerald-500",
 };
 
-const PANES_KEY = "cbam-app/panes/v1";
+const PANES_KEY = "reporting-app/panes/v1";
 
 export interface QuestionnaireConfig {
   sections: Section[];
   storageKey: string;
   frameworkId: string; // used to scope assignee storage so it syncs with /table
-  frameworkName: string; // shown in the header, e.g. "CBAM Communication Template — Installations"
+  frameworkName: string; // shown in the header, e.g. "CDP Climate Change Questionnaire"
   version?: string; // optional version label shown in header
   onExport?: () => Promise<void> | void; // called by the header Export button; if absent, button is hidden
 }
@@ -90,6 +92,28 @@ function canComplete(q: Question, s: QuestionState): boolean {
     return q.fields.every((f) => isValid(f, s.values[f.id]));
   }
   return s.rows.every((r) => q.columns.every((c) => isValid(c, r[c.id])));
+}
+
+// True when a single quantitative cell has a value. `rowIndex` is set for
+// fixed-shape table cells (check that exact row); for FieldsQuestion cells and
+// open-ended table metrics (no rowIndex) we check the field value / any row.
+function isCellFilled(
+  q: Question | undefined,
+  s: QuestionState | undefined,
+  fieldId: string,
+  rowIndex?: number
+): boolean {
+  if (!q || !s) return false;
+  if (q.kind === "fields") {
+    const f = q.fields.find((x) => x.id === fieldId);
+    return f ? isFilled(f, s.values[fieldId]) : false;
+  }
+  const col = q.columns.find((x) => x.id === fieldId);
+  if (!col) return false;
+  if (rowIndex != null) {
+    return isFilled(col, s.rows[rowIndex]?.[fieldId]);
+  }
+  return s.rows.some((r) => isFilled(col, r[fieldId]));
 }
 
 export function Questionnaire({
@@ -151,7 +175,7 @@ export function Questionnaire({
   // Build a ComputeContext that the renderers use to resolve formula-driven
   // field values. `get(qId, fId)` walks into the question's `values` map; if
   // the target question is a table, the same id resolves the first row's
-  // value (sufficient for RCO's row-1 summary fields).
+  // value (sufficient for row-1 summary fields).
   const computeCtx: ComputeContext = useMemo(
     () => ({
       get: (qId: string, fId: string) => {
@@ -386,6 +410,7 @@ export function Questionnaire({
           section={active.section}
           question={active.q}
           state={answers[active.q.id]}
+          frameworkId={frameworkId}
           onValues={(values) => patch(active.q.id, { values })}
           onRows={(rows) => patch(active.q.id, { rows })}
           onComment={(comment) => patch(active.q.id, { comment })}
@@ -465,46 +490,55 @@ function RequirementsView({
   onOpen: (id: string) => void;
 }) {
   const [search, setSearch] = useState("");
+  // "all" | "filled" | "empty" — filter rows by whether the cell has a value.
+  const [fillFilter, setFillFilter] = useState<"all" | "filled" | "empty">("all");
+
+  const questionById = useMemo(() => {
+    const m = new Map<string, Question>();
+    for (const s of sections) for (const q of s.questions) m.set(q.id, q);
+    return m;
+  }, [sections]);
+
+  // One row per *quantitative cell* (numeric value the report asks for), not per
+  // question — derived live from the schema. `filled` is computed per cell from
+  // the answer state; status / assignment / updated-at are inherited from the
+  // parent question, and clicking a row opens that question.
   const rows = useMemo(() => {
-    const out: Array<{
-      id: string;
-      label: string;
-      description?: string;
-      sectionTitle: string;
-      kind: "fields" | "table";
-      status: Status;
-      updatedAt?: string;
-      assignedIds: string[];
-    }> = [];
-    for (const s of sections) {
-      for (const q of s.questions) {
-        const a = answers[q.id];
-        out.push({
-          id: q.id,
-          label: q.label,
-          description: q.description,
-          sectionTitle: s.title,
-          kind: q.kind,
-          status: a?.status ?? "not-started",
-          updatedAt: a?.updatedAt,
-          assignedIds: assignees[q.id] ?? [],
-        });
-      }
-    }
-    return out;
-  }, [sections, answers, assignees]);
+    return quantitativeCells(sections).map((c) => {
+      const a = answers[c.questionId];
+      const q = questionById.get(c.questionId);
+      const filled = isCellFilled(q, a, c.fieldId, c.rowIndex);
+      return {
+        id: c.id,
+        questionId: c.questionId,
+        label: c.name,
+        description: c.unit ? `${c.questionLabel} · ${c.unit}` : c.questionLabel,
+        sectionTitle: c.sectionTitle,
+        kind: "number" as const,
+        filled,
+        status: a?.status ?? ("not-started" as Status),
+        updatedAt: a?.updatedAt,
+        assignedIds: assignees[c.questionId] ?? [],
+      };
+    });
+  }, [sections, answers, assignees, questionById]);
+
+  const filledCount = useMemo(() => rows.filter((r) => r.filled).length, [rows]);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter(
-      (r) =>
+    return rows.filter((r) => {
+      if (fillFilter === "filled" && !r.filled) return false;
+      if (fillFilter === "empty" && r.filled) return false;
+      if (!needle) return true;
+      return (
         r.id.toLowerCase().includes(needle) ||
         r.label.toLowerCase().includes(needle) ||
         (r.description ?? "").toLowerCase().includes(needle) ||
         r.sectionTitle.toLowerCase().includes(needle)
-    );
-  }, [rows, search]);
+      );
+    });
+  }, [rows, search, fillFilter]);
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-white">
@@ -527,9 +561,30 @@ function RequirementsView({
             <path d="m21 21-4.3-4.3" strokeLinecap="round" />
           </svg>
         </div>
-        <span className="text-xs text-slate-500">
-          {filtered.length} of {rows.length}
-        </span>
+        <div className="flex items-center gap-3">
+          <div className="inline-flex overflow-hidden rounded-md border border-slate-200 text-xs">
+            {([
+              ["all", `All (${rows.length})`],
+              ["filled", `Filled (${filledCount})`],
+              ["empty", `Empty (${rows.length - filledCount})`],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setFillFilter(key)}
+                className={`px-2.5 py-1 font-medium ${
+                  fillFilter === key
+                    ? "bg-brand text-white"
+                    : "bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <span className="text-xs text-slate-500">
+            {filtered.length} shown
+          </span>
+        </div>
       </div>
       <div className="flex-1 overflow-auto">
         <table className="w-full table-fixed text-sm">
@@ -538,7 +593,7 @@ function RequirementsView({
               <th className="w-32 px-4 py-2 text-left font-medium">ID</th>
               <th className="px-4 py-2 text-left font-medium">Name</th>
               <th className="w-56 px-4 py-2 text-left font-medium">Section</th>
-              <th className="w-20 px-4 py-2 text-left font-medium">Type</th>
+              <th className="w-24 px-4 py-2 text-left font-medium">Value</th>
               <th className="w-32 px-4 py-2 text-left font-medium">Status</th>
               <th className="w-44 px-4 py-2 text-left font-medium">Assigned</th>
               <th className="w-44 px-4 py-2 text-left font-medium">Last updated</th>
@@ -548,7 +603,7 @@ function RequirementsView({
             {filtered.map((r) => (
               <tr
                 key={r.id}
-                onClick={() => onOpen(r.id)}
+                onClick={() => onOpen(r.questionId)}
                 className="cursor-pointer border-b border-slate-100 hover:bg-slate-50/60"
               >
                 <td className="truncate px-4 py-3 font-mono text-[12px] text-slate-700">{r.id}</td>
@@ -561,7 +616,19 @@ function RequirementsView({
                 <td className="truncate px-4 py-3 text-slate-600" title={r.sectionTitle}>
                   {r.sectionTitle}
                 </td>
-                <td className="px-4 py-3 text-slate-600 capitalize">{r.kind}</td>
+                <td className="px-4 py-3">
+                  {r.filled ? (
+                    <span className="inline-flex items-center gap-1.5 text-emerald-700">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                      Filled
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-slate-400">
+                      <span className="h-2 w-2 rounded-full bg-slate-300" />
+                      Empty
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   <span className="inline-flex items-center gap-1.5 text-slate-700">
                     <span className={`h-2 w-2 rounded-full ${statusDot[r.status]}`} />
@@ -900,6 +967,7 @@ function QuestionPanel({
   section,
   question,
   state,
+  frameworkId,
   onValues,
   onRows,
   onComment,
@@ -912,6 +980,7 @@ function QuestionPanel({
   section: Section;
   question: Question;
   state: QuestionState;
+  frameworkId: string;
   onValues: (values: RowValues) => void;
   onRows: (rows: RowValues[]) => void;
   onComment: (comment: string) => void;
@@ -959,6 +1028,14 @@ function QuestionPanel({
         )}
 
         <div className="mt-6">
+          <FillWithAI
+            frameworkId={frameworkId}
+            question={question}
+            values={state.values}
+            rows={state.rows}
+            onValues={onValues}
+            onRows={onRows}
+          />
           {question.kind === "fields" ? (
             <FieldsForm q={question} values={state.values} onChange={onValues} computeCtx={computeCtx} />
           ) : (

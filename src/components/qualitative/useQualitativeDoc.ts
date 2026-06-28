@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { buildMmdSeed } from "@/lib/qualitative/mmdSeed";
 import { readDoc, writeDoc } from "@/lib/qualitative/storage";
 import type { QualitativeDoc } from "@/lib/qualitative/types";
 
@@ -20,23 +19,19 @@ export function useQualitativeDoc(frameworkId: string) {
       setDocState({ ...existing, proposals: existing.proposals ?? [] });
       return;
     }
-    // Seed first-load. For frameworks other than cbam-mmd we still produce a
-    // skeleton so the editor can mount, but with empty requirements/metrics.
-    const seeded =
-      frameworkId === "cbam-mmd"
-        ? buildMmdSeed(frameworkId)
-        : ({
-            frameworkId,
-            title: "Untitled report",
-            blocks: [
-              { id: "b_root_h", kind: "heading", level: 1, text: "Untitled report" },
-            ],
-            requirements: [],
-            metrics: [],
-            comments: [],
-            proposals: [],
-            updatedAt: new Date().toISOString(),
-          } satisfies QualitativeDoc);
+    // Seed first-load with an empty skeleton so the editor can mount.
+    const seeded = {
+      frameworkId,
+      title: "Untitled report",
+      blocks: [
+        { id: "b_root_h", kind: "heading", level: 1, text: "Untitled report" },
+      ],
+      requirements: [],
+      metrics: [],
+      comments: [],
+      proposals: [],
+      updatedAt: new Date().toISOString(),
+    } satisfies QualitativeDoc;
     setDocState(seeded);
     writeDoc(seeded);
   }, [frameworkId]);

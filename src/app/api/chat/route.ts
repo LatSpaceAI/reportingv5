@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { dispatchToSandbox } from "@/lib/dispatcher/sandbox";
 import { resolveRagFramework } from "@/lib/dispatcher/frameworks";
+import { sanitizeUserDocs, type UserDocRef } from "@/lib/dispatcher/userDocs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +21,7 @@ interface ChatRequest {
   messages: ChatMessage[];
   framework?: string;
   context?: unknown;
+  userDocs?: UserDocRef[];
 }
 
 export async function POST(req: NextRequest) {
@@ -47,6 +49,7 @@ export async function POST(req: NextRequest) {
       messages: body.messages,
       framework,
       context: body.context ?? null,
+      userDocs: sanitizeUserDocs(body.userDocs),
     },
   });
 }

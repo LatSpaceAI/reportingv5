@@ -207,7 +207,7 @@ export function DocumentEditor({
       // Starter flow that works without edits — encourages the user to tweak.
       source: `flowchart TD
   A[Raw materials] --> B[Production process]
-  B --> C[CBAM goods]
+  B --> C[Finished goods]
   B --> D[Direct emissions]`,
       caption: "",
     });

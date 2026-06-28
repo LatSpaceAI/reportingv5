@@ -1,14 +1,14 @@
-/* CBAM offline service worker.
+/* Offline service worker.
  * Strategy:
- *   - Precache the template and core static assets on install.
+ *   - Precache core static assets on install.
  *   - For navigations: network-first, fall back to cache (so users can load
  *     the app offline after first visit).
  *   - For other GETs: stale-while-revalidate — fast paint from cache, update
  *     in the background.
  */
 
-const CACHE = "cbam-v2";
-const PRECACHE = ["/", "/cbam-template.xlsx", "/latspace-logo.svg"];
+const CACHE = "reporting-v1";
+const PRECACHE = ["/", "/latspace-logo.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
