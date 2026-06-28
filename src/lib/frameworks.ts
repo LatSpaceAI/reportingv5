@@ -1,15 +1,9 @@
-import { sections as cbamSections } from "./cbamSections";
-import { sections as rcoSections } from "./rcoSections";
-import { sections as cctsSections } from "./cctsSections";
 import { sections as brsrSections } from "./brsrSections";
 import { sections as cdpSections } from "./cdpSections";
 import type { Section } from "./frameworkTypes";
 import {
   BRSR_ANSWERS_KEY,
-  CBAM_ANSWERS_KEY,
-  CCTS_ANSWERS_KEY,
   CDP_ANSWERS_KEY,
-  RCO_ANSWERS_KEY,
   readAnswers,
   type Answers,
 } from "./storage";
@@ -26,8 +20,8 @@ export interface FrameworkSummary {
   cadence: string;
   category: FrameworkCategory;
   status: FrameworkStatus;
-  // "questionnaire" — structured Q&A template (CBAM CT, RCO, CCTS PPC).
-  // "qualitative" — narrative document with embedded requirements (CBAM MMD).
+  // "questionnaire" — structured Q&A template (e.g. CDP, BRSR).
+  // "qualitative" — narrative document with embedded requirements.
   variant?: FrameworkVariant;
   storageKey?: string;
   sections?: Section[];
@@ -55,121 +49,6 @@ export interface FrameworkGroup {
 export type FrameworkEntry = (FrameworkSummary & { kind?: "single" }) | FrameworkGroup;
 
 export const frameworkEntries: FrameworkEntry[] = [
-  {
-    kind: "group",
-    id: "cbam",
-    name: "Carbon Border Adjustment Mechanism",
-    shortName: "CBAM",
-    description:
-      "EU regulation requiring importers to report — and from 2026, pay for — embedded emissions in carbon-intensive imports.",
-    cadence: "Quarterly",
-    category: "Regulatory",
-    logoInitials: "EU",
-    logoColor: "bg-blue-100 text-blue-700",
-    logoSrc: "/EU-logo.png",
-    children: [
-      {
-        id: "cbam",
-        name: "CBAM Communication Template",
-        shortName: "Communication Template",
-        description:
-          "EU communication template for installations — per-product embedded emissions reported by operators outside the EU.",
-        cadence: "Quarterly",
-        category: "Regulatory",
-        status: "active",
-        storageKey: CBAM_ANSWERS_KEY,
-        sections: cbamSections,
-        logoInitials: "EU",
-        logoColor: "bg-blue-100 text-blue-700",
-        logoSrc: "/EU-logo.png",
-      },
-      {
-        id: "cbam-mmd",
-        name: "Monitoring Methodology Document",
-        shortName: "MMD (Monitoring Methodology Document)",
-        description:
-          "Installation-level methodology describing system boundaries, data sources, and calculation approach used to determine embedded emissions.",
-        cadence: "Annual",
-        category: "Regulatory",
-        status: "active",
-        variant: "qualitative",
-        logoInitials: "EU",
-        logoColor: "bg-blue-100 text-blue-700",
-        logoSrc: "/EU-logo.png",
-      },
-    ],
-  },
-  {
-    id: "rco",
-    name: "Renewable Consumption Obligation",
-    shortName: "RCO — DCs with CPP & Open Access",
-    description:
-      "MoP RCO compliance return for Designated Consumers operating Captive Power Plants and consuming Open-Access power.",
-    cadence: "Quarterly",
-    category: "Regulatory",
-    status: "active",
-    storageKey: RCO_ANSWERS_KEY,
-    sections: rcoSections,
-    logoInitials: "RCO",
-    logoColor: "bg-emerald-100 text-emerald-700",
-    logoSrc: "/bee-logo.jpg",
-  },
-  {
-    kind: "group",
-    id: "ccts",
-    name: "Carbon Credit Trading Scheme",
-    shortName: "CCTS",
-    description:
-      "India's domestic carbon market — sector-wise compliance and offset mechanism administered by BEE under the Energy Conservation Act.",
-    cadence: "Annual",
-    category: "Regulatory",
-    logoInitials: "CC",
-    logoColor: "bg-amber-100 text-amber-700",
-    logoSrc: "/bee-logo.jpg",
-    children: [
-      {
-        id: "ccts",
-        name: "Carbon Credit Trading Scheme — Cement Pro-Forma",
-        shortName: "Pro-Forma (Cement Sector)",
-        description:
-          "BEE Cement-Sector pro-forma capturing production and energy consumption for CCTS baseline / target-year reporting (Form-Sb).",
-        cadence: "Annual",
-        category: "Regulatory",
-        status: "active",
-        storageKey: CCTS_ANSWERS_KEY,
-        sections: cctsSections,
-        logoInitials: "CC",
-        logoColor: "bg-amber-100 text-amber-700",
-        logoSrc: "/bee-logo.jpg",
-      },
-      {
-        id: "ccts-monitoring-plan",
-        name: "CCTS Monitoring Plan",
-        shortName: "Monitoring Plan",
-        description:
-          "Entity-level monitoring plan defining data flows, measurement equipment, and QA/QC procedures used to support CCTS compliance reports.",
-        cadence: "Annual",
-        category: "Regulatory",
-        status: "coming-soon",
-        logoInitials: "CC",
-        logoColor: "bg-amber-100 text-amber-700",
-        logoSrc: "/bee-logo.jpg",
-      },
-      {
-        id: "ccts-ghg-reduction-action-plans",
-        name: "CCTS GHG Reduction Action Plans",
-        shortName: "GHG Reduction Action Plans",
-        description:
-          "Forward-looking abatement plans listing identified GHG reduction levers, expected savings, capex, and implementation timelines.",
-        cadence: "Annual",
-        category: "Regulatory",
-        status: "coming-soon",
-        logoInitials: "CC",
-        logoColor: "bg-amber-100 text-amber-700",
-        logoSrc: "/bee-logo.jpg",
-      },
-    ],
-  },
   {
     id: "brsr",
     name: "Business Responsibility & Sustainability Report",

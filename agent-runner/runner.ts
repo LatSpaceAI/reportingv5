@@ -17,7 +17,8 @@
 
 import { handleChat } from "./modes/chat.ts";
 import { handleWrite } from "./modes/write.ts";
-import type { EmitFn, ChatJob, WriteJob } from "./modes/types.ts";
+import { handleFill } from "./modes/fill.ts";
+import type { EmitFn, ChatJob, WriteJob, FillJob } from "./modes/types.ts";
 
 const emit: EmitFn = (event, data) => {
   process.stdout.write(JSON.stringify({ event, data }) + "\n");
@@ -48,6 +49,8 @@ async function main(): Promise<void> {
     await handleChat(job as ChatJob, emit);
   } else if (mode === "write") {
     await handleWrite(job as WriteJob, emit);
+  } else if (mode === "fill") {
+    await handleFill(job as FillJob, emit);
   } else {
     fail(`Unknown job mode: ${String(mode)}`);
   }

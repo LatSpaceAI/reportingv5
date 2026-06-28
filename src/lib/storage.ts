@@ -1,9 +1,9 @@
-export const CBAM_ANSWERS_KEY = "cbam-app/v1";
-export const CBAM_ASSIGNEES_KEY = "cbam-app/assignees/v1";
-export const RCO_ANSWERS_KEY = "rco-app/v1";
-export const CCTS_ANSWERS_KEY = "ccts-app/v1";
 export const BRSR_ANSWERS_KEY = "brsr-app/v1";
 export const CDP_ANSWERS_KEY = "cdp-app/v1";
+
+// Framework-agnostic prefix for per-question assignee data, namespaced by
+// framework id at write time (see readAssignees / writeAssignees).
+export const ASSIGNEES_KEY = "reporting-app/assignees/v1";
 
 export type Status = "not-started" | "in-progress" | "completed";
 
@@ -31,7 +31,7 @@ export type Assignees = Record<string, string[]>;
 export function readAssignees(frameworkId: string): Assignees {
   if (typeof window === "undefined") return {};
   try {
-    const raw = localStorage.getItem(`${CBAM_ASSIGNEES_KEY}/${frameworkId}`);
+    const raw = localStorage.getItem(`${ASSIGNEES_KEY}/${frameworkId}`);
     return raw ? (JSON.parse(raw) as Assignees) : {};
   } catch {
     return {};
@@ -40,7 +40,7 @@ export function readAssignees(frameworkId: string): Assignees {
 
 export function writeAssignees(frameworkId: string, a: Assignees): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(`${CBAM_ASSIGNEES_KEY}/${frameworkId}`, JSON.stringify(a));
+  localStorage.setItem(`${ASSIGNEES_KEY}/${frameworkId}`, JSON.stringify(a));
 }
 
 export const mockUsers = [

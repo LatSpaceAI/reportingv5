@@ -30,34 +30,13 @@ export default function ReportPage({ params }: { params: { id: string } }) {
     frameworkId: fw.id,
     frameworkName: fw.shortName,
     version:
-      fw.id === "cbam"
-        ? "v2.1.1"
-        : fw.id === "rco"
-        ? "30-Sep-2025"
-        : fw.id === "ccts"
-        ? "BEE Cement PPC Pro-Forma"
-        : fw.id === "brsr"
+      fw.id === "brsr"
         ? "SEBI Annexure I"
         : fw.id === "cdp"
         ? "CDP 2026"
         : undefined,
     onExport:
-      fw.id === "cbam"
-        ? async () => {
-            const { exportCbamFilled } = await import("@/lib/cbamExport/export");
-            await exportCbamFilled();
-          }
-        : fw.id === "rco"
-        ? async () => {
-            const { exportRcoFilled } = await import("@/lib/rcoExport/export");
-            await exportRcoFilled();
-          }
-        : fw.id === "ccts"
-        ? async () => {
-            const { exportCctsFilled } = await import("@/lib/cctsExport/export");
-            await exportCctsFilled();
-          }
-        : fw.id === "brsr"
+      fw.id === "brsr"
         ? async () => {
             const { exportBrsrFilled } = await import("@/lib/brsrExport/export");
             await exportBrsrFilled();

@@ -1,0 +1,98 @@
+"use client";
+
+import { useQuery } from "@tanstack/react-query";
+
+import { ChartRenderer } from "@/components/dashboard/ChartRenderer";
+import type { ChartSpec, ChartData } from "@/lib/dashboard/chart-spec";
+
+interface DashboardTileProps {
+  tileId: string;
+  spec: ChartSpec;
+  onRemove: (id: string) => void;
+}
+
+interface TileDataResponse {
+  tile: { id: string; spec: ChartSpec };
+  data: ChartData;
+}
+
+// lucide: grip-vertical
+function GripIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor" stroke="none">
+      <circle cx="9" cy="5" r="1.4" />
+      <circle cx="9" cy="12" r="1.4" />
+      <circle cx="9" cy="19" r="1.4" />
+      <circle cx="15" cy="5" r="1.4" />
+      <circle cx="15" cy="12" r="1.4" />
+      <circle cx="15" cy="19" r="1.4" />
+    </svg>
+  );
+}
+
+// lucide: x
+function XIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  );
+}
+
+export function DashboardTile({ tileId, spec, onRemove }: DashboardTileProps) {
+  const q = useQuery<TileDataResponse>({
+    queryKey: ["dashboard-tile-data", tileId],
+    queryFn: async () => {
+      const res = await fetch(`/api/esg/dashboard/tiles/${tileId}/data`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
+  return (
+    <div className="flex h-full w-full flex-col border border-[#0A0A0A]/10 bg-white">
+      <div className="flex flex-shrink-0 items-start justify-between gap-2 border-b border-[#0A0A0A]/[0.06] px-3 py-2">
+        <div className="flex min-w-0 items-start gap-1.5">
+          <span className="tile-drag-handle mt-0.5 flex-shrink-0 cursor-move text-[#0A0A0A]/25">
+            <GripIcon />
+          </span>
+          <div className="min-w-0">
+            <h4 className="truncate text-[13px] font-medium text-[#0A0A0A]">
+              {spec.title}
+            </h4>
+            <p className="mt-0.5 text-[10px] text-[#0A0A0A]/45">
+              {q.data?.data.period_label ?? spec.period_code} · {spec.granularity}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => onRemove(tileId)}
+          aria-label="Remove tile"
+          className="flex-shrink-0 p-1 text-[#0A0A0A]/40 transition-colors hover:bg-[#0A0A0A]/[0.04] hover:text-[#0A0A0A]"
+        >
+          <XIcon />
+        </button>
+      </div>
+      <div className="flex-1 overflow-hidden p-2">
+        {q.isLoading ? (
+          <div className="flex h-full items-center justify-center text-xs text-[#0A0A0A]/40">
+            Loading…
+          </div>
+        ) : q.error ? (
+          <div className="flex h-full items-center justify-center px-2 text-center text-xs text-red-600/80">
+            {(q.error as Error).message}
+          </div>
+        ) : q.data ? (
+          <ChartRenderer
+            spec={spec}
+            data={q.data.data}
+            height={undefined as unknown as number}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}

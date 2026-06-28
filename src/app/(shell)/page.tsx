@@ -16,7 +16,7 @@ import { useToast } from "@/components/Toast";
 type CategoryFilter = "all" | "Climate" | "Sustainability" | "Regulatory";
 type StatusFilter = "all" | "active" | "coming-soon";
 
-const AUTOFILLED_IDS = new Set(["cbam", "ccts", "rco"]);
+const AUTOFILLED_IDS = new Set<string>([]);
 
 export default function LandingPage() {
   const [search, setSearch] = useState("");
@@ -72,24 +72,17 @@ export default function LandingPage() {
 
   const handleExport = async (f: FrameworkSummary) => {
     try {
-      if (f.id === "cbam") {
+      if (f.id === "brsr") {
         show(`Generating ${f.shortName} export…`);
-        const { exportCbamFilled } = await import("@/lib/cbamExport/export");
-        await exportCbamFilled();
+        const { exportBrsrFilled } = await import("@/lib/brsrExport/export");
+        await exportBrsrFilled();
         show("Export ready — download starting.");
         return;
       }
-      if (f.id === "rco") {
+      if (f.id === "cdp") {
         show(`Generating ${f.shortName} export…`);
-        const { exportRcoFilled } = await import("@/lib/rcoExport/export");
-        await exportRcoFilled();
-        show("Export ready — download starting.");
-        return;
-      }
-      if (f.id === "ccts") {
-        show(`Generating ${f.shortName} export…`);
-        const { exportCctsFilled } = await import("@/lib/cctsExport/export");
-        await exportCctsFilled();
+        const { exportCdpFilled } = await import("@/lib/cdpExport/export");
+        await exportCdpFilled();
         show("Export ready — download starting.");
         return;
       }

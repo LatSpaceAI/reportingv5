@@ -68,28 +68,50 @@ function buildCreateParams(timeout: number, env: Record<string, string>, network
 // properly, we fall back to a plain domain allow-list and pass the API
 // keys directly into the sandbox env (see dispatchToSandbox).
 //
-// The firewall still blocks all egress except these two hosts, so the
-// blast radius if the agent misbehaves is limited to those endpoints —
-// but the keys do live in process.env inside the VM, which means a
-// prompt-injection that gets the model to print env could leak them.
+// The firewall still blocks all egress except the allow-listed hosts
+// (OpenAI, Voyage, the Blob store, and — when configured — Supabase), so the
+// blast radius if the agent misbehaves is limited to those endpoints — but
+// the keys do live in process.env inside the VM, which means a
+// prompt-injection that gets the model to print env could leak them. The
+// Supabase key is the most sensitive (service_role, full read/write on the
+// esg schema); the fill agent's ESG tool only issues read queries, but the
+// raw key is still present in the VM env.
 //
 // To restore the original boundary later: re-add the `transform` shape
-// shown in the commented reference, AND remove ANTHROPIC_API_KEY /
-// VOYAGE_API_KEY from the env object in dispatchToSandbox().
+// shown in the commented reference, AND remove OPENAI_API_KEY /
+// VOYAGE_API_KEY / SUPABASE_SERVICE_ROLE_KEY from the env object in
+// dispatchToSandbox().
 //
 // Reference: the original (broken) shape was
 //   {
 //     allow: {
-//       "api.anthropic.com": [{ transform: [{ headers: { "x-api-key": anthropicKey } }] }],
-//       "api.voyageai.com":  [{ transform: [{ headers: { Authorization: `Bearer ${voyageKey}` } }] }],
+//       "api.openai.com":   [{ transform: [{ headers: { Authorization: `Bearer ${openaiKey}` } }] }],
+//       "api.voyageai.com": [{ transform: [{ headers: { Authorization: `Bearer ${voyageKey}` } }] }],
 //     },
 //   }
+// Extract the bare host (e.g. "abcd.supabase.co") from NEXT_PUBLIC_SUPABASE_URL
+// so we can add it to the firewall allow-list. Returns null if unset/malformed.
+function supabaseHost(): string | null {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!url) return null;
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
+}
+
 function getNetworkPolicy() {
+  const sbHost = supabaseHost();
   return {
     allow: [
-      // Anthropic + Voyage are what the agent actually calls.
-      "api.anthropic.com",
+      // OpenAI (all agent modes — chat/write/fill run on the OpenAI Agents
+      // SDK) + Voyage (RAG embeddings).
+      "api.openai.com",
       "api.voyageai.com",
+      // Supabase REST endpoint for the fill agent's ESG database queries.
+      // Only added when NEXT_PUBLIC_SUPABASE_URL is configured.
+      ...(sbHost ? [sbHost] : []),
       // The sandbox needs to fetch its source tarball from Vercel Blob
       // during boot. The firewall's User-defined mode denies all traffic
       // by default — *including DNS* — so we must explicitly allow the
@@ -124,17 +146,27 @@ export async function dispatchToSandbox(opts: DispatchOptions): Promise<Response
   // is currently rejected by the Sandbox API with HTTP 400. Remove these
   // two env entries (and the key reads) once the firewall transform rules
   // work again.
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const voyageKey = process.env.VOYAGE_API_KEY;
-  if (!anthropicKey) throw new Error("ANTHROPIC_API_KEY is not set");
+  const openaiKey = process.env.OPENAI_API_KEY;
   if (!voyageKey) throw new Error("VOYAGE_API_KEY is not set");
+  if (!openaiKey) throw new Error("OPENAI_API_KEY is not set");
 
-  const env = {
+  // Supabase creds are optional — only the fill mode's ESG tool needs them, and
+  // only when NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are present.
+  // The firewall (getNetworkPolicy) already gates egress to the Supabase host.
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  const env: Record<string, string> = {
     NODE_ENV: "production",
     JOB_JSON: JSON.stringify(opts.job),
-    ANTHROPIC_API_KEY: anthropicKey,
     VOYAGE_API_KEY: voyageKey,
+    OPENAI_API_KEY: openaiKey,
   };
+  if (supabaseUrl && supabaseServiceKey) {
+    env.NEXT_PUBLIC_SUPABASE_URL = supabaseUrl;
+    env.SUPABASE_SERVICE_ROLE_KEY = supabaseServiceKey;
+  }
 
   let sandbox;
   let cmd;

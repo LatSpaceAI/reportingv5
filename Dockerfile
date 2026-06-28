@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile for the CBAM/CDP/BRSR reporting app.
+# Multi-stage Dockerfile for the CDP/BRSR reporting app.
 #
 # DEPRECATED — kept ONLY so the previous commit (db52df1 "fix: drop SSE…")
 # can still build for emergency rollback. The current architecture moves the
@@ -48,10 +48,6 @@ COPY --from=build --chown=nextjs:nextjs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nextjs /app/.next/static ./.next/static
 COPY --from=build --chown=nextjs:nextjs /app/public ./public
 COPY --from=build --chown=nextjs:nextjs /app/data ./data
-
-# The Agent SDK's bundled CLI binary needs +x. npm preserves perms, but
-# being explicit avoids surprises if the layer is rebuilt from a tarball.
-RUN chmod +x ./node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude || true
 
 USER nextjs
 EXPOSE 8080

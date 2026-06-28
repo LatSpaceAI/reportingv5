@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Block, Proposal, QualitativeDoc } from "@/lib/qualitative/types";
+import { readReadyUserDocs } from "@/lib/userDocs";
 import { Check, ChevronLeft, ChevronRight, Send, X } from "./icons";
 
 // Resizable, collapsible AI Assistant pane. Width + collapsed state are
@@ -78,7 +79,7 @@ interface PaneProps {
   onAcceptProposal?: (proposalId: string) => void;
   onRejectProposal?: (proposalId: string) => void;
   onScrollToProposal?: (proposalId: string) => void;
-  // Framework registry id (e.g. "cbam", "cbam-mmd", "cdp"). Forwarded to the
+  // Framework registry id (e.g. "cdp", "brsr"). Forwarded to the
   // chat/write APIs so the agent retrieves from the right guidance index.
   frameworkId?: string;
   // Excel-style: the question the user is currently looking at. Sent with each
@@ -97,7 +98,7 @@ interface RetrievedSource {
 // Live activity event — emitted by the route as the agent calls tools.
 // Mirrors AgentActivity in agent-runner/lib/agent/activity.ts.
 interface AgentActivity {
-  kind: "guidance" | "websearch" | "webfetch" | "propose" | "tool";
+  kind: "guidance" | "userdoc" | "websearch" | "webfetch" | "propose" | "tool";
   label: string;
   detail?: string;
 }
@@ -334,6 +335,7 @@ export function AssistantPane({
           messages: next.slice(0, -1).map(({ role, content }) => ({ role, content })),
           framework: frameworkId,
           context: askContext,
+          userDocs: readReadyUserDocs().map(({ id, name, blobUrl }) => ({ id, name, blobUrl })),
         }),
         signal: controller.signal,
       });
@@ -424,6 +426,7 @@ export function AssistantPane({
           instruction: text,
           outline: buildOutline(doc.blocks),
           framework: frameworkId,
+          userDocs: readReadyUserDocs().map(({ id, name, blobUrl }) => ({ id, name, blobUrl })),
         }),
         signal: controller.signal,
       });
@@ -1004,6 +1007,8 @@ function activityIcon(kind: AgentActivity["kind"], spinning: boolean) {
   const tag =
     kind === "guidance"
       ? "GUIDE"
+      : kind === "userdoc"
+      ? "DOCS"
       : kind === "websearch"
       ? "WEB"
       : kind === "webfetch"

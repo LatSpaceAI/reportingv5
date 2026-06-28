@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { frameworks } from "@/lib/frameworks";
-import type { Section, Question } from "@/lib/cbamSections";
+import type { Section, Question } from "@/lib/frameworkTypes";
 import {
   readAnswers,
   readAssignees,
@@ -18,7 +18,7 @@ import { useToast } from "@/components/Toast";
 
 export default function TablePage() {
   const { show } = useToast();
-  const [expandedFw, setExpandedFw] = useState<Record<string, boolean>>({ cbam: true });
+  const [expandedFw, setExpandedFw] = useState<Record<string, boolean>>({ brsr: true });
   const [expandedSection, setExpandedSection] = useState<Record<string, boolean>>({});
   const [answersByFw, setAnswersByFw] = useState<Record<string, Answers>>({});
   const [assigneesByFw, setAssigneesByFw] = useState<Record<string, Assignees>>({});

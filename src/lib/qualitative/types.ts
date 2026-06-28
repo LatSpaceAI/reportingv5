@@ -1,4 +1,4 @@
-// Qualitative report (e.g. CBAM MMD) — types for documents, requirements, and comments.
+// Qualitative report — types for documents, requirements, and comments.
 // A document is a flat ordered list of blocks; embeds (requirement-ref, data-ref) reference
 // records held in the requirements / metrics arrays so updates flow bidirectionally.
 

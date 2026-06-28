@@ -1,4 +1,4 @@
-// Shared types used by every framework's section data file (cbamSections, rcoSections, ...).
+// Shared types used by every framework's section data file (brsrSections, cdpSections, ...).
 
 export type FieldKind =
   | "text"

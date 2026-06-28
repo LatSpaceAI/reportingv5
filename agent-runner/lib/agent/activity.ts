@@ -7,7 +7,7 @@ import type { Framework } from "../retrieval.ts";
 
 export interface AgentActivity {
   // High-level kind drives the icon/color in the UI.
-  kind: "guidance" | "websearch" | "webfetch" | "propose" | "tool";
+  kind: "guidance" | "userdoc" | "websearch" | "webfetch" | "propose" | "tool";
   // One-line, present-tense description shown to the user.
   label: string;
   // Optional secondary text — e.g. the search query or the fetched URL.
@@ -21,27 +21,40 @@ export function describeToolUse(
 ): AgentActivity {
   const args = (input ?? {}) as Record<string, unknown>;
   const docName =
-    framework === "cdp"
-      ? "CDP guidance"
-      : framework === "brsr"
-        ? "BRSR guidance"
-        : "CBAM guidance";
+    framework === "brsr"
+      ? "BRSR guidance"
+      : "CDP guidance";
 
-  // MCP tool names look like `mcp__<server>__<name>`.
-  if (toolName.endsWith("__search_guidance")) {
+  // Match both Claude MCP names (`mcp__<server>__search_guidance`) and the bare
+  // OpenAI Agents SDK names (`search_guidance`). `endsWith` covers the suffix;
+  // an exact-match fallback covers the bare form.
+  const is = (suffix: string) =>
+    toolName === suffix || toolName.endsWith(`__${suffix}`);
+
+  if (is("search_guidance")) {
     const q = typeof args.query === "string" ? args.query : "";
     return { kind: "guidance", label: `Searching ${docName}`, detail: q || undefined };
   }
-  if (toolName.endsWith("__propose_insert")) {
+  if (is("search_user_docs")) {
+    const q = typeof args.query === "string" ? args.query : "";
+    return { kind: "userdoc", label: "Searching uploaded documents", detail: q || undefined };
+  }
+  if (is("propose_insert")) {
     return { kind: "propose", label: "Drafting insertion" };
   }
-  if (toolName === "WebSearch") {
+  // Web search: Claude exposes "WebSearch"; OpenAI's hosted tool surfaces as
+  // "web_search" / "web_search_preview".
+  if (toolName === "WebSearch" || toolName === "web_search" || toolName === "web_search_preview") {
     const q = typeof args.query === "string" ? args.query : "";
     return { kind: "websearch", label: "Searching the web", detail: q || undefined };
   }
   if (toolName === "WebFetch") {
     const url = typeof args.url === "string" ? args.url : "";
     return { kind: "webfetch", label: "Fetching page", detail: url || undefined };
+  }
+  // ESG database tools (fill mode).
+  if (toolName.startsWith("esg_")) {
+    return { kind: "tool", label: "Querying ESG database" };
   }
   return { kind: "tool", label: toolName };
 }

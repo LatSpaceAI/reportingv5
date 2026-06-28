@@ -1,4 +1,4 @@
-// One-time indexing pipeline for a guidance PDF (CBAM, CDP, ...).
+// One-time indexing pipeline for a guidance PDF (CDP, BRSR, ...).
 //
 // Reads the PDF, splits it into leaf-section chunks (respecting numbered
 // headings like 1, 1.1, 1.1.1...), runs Anthropic Contextual Retrieval to
@@ -7,7 +7,7 @@
 // runtime route loads on cold start.
 //
 // Usage:
-//   node scripts/build-index.mjs                                 # CBAM (default), incremental
+//   node scripts/build-index.mjs                                 # CDP (default), incremental
 //   node scripts/build-index.mjs --framework cdp --pdf "./CDP resources/CDP 2026 questionnaire guidance.pdf"
 //   node scripts/build-index.mjs --force                         # rebuild from scratch
 //   node scripts/build-index.mjs --dry-run                       # parse + chunk only, no API calls
@@ -16,7 +16,7 @@
 import { config as loadEnv } from "dotenv";
 loadEnv({ path: [".env.local", ".env"] });
 import { createRequire } from "node:module";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { PDFParse } from "pdf-parse";
 
 // Voyage's ESM build has a broken directory import; use the CJS entry.
@@ -39,7 +39,7 @@ function flagValue(name) {
   return i !== -1 && i + 1 < argv.length ? argv[i + 1] : undefined;
 }
 
-const FRAMEWORK = (flagValue("--framework") ?? "cbam").toLowerCase();
+const FRAMEWORK = (flagValue("--framework") ?? "cdp").toLowerCase();
 const FORCE = flagSet.has("--force");
 const DRY_RUN = flagSet.has("--dry-run");
 const SKIP_CONTEXTUAL_FLAG = flagSet.has("--skip-contextual");
@@ -54,12 +54,6 @@ const FIRST_BODY_PAGE_OVERRIDE = flagValue("--first-page");
 // tokens still count). With it disabled, chunks are embedded with
 // sectionPath + title + text only.
 const FRAMEWORK_DEFAULTS = {
-  cbam: {
-    pdfPath: "../CBAM rsources/Guidance document on CBAM implementation for installation operators outside the EU.pdf",
-    firstBodyPage: 7,
-    skipContextual: false,
-    headingMode: "inline",
-  },
   cdp: {
     pdfPath: "./CDP resources/CDP 2026 questionnaire guidance.pdf",
     firstBodyPage: 1,
@@ -94,7 +88,7 @@ const FIRST_BODY_PAGE = FIRST_BODY_PAGE_OVERRIDE ? Number(FIRST_BODY_PAGE_OVERRI
 const MAX_CHUNK_CHARS = 4000; // Roughly ~1000 tokens.
 const CHUNK_OVERLAP_CHARS = 400;
 const EMBED_MODEL = "voyage-3-large";
-const CONTEXTUALIZER_MODEL = "claude-haiku-4-5";
+const CONTEXTUALIZER_MODEL = process.env.OPENAI_CONTEXTUALIZER_MODEL || "gpt-5-mini";
 const EMBED_BATCH_SIZE = 32; // Voyage allows up to 128, but smaller batches keep payload sizes safe.
 
 // ---------- Step 1: Parse PDF ----------
@@ -133,7 +127,7 @@ function sanitizeText(s) {
 
 // ---------- Step 2: Section-aware chunking ----------
 
-// CBAM-style: heading number + title on the same line, e.g. "1 SUMMARY" or
+// Inline style: heading number + title on the same line, e.g. "1 SUMMARY" or
 // "4.3.2 What needs to be monitored...". The TOC is excluded by FIRST_BODY_PAGE.
 const HEADING_RE = /^(\d+(?:\.\d+){0,4})\s+(.+?)\s*$/;
 
@@ -142,7 +136,7 @@ const HEADING_RE = /^(\d+(?:\.\d+){0,4})\s+(.+?)\s*$/;
 // "1.4a", "C2.2a" style variants.
 const STANDALONE_CODE_RE = /^(\d+(?:\.\d+){0,4}[a-z]?)\s*$/i;
 
-// Heuristic for the same-line CBAM format: a line matching the regex is a
+// Heuristic for the same-line inline format: a line matching the regex is a
 // heading only if it's reasonably short (titles aren't sentences) and the
 // title isn't all-lowercase prose.
 function looksLikeHeading(line) {
@@ -198,7 +192,7 @@ function looksLikeCdpHeading(line, nextLine) {
 function chunkBySection(pages, headingMode = "inline") {
   // Walk every line, splitting on detected headings. Each section accumulates
   // lines until the next heading. Track page span for citations.
-  // headingMode: "inline" (CBAM — number + title on same line) or "standalone"
+  // headingMode: "inline" (number + title on same line) or "standalone"
   // (CDP — number on its own line, title on the next line).
   const sections = [];
   let current = null;
@@ -553,7 +547,7 @@ function brsrSectionPath(row) {
   return path;
 }
 
-// ---------- Step 3: Contextual Retrieval (Anthropic) ----------
+// ---------- Step 3: Contextual Retrieval (OpenAI) ----------
 
 const CONTEXTUALIZER_PROMPT = `Here is a chunk we want to situate within the whole document:
 
@@ -564,38 +558,35 @@ const CONTEXTUALIZER_PROMPT = `Here is a chunk we want to situate within the who
 Please give a short, succinct context (1-3 sentences) to situate this chunk within the overall document for the purposes of improving search retrieval of the chunk. Mention the section number and title, what topic it covers, and any key terms or concepts in the chunk that someone might search for. Answer only with the succinct context and nothing else.`;
 
 async function generateContexts(client, fullDocText, chunks) {
-  // Anthropic's Contextual Retrieval pattern: cache the full document once,
-  // then make one cheap call per chunk. The cache hit means each call only
-  // pays for the chunk + response.
-  console.log(`Generating context blurbs for ${chunks.length} chunks (cached doc + per-chunk Haiku call)...`);
+  // Contextual Retrieval pattern (Anthropic's technique, OpenAI backend): put
+  // the full document FIRST in a fixed system message and vary only the chunk
+  // in the user message. OpenAI automatically prompt-caches identical prefixes
+  // over ~1024 tokens, so each per-chunk call after the first reuses the cached
+  // document prefix — same economics as the original cache_control approach.
+  console.log(
+    `Generating context blurbs for ${chunks.length} chunks (cached doc prefix + per-chunk ${CONTEXTUALIZER_MODEL} call)...`
+  );
+  const systemText = `You situate excerpts within a source document for search retrieval.\n\n<document>\n${fullDocText}\n</document>`;
   const out = [];
   let i = 0;
   for (const chunk of chunks) {
     i++;
     const prompt = CONTEXTUALIZER_PROMPT.replace("{chunk}", chunk.text);
     try {
-      const resp = await client.messages.create({
+      const resp = await client.chat.completions.create({
         model: CONTEXTUALIZER_MODEL,
-        max_tokens: 200,
-        system: [
-          {
-            type: "text",
-            text: `<document>\n${fullDocText}\n</document>`,
-            cache_control: { type: "ephemeral" },
-          },
+        max_completion_tokens: 200,
+        messages: [
+          { role: "system", content: systemText },
+          { role: "user", content: prompt },
         ],
-        messages: [{ role: "user", content: prompt }],
       });
-      const text = resp.content
-        .filter((b) => b.type === "text")
-        .map((b) => b.text)
-        .join("")
-        .trim();
+      const text = (resp.choices?.[0]?.message?.content ?? "").trim();
       out.push({ ...chunk, context: text });
       if (i % 25 === 0 || i === chunks.length) {
-        const usage = resp.usage;
+        const cached = resp.usage?.prompt_tokens_details?.cached_tokens ?? 0;
         console.log(
-          `  [${i}/${chunks.length}] §${chunk.sectionNumber} | cache_read=${usage.cache_read_input_tokens ?? 0} cache_create=${usage.cache_creation_input_tokens ?? 0}`
+          `  [${i}/${chunks.length}] §${chunk.sectionNumber} | prompt=${resp.usage?.prompt_tokens ?? 0} cached=${cached}`
         );
       }
     } catch (err) {
@@ -713,8 +704,8 @@ function buildBm25Index(chunks) {
 // ---------- Main ----------
 
 async function main() {
-  if (!DRY_RUN && !SKIP_CONTEXTUAL && !process.env.ANTHROPIC_API_KEY) {
-    console.error("ANTHROPIC_API_KEY is not set. Add it to .env.local.");
+  if (!DRY_RUN && !SKIP_CONTEXTUAL && !process.env.OPENAI_API_KEY) {
+    console.error("OPENAI_API_KEY is not set. Add it to .env.local (or pass --skip-contextual).");
     process.exit(1);
   }
   if (!DRY_RUN && !process.env.VOYAGE_API_KEY) {
@@ -801,7 +792,7 @@ async function main() {
       context: `Section ${c.sectionNumber} ${c.sectionTitle}. Path: ${c.sectionPath.join(" > ")}.`,
     }));
   } else {
-    const anthropic = new Anthropic();
+    const openai = new OpenAI();
     if (!FORCE && existsSync(CONTEXTUALIZED_CHECKPOINT)) {
       console.log(`Loading cached contextualized chunks from ${CONTEXTUALIZED_CHECKPOINT}`);
       contextualized = JSON.parse(await readFile(CONTEXTUALIZED_CHECKPOINT, "utf8"));
@@ -811,7 +802,7 @@ async function main() {
       }
     }
     if (!contextualized) {
-      contextualized = await generateContexts(anthropic, fullDocText, chunks);
+      contextualized = await generateContexts(openai, fullDocText, chunks);
       await writeFile(CONTEXTUALIZED_CHECKPOINT, JSON.stringify(contextualized));
       console.log(`Checkpointed contextualized chunks to ${CONTEXTUALIZED_CHECKPOINT}`);
     }

@@ -32,8 +32,8 @@ agent-runner/data/rag/*-build.log
 #   node scripts/build-index.mjs --framework <id> --force
 
 # Source PDFs for the RAG indices live outside source control to keep the
-# repo small and avoid licensing issues. The CBAM PDF lives in a sibling
-# folder; the CDP PDF currently sits inside the repo at "CDP resources/".
+# repo small and avoid licensing issues. The CDP PDF currently sits inside
+# the repo at "CDP resources/".
 CDP resources/
 
 # Logs
@@ -51,4 +51,9 @@ Thumbs.db
 # uploaded to Vercel Blob via CI (or manually with `npm run publish:runner`)
 # and never lives in source control.
 agent-runner-*.tar.gz
+
+# Stray downloads / working files that shouldn't be tracked.
+*.xlsx
+Screenshot *.png
+designlanguage (1).md
 

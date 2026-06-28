@@ -6,18 +6,18 @@
 //      land progressively, not all at the end).
 //
 // Requires:
-//   - ANTHROPIC_API_KEY and VOYAGE_API_KEY in the environment (or .env.local).
+//   - OPENAI_API_KEY and VOYAGE_API_KEY in the environment (or .env.local).
+//     (All three modes now run on the OpenAI Agents SDK — pure JS, no native
+//     binary needed.)
 //   - npm install at the workspace root (already run for normal dev).
-//   - The native Claude Agent SDK binary for your host platform — npm
-//     install hoists this automatically; it's NOT the linux-x64 binary that
-//     the published tarball ships.
 //
 // Usage:
 //   node scripts/smoke-runner.mjs chat
 //   node scripts/smoke-runner.mjs write
+//   node scripts/smoke-runner.mjs fill
 //
 // Each mode runs a small canned job. To exercise a custom job, edit the
-// CHAT_JOB / WRITE_JOB constants below.
+// CHAT_JOB / WRITE_JOB / FILL_JOB constants below.
 
 import { spawn } from "node:child_process";
 import { resolve, dirname, join } from "node:path";
@@ -33,37 +33,84 @@ loadEnv({ path: join(REPO_ROOT, ".env.local") });
 loadEnv({ path: join(REPO_ROOT, ".env") });
 
 const mode = process.argv[2];
-if (mode !== "chat" && mode !== "write") {
-  console.error(`Usage: node scripts/smoke-runner.mjs <chat|write>`);
+if (mode !== "chat" && mode !== "write" && mode !== "fill") {
+  console.error(`Usage: node scripts/smoke-runner.mjs <chat|write|fill>`);
   process.exit(1);
 }
 
 const CHAT_JOB = {
   mode: "chat",
-  framework: "cbam",
+  framework: "cdp",
   messages: [
     {
       role: "user",
       content:
-        "What does the CBAM regulation say about default values for embedded emissions when actual data is not available?",
+        "What does the CDP questionnaire require when reporting Scope 1 emissions where actual data is not available?",
     },
   ],
+  // To exercise the uploaded-PDF RAG path (search_user_docs), uncomment and
+  // point at a real index blobUrl produced by /api/ingest, then ask a question
+  // only that PDF can answer. The runner fetches the index from the URL exactly
+  // as it would inside the sandbox (this script runs on the host with network +
+  // VOYAGE_API_KEY). Leaving userDocs unset/empty exercises the unchanged path.
+  // userDocs: [
+  //   { id: "u_abc12345", name: "Acme Policy.pdf", blobUrl: "https://<store>.public.blob.vercel-storage.com/rag/user/u_abc12345/index.json" },
+  // ],
 };
 
 const WRITE_JOB = {
   mode: "write",
-  framework: "cbam",
-  instruction: "Add a short paragraph defining 'embedded emissions' under CBAM.",
+  framework: "cdp",
+  instruction: "Add a short paragraph defining 'Scope 1 emissions' under the CDP questionnaire.",
   outline: [
-    { id: "h1", kind: "heading", level: 1, heading: "Monitoring methodology" },
+    { id: "h1", kind: "heading", level: 1, heading: "Emissions methodology" },
     { id: "p1", kind: "paragraph", preview: "This document describes…" },
   ],
 };
 
-const job = mode === "chat" ? CHAT_JOB : WRITE_JOB;
+// Fill mode runs on the OpenAI Agents SDK. This canned job fills the BRSR
+// entity-identity question (Section A, Q A.1). With no userDocs / ESG DB it
+// exercises the web-search + structured-output path; add userDocs and set
+// useEsgDb to exercise those tools (and export the matching env vars).
+const FILL_JOB = {
+  mode: "fill",
+  framework: "brsr",
+  useEsgDb: false,
+  aiContext: {
+    companyName: "Tata Steel Limited",
+    reportingYear: 2025,
+    businessContext:
+      "Tata Steel is an Indian multinational steel-making company headquartered in Mumbai, listed on BSE and NSE.",
+  },
+  questions: [
+    {
+      id: "A.1",
+      label: "Entity identity & contact",
+      description: "Items 1–13 of Section A.I (CIN, addresses, listing, etc.).",
+      sectionId: "A.I",
+      sectionTitle: "A.I — Details of the Listed Entity",
+      questionKind: "fields",
+      fields: [
+        { id: "cin", label: "Corporate Identity Number (CIN)", kind: "text", required: true },
+        { id: "name", label: "Name of the Listed Entity", kind: "text", required: true },
+        { id: "website", label: "Website", kind: "text" },
+        {
+          id: "stockExchange",
+          label: "Stock Exchange(s) where listed",
+          kind: "select",
+          options: ["BSE", "NSE", "BSE & NSE", "Other (specify in remarks)"],
+        },
+      ],
+      existingValues: {},
+    },
+  ],
+};
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error("ANTHROPIC_API_KEY is not set (check .env.local)");
+const job = mode === "chat" ? CHAT_JOB : mode === "write" ? WRITE_JOB : FILL_JOB;
+
+// All modes run on the OpenAI Agents SDK now.
+if (!process.env.OPENAI_API_KEY) {
+  console.error("OPENAI_API_KEY is not set (check .env.local)");
   process.exit(1);
 }
 if (!process.env.VOYAGE_API_KEY) {

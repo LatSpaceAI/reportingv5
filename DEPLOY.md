@@ -21,10 +21,21 @@ See [Hosting the Agent SDK](https://code.claude.com/docs/en/agent-sdk/hosting) a
 
 ### 2. Environment variables on the Vercel project
 
+> **Note (2026-06):** All agent modes (chat, write, fill) now run on the
+> **OpenAI Agents SDK** — the Anthropic Claude Agent SDK has been removed. Any
+> sections below that still mention `ANTHROPIC_API_KEY`, `api.anthropic.com`,
+> or the bundled `claude` CLI binary are stale and being rewritten; the
+> authoritative env list is the table immediately below. Because credential
+> brokering is currently disabled (see the SECURITY DOWNGRADE note in
+> `src/lib/dispatcher/sandbox.ts`), the keys below ARE passed into the sandbox
+> env — the firewall still denies all egress except the allow-listed hosts.
+
 | Variable | Value | Where it's used |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Your Anthropic API key | Dispatcher route only — passed to the sandbox firewall as a `transform` rule. Never enters the sandbox env. |
-| `VOYAGE_API_KEY` | Your Voyage API key | Same pattern as Anthropic. |
+| `OPENAI_API_KEY` | Your OpenAI API key | Passed into the sandbox env; used by all three agent modes (OpenAI Agents SDK) and the offline index builder. |
+| `VOYAGE_API_KEY` | Your Voyage API key | Passed into the sandbox env; RAG embeddings. |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL | (optional) Enables the fill agent's ESG database tool. Its host is added to the firewall allow-list. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service_role key | (optional) Passed into the sandbox env alongside the URL; read-only ESG queries. |
 | `AGENT_RUNNER_TARBALL_URL` | URL of the published runner tarball (Vercel Blob) | `Sandbox.create()` source. |
 | `AGENT_RUNNER_SNAPSHOT_ID` | (optional) Sandbox snapshot ID | Overrides `AGENT_RUNNER_TARBALL_URL` if set. Faster cold start (~150 ms vs 1-3 s). |
 
