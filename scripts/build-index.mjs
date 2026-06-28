@@ -88,7 +88,7 @@ const FIRST_BODY_PAGE = FIRST_BODY_PAGE_OVERRIDE ? Number(FIRST_BODY_PAGE_OVERRI
 const MAX_CHUNK_CHARS = 4000; // Roughly ~1000 tokens.
 const CHUNK_OVERLAP_CHARS = 400;
 const EMBED_MODEL = "voyage-3-large";
-const CONTEXTUALIZER_MODEL = process.env.OPENAI_CONTEXTUALIZER_MODEL || "gpt-5-mini";
+const CONTEXTUALIZER_MODEL = process.env.OPENAI_CONTEXTUALIZER_MODEL || "gpt-5.4-mini";
 const EMBED_BATCH_SIZE = 32; // Voyage allows up to 128, but smaller batches keep payload sizes safe.
 
 // ---------- Step 1: Parse PDF ----------

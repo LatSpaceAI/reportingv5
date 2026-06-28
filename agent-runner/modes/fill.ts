@@ -21,7 +21,7 @@ import type {
   FillProposal,
 } from "./types.ts";
 
-const FILL_MODEL = process.env.OPENAI_FILL_MODEL || "gpt-5";
+const FILL_MODEL = process.env.OPENAI_FILL_MODEL || "gpt-5.5";
 
 // ---------------------------------------------------------------------------
 // Structured output schema (what the agent must return as its final answer).

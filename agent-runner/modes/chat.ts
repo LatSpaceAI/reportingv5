@@ -17,7 +17,7 @@ import { resolveRagFramework } from "../lib/agent/frameworkMap.ts";
 import { describeToolUse } from "../lib/agent/activity.ts";
 import type { ChatJob, ChatContext, ChatMessage, EmitFn } from "./types.ts";
 
-const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-5";
+const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-5.5";
 
 // Aggregate token usage across all model requests in the run, into the same
 // loose shape the client's `done` handler already tolerates.

@@ -9,12 +9,14 @@ import { AI_CONTEXT_UPDATED_EVENT, readAiContext } from "@/lib/aiContext";
 
 // A nav item is either a real route (`href`) or a placeholder that isn't wired
 // up yet (`href` omitted). Placeholders render as disabled buttons so the chrome
-// is in place while the destinations are still being defined.
+// is in place while the destinations are still being defined. An item may also
+// carry `children` — sub-routes shown indented under a collapsible parent.
 interface NavItem {
   key: string;
   label: string;
   href?: string;
   icon: React.ReactNode;
+  children?: NavItem[];
 }
 
 // Icons mirror the Lucide React set called for in the LatSpace design language,
@@ -40,6 +42,14 @@ const DataCollectionIcon = (
   </svg>
 );
 
+// lucide: book-open
+const LogbookIcon = (
+  <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+  </svg>
+);
+
 // lucide: file-bar-chart
 const ReportingIcon = (
   <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -53,11 +63,27 @@ const ReportingIcon = (
 
 const items: NavItem[] = [
   { key: "dashboard", label: "Dashboard", href: "/dashboard", icon: DashboardIcon },
-  { key: "data-collection", label: "Data Collection", icon: DataCollectionIcon },
+  {
+    key: "data-collection",
+    label: "Data Collection",
+    href: "/data-collection",
+    icon: DataCollectionIcon,
+    children: [{ key: "logbook", label: "Logbook", href: "/logbook", icon: LogbookIcon }],
+  },
   { key: "reporting", label: "Reporting", href: "/", icon: ReportingIcon },
 ];
 
 const COLLAPSE_KEY = "sidenav:collapsed";
+const DATA_COLLECTION_EXPANDED_KEY = "sidenav:data-collection-expanded";
+
+// A nav item is active when its own route matches; reporting and data-collection
+// own subtrees, so they stay highlighted as the user drills in.
+function itemMatchesRoute(it: NavItem, pathname: string): boolean {
+  if (it.key === "reporting") return isReportingRoute(pathname);
+  if (it.key === "data-collection")
+    return pathname === "/data-collection" || pathname.startsWith("/data-collection/");
+  return it.href ? pathname === it.href : false;
+}
 
 // Reporting owns the landing page and its sub-routes (e.g. /table). Mark it
 // active for any of those so the highlight persists as the user drills in.
@@ -86,9 +112,52 @@ export function Sidenav() {
   }, [collapsed, hydrated]);
 
   function isActive(it: NavItem): boolean {
-    if (it.key === "reporting") return isReportingRoute(pathname);
-    return it.href ? pathname === it.href : false;
+    return itemMatchesRoute(it, pathname);
   }
+
+  // Whether a child route of the given parent is currently active (used to keep
+  // the group auto-expanded and to highlight the parent when a child is open).
+  function hasActiveChild(it: NavItem): boolean {
+    return (it.children ?? []).some((c) => itemMatchesRoute(c, pathname));
+  }
+
+  // Expand/collapse state for the Data Collection group. Defaults open when on
+  // one of its routes (or a child route); the user's manual toggle is persisted.
+  const [dcExpanded, setDcExpanded] = useState(false);
+  useEffect(() => {
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem(DATA_COLLECTION_EXPANDED_KEY);
+    } catch {}
+    const onGroupRoute =
+      pathname === "/data-collection" ||
+      pathname.startsWith("/data-collection/") ||
+      pathname === "/logbook";
+    setDcExpanded(stored === null ? onGroupRoute : stored === "1");
+    // run once on mount; route-driven auto-expand handled below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-expand when navigating into the group so the active child is visible.
+  useEffect(() => {
+    if (
+      pathname === "/data-collection" ||
+      pathname.startsWith("/data-collection/") ||
+      pathname === "/logbook"
+    ) {
+      setDcExpanded(true);
+    }
+  }, [pathname]);
+
+  const toggleDc = () => {
+    setDcExpanded((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(DATA_COLLECTION_EXPANDED_KEY, next ? "1" : "0");
+      } catch {}
+      return next;
+    });
+  };
 
   const aiActive = pathname === "/ai-context" || pathname.startsWith("/ai-context/");
 
@@ -168,17 +237,90 @@ export function Sidenav() {
       <nav className="flex-1 overflow-y-auto px-2 py-12">
         {items.map((it) => {
           const active = isActive(it);
+          const childActive = hasActiveChild(it);
           const base =
             "flex items-center cursor-pointer py-3 mb-1 text-[14px] font-medium tracking-[-0.01em] transition-all duration-200 rounded-[6px] overflow-hidden px-3";
-          const state = active
-            ? "text-[#074D47] bg-[#074D47]/[0.04]"
-            : "text-[#0A0A0A]/60 hover:text-[#074D47] hover:bg-[#074D47]/[0.02] hover:underline";
+          const state =
+            active || childActive
+              ? "text-[#074D47] bg-[#074D47]/[0.04]"
+              : "text-[#0A0A0A]/60 hover:text-[#074D47] hover:bg-[#074D47]/[0.02] hover:underline";
 
-          const iconColor = active ? "text-[#074D47]" : "text-[#0A0A0A]/40";
+          const iconColor = active || childActive ? "text-[#074D47]" : "text-[#0A0A0A]/40";
           const labelCls = `overflow-hidden whitespace-nowrap transition-all duration-300 ease-in-out ${
             collapsed ? "ml-0 max-w-0 opacity-0" : "ml-4 max-w-[120px] opacity-100"
           }`;
 
+          // ── Parent with children (e.g. Data Collection → Logbook) ──────────
+          if (it.children && it.children.length > 0) {
+            const expanded = dcExpanded;
+            return (
+              <div key={it.key}>
+                <div className={`${base} ${state} pr-1`}>
+                  {/* Parent route link */}
+                  <Link
+                    href={it.href ?? "#"}
+                    title={collapsed ? it.label : undefined}
+                    aria-label={it.label}
+                    className="flex min-w-0 flex-1 items-center overflow-hidden"
+                  >
+                    <div className={`flex w-6 flex-shrink-0 justify-center ${iconColor}`}>{it.icon}</div>
+                    <span className={labelCls}>{it.label}</span>
+                  </Link>
+                  {/* Collapse/expand chevron (hidden when the rail is collapsed) */}
+                  {!collapsed && (
+                    <button
+                      type="button"
+                      onClick={toggleDc}
+                      aria-label={expanded ? `Collapse ${it.label}` : `Expand ${it.label}`}
+                      aria-expanded={expanded}
+                      className="flex-shrink-0 rounded-[4px] p-1 text-[#0A0A0A]/40 transition-colors hover:bg-[#0A0A0A]/[0.04] hover:text-[#074D47]"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        className={`h-4 w-4 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="m6 9 6 6 6-6" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+
+                {/* Children — indented when expanded; icon-only when the rail is collapsed */}
+                {(collapsed ? childActive : expanded) && (
+                  <div className={collapsed ? "mb-1" : "mb-1 ml-4 border-l border-[#0A0A0A]/[0.06] pl-2"}>
+                    {it.children.map((child) => {
+                      const cActive = isActive(child);
+                      const cState = cActive
+                        ? "text-[#074D47] bg-[#074D47]/[0.04]"
+                        : "text-[#0A0A0A]/55 hover:text-[#074D47] hover:bg-[#074D47]/[0.02]";
+                      const cIconColor = cActive ? "text-[#074D47]" : "text-[#0A0A0A]/40";
+                      return (
+                        <Link
+                          key={child.key}
+                          href={child.href ?? "#"}
+                          title={collapsed ? child.label : undefined}
+                          aria-label={child.label}
+                          className={`flex items-center overflow-hidden rounded-[6px] px-3 py-2.5 text-[13px] font-medium tracking-[-0.01em] transition-all duration-200 ${cState} ${
+                            collapsed ? "justify-center" : ""
+                          }`}
+                        >
+                          <div className={`flex w-5 flex-shrink-0 justify-center ${cIconColor}`}>{child.icon}</div>
+                          <span className={labelCls}>{child.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          // ── Leaf route ─────────────────────────────────────────────────────
           if (it.href) {
             return (
               <Link
@@ -193,6 +335,8 @@ export function Sidenav() {
               </Link>
             );
           }
+
+          // ── Disabled placeholder ───────────────────────────────────────────
           return (
             <button
               key={it.key}

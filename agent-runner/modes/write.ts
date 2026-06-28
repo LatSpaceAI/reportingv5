@@ -19,7 +19,7 @@ import { resolveRagFramework } from "../lib/agent/frameworkMap.ts";
 import { describeToolUse } from "../lib/agent/activity.ts";
 import type { OutlineItem, WriteJob, EmitFn } from "./types.ts";
 
-const WRITE_MODEL = process.env.OPENAI_WRITE_MODEL || "gpt-5";
+const WRITE_MODEL = process.env.OPENAI_WRITE_MODEL || "gpt-5.5";
 
 function formatOutline(items: OutlineItem[]): string {
   if (!items.length) return "(empty document — propose insertions with after_block_id = null)";
