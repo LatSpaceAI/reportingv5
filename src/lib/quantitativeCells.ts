@@ -103,6 +103,36 @@ function tableCells(section: Section, q: Extract<Question, { kind: "table" }>): 
   return out;
 }
 
+// Whether a TableQuestion has a fixed shape (each row is a known, labelled
+// category) vs. open-ended (user adds rows). Mirrors the logic in tableCells.
+export function isFixedTable(q: Extract<Question, { kind: "table" }>): boolean {
+  return q.maxRows != null && q.minRows === q.maxRows && q.rowLabel != null;
+}
+
+// Compute the stable QuantCell id for a single field/column value, matching the
+// ids produced by quantitativeCells(). Returns null when the field isn't a
+// quantitative (number) cell and therefore has no requirements-tab row.
+// `rowIndex` is required for fixed-shape table columns and ignored otherwise.
+export function quantCellId(
+  q: Question,
+  fieldId: string,
+  rowIndex?: number
+): string | null {
+  if (q.kind === "fields") {
+    const f = q.fields.find((x) => x.id === fieldId);
+    return f && isNumeric(f) ? `${q.id}.${fieldId}` : null;
+  }
+  const col = q.columns.find((x) => x.id === fieldId);
+  if (!col || !isNumeric(col)) return null;
+  if (isFixedTable(q)) {
+    if (rowIndex == null) return null;
+    return `${q.id}.r${rowIndex}.${fieldId}`;
+  }
+  // Open-ended table: one requirements row per numeric column (the metric),
+  // regardless of which data row the value sits in.
+  return `${q.id}.${fieldId}`;
+}
+
 export function quantitativeCells(sections: Section[]): QuantCell[] {
   const out: QuantCell[] = [];
   for (const section of sections) {

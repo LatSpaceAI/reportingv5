@@ -1,12 +1,26 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Questionnaire, type QuestionnaireConfig } from "@/components/Questionnaire";
 import { QualitativeReport } from "@/components/qualitative/QualitativeReport";
 import { getFramework } from "@/lib/frameworks";
+import { brsrSeed } from "@/lib/brsrSeed";
 
+// `useSearchParams()` must be read inside a Suspense boundary, otherwise Next.js
+// bails the whole route out of prerendering and the search-param-dependent
+// markup mismatches on hydration. The boundary keeps the rest of the tree
+// deterministic on the server.
 export default function ReportPage({ params }: { params: { id: string } }) {
+  return (
+    <Suspense fallback={null}>
+      <ReportContent params={params} />
+    </Suspense>
+  );
+}
+
+function ReportContent({ params }: { params: { id: string } }) {
   const { id } = params;
   const searchParams = useSearchParams();
   const q = searchParams.get("q") ?? undefined;
@@ -29,6 +43,9 @@ export default function ReportPage({ params }: { params: { id: string } }) {
     storageKey: fw.storageKey,
     frameworkId: fw.id,
     frameworkName: fw.shortName,
+    // BRSR ships with sample seed data (Sagar Cements FY2023-24) loaded into the
+    // structure on first visit, when no answers have been saved yet.
+    seed: fw.id === "brsr" ? brsrSeed : undefined,
     version:
       fw.id === "brsr"
         ? "SEBI Annexure I"
