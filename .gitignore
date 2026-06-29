@@ -56,4 +56,7 @@ agent-runner-*.tar.gz
 *.xlsx
 Screenshot *.png
 designlanguage (1).md
+# Source report PDFs used to extract seed data (the extracted data lives in
+# src/lib/*Seed.ts; the source binaries don't belong in source control).
+brsr*.pdf
 

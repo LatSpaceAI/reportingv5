@@ -24,12 +24,20 @@ interface FieldProps {
   siblings?: RowValues;
   compact?: boolean;
   computeCtx?: ComputeContext;
+  // Extra classes applied to the editable control — used to colour a datapoint's
+  // value (e.g. blue) when it links to a requirement.
+  valueClassName?: string;
+  // Optional icon/control rendered inside the field at its right edge (e.g. the
+  // "go to requirement" arrow). Only honoured for text/number-style inputs.
+  trailing?: React.ReactNode;
 }
 
-export function FieldRenderer({ field, value, onChange, siblings, compact, computeCtx }: FieldProps) {
-  const baseCls = compact
-    ? "w-full bg-transparent px-2 py-1.5 text-sm outline-none border-0"
-    : "w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20";
+export function FieldRenderer({ field, value, onChange, siblings, compact, computeCtx, valueClassName, trailing }: FieldProps) {
+  const baseCls =
+    (compact
+      ? "w-full bg-transparent px-2 py-1.5 text-sm outline-none border-0"
+      : "w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20") +
+    (valueClassName ? " " + valueClassName : "");
 
   if (field.kind === "computed") {
     const computed = computeCtx ? field.compute(computeCtx) : null;
@@ -99,12 +107,15 @@ export function FieldRenderer({ field, value, onChange, siblings, compact, compu
   }
 
   if (field.kind === "number") {
+    // Right-edge padding accounts for whatever sits inside the field: the unit
+    // label, the trailing arrow, or both.
+    const rightPad = field.unit && trailing ? " pr-16" : field.unit ? " pr-14" : trailing ? " pr-7" : "";
     return (
       <div className="relative">
         <input
           type="number"
           inputMode="decimal"
-          className={baseCls + (field.unit ? " pr-14" : "")}
+          className={baseCls + rightPad}
           value={value === null || value === undefined || value === "" ? "" : String(value)}
           min={field.min}
           max={field.max}
@@ -115,9 +126,17 @@ export function FieldRenderer({ field, value, onChange, siblings, compact, compu
           }}
         />
         {field.unit && (
-          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">
+          <span
+            className={
+              "pointer-events-none absolute top-1/2 -translate-y-1/2 text-[11px] text-slate-400 " +
+              (trailing ? "right-7" : "right-2")
+            }
+          >
             {field.unit}
           </span>
+        )}
+        {trailing && (
+          <span className="absolute right-1 top-1/2 -translate-y-1/2">{trailing}</span>
         )}
       </div>
     );
@@ -175,6 +194,40 @@ export function FieldRenderer({ field, value, onChange, siblings, compact, compu
       value={(value as string) ?? ""}
       onChange={(e) => onChange(e.target.value || null)}
     />
+  );
+}
+
+// Small blue diagonal-arrow "go to requirement" affordance, rendered inside the
+// field at its right edge (passed as FieldRenderer's `trailing`). Clicking it
+// jumps to the Requirements tab and highlights this datapoint's row. Shown only
+// when the cell maps to a requirements-tab row (see quantCellId).
+export function RequirementLinkButton({
+  onClick,
+  compact,
+}: {
+  onClick: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onClick();
+      }}
+      title="View this datapoint in the Requirements tab"
+      aria-label="View in Requirements"
+      className={
+        "shrink-0 inline-flex items-center justify-center rounded text-blue-600 hover:text-blue-800 hover:bg-blue-50 " +
+        (compact ? "h-5 w-5" : "h-6 w-6")
+      }
+    >
+      <svg viewBox="0 0 24 24" className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M7 17 17 7" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M8 7h9v9" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
   );
 }
 

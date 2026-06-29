@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComputeContext, FieldsQuestion, Question, Section } from "@/lib/frameworkTypes";
-import { FieldHelp, FieldLabel, FieldRenderer, isFilled, isValid, type RowValues } from "@/components/Fields";
+import { FieldHelp, FieldLabel, FieldRenderer, RequirementLinkButton, isFilled, isValid, type RowValues } from "@/components/Fields";
 import { TableField } from "@/components/TableField";
+import { quantCellId } from "@/lib/quantitativeCells";
 import { AssistantPane } from "@/components/qualitative/AssistantPane";
 import { FillWithAI } from "@/components/FillWithAI";
 import { initials, mockUsers, readAssignees, writeAssignees, type Assignees } from "@/lib/storage";
 import { quantitativeCells } from "@/lib/quantitativeCells";
+import type { SeedAnswer } from "@/lib/brsrSeed";
 
 type Status = "not-started" | "in-progress" | "completed";
 
@@ -40,6 +42,10 @@ export interface QuestionnaireConfig {
   frameworkName: string; // shown in the header, e.g. "CDP Climate Change Questionnaire"
   version?: string; // optional version label shown in header
   onExport?: () => Promise<void> | void; // called by the header Export button; if absent, button is hidden
+  // Optional sample/seed data keyed by question id. Loaded into the structure on
+  // first visit only — when localStorage holds no saved answers for this
+  // framework. User edits persist and always win over the seed thereafter.
+  seed?: Record<string, SeedAnswer>;
 }
 
 const LEFT_MIN = 240;
@@ -75,6 +81,72 @@ function blankState(q: Question): QuestionState {
     return r;
   });
   return { values: {}, rows, status: "not-started" };
+}
+
+// Overlay seed data onto a question's state, filling only the cells that aren't
+// already filled — so saved/user-edited answers always win and blanks get the
+// sample value. `existing` is the saved/blank state to merge into. Runs on every
+// load (not just first visit), which is why it must be non-destructive.
+//
+// Status is re-derived so the sidebar + requirements tab reflect the merged
+// state, but a question the user explicitly marked "completed" stays completed.
+// Unknown seed field ids are ignored (defensive against schema drift).
+function mergeSeed(q: Question, existing: QuestionState, seed: SeedAnswer): QuestionState {
+  if (q.kind === "fields") {
+    if (!seed.values) return existing;
+    const values: RowValues = { ...existing.values };
+    let changed = false;
+    for (const f of q.fields) {
+      const seedVal = seed.values[f.id];
+      if (seedVal === undefined) continue;
+      if (!isFilled(f, values[f.id])) {
+        values[f.id] = seedVal ?? null;
+        changed = true;
+      }
+    }
+    if (!changed) return existing;
+    const next: QuestionState = { ...existing, values };
+    return { ...next, status: existing.status === "completed" ? "completed" : deriveStatus(q, next) };
+  }
+
+  // table. Treat the saved table as "empty" when no cell in any row is filled —
+  // in that case we seed it wholesale. Otherwise (user already entered data) we
+  // merge per cell for fixed-shape tables and leave open-ended tables untouched.
+  if (!seed.rows || seed.rows.length === 0) return existing;
+  const fixed = q.maxRows != null && q.minRows === q.maxRows;
+  const existingEmpty = existing.rows.every((r) => q.columns.every((c) => !isFilled(c, r[c.id])));
+
+  let rows: RowValues[];
+  if (existingEmpty) {
+    rows = seed.rows.map((seedRow) => {
+      const r: RowValues = {};
+      for (const c of q.columns) r[c.id] = seedRow[c.id] ?? null;
+      return r;
+    });
+    while (rows.length < q.minRows) {
+      const r: RowValues = {};
+      for (const c of q.columns) r[c.id] = null;
+      rows.push(r);
+    }
+  } else if (fixed) {
+    // Positional per-cell merge: fill only blanks at each matching row index.
+    rows = existing.rows.map((r, i) => {
+      const seedRow = seed.rows![i];
+      if (!seedRow) return r;
+      const merged: RowValues = { ...r };
+      for (const c of q.columns) {
+        if (seedRow[c.id] !== undefined && !isFilled(c, merged[c.id])) {
+          merged[c.id] = seedRow[c.id] ?? null;
+        }
+      }
+      return merged;
+    });
+  } else {
+    // Open-ended table the user already populated — don't touch their rows.
+    return existing;
+  }
+  const next: QuestionState = { ...existing, rows };
+  return { ...next, status: existing.status === "completed" ? "completed" : deriveStatus(q, next) };
 }
 
 function deriveStatus(q: Question, s: QuestionState): Status {
@@ -123,7 +195,7 @@ export function Questionnaire({
   config: QuestionnaireConfig;
   initialQuestionId?: string;
 }) {
-  const { sections, storageKey, frameworkId, frameworkName, version, onExport } = config;
+  const { sections, storageKey, frameworkId, frameworkName, version, onExport, seed } = config;
   const allQuestions = useMemo(
     () => sections.flatMap((s) => s.questions.map((q) => ({ section: s, q }))),
     [sections]
@@ -140,17 +212,28 @@ export function Questionnaire({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    let saved: Record<string, QuestionState> = {};
     const raw = localStorage.getItem(storageKey);
-    if (!raw) return;
-    try {
-      const saved = JSON.parse(raw) as Record<string, QuestionState>;
-      setAnswers((prev) => {
-        const next = { ...prev };
-        for (const { q } of allQuestions) if (saved[q.id]) next[q.id] = saved[q.id];
-        return next;
-      });
-    } catch {}
-  }, [allQuestions, storageKey]);
+    if (raw) {
+      try {
+        saved = JSON.parse(raw) as Record<string, QuestionState>;
+      } catch {
+        saved = {};
+      }
+    }
+    setAnswers((prev) => {
+      const next = { ...prev };
+      for (const { q } of allQuestions) {
+        // Saved/user answers take precedence; fall back to blank base.
+        let s = saved[q.id] ?? next[q.id];
+        // Then overlay the seed into any cell still empty. Non-destructive, so
+        // it's safe to run on every load even after the user has edited cells.
+        if (seed && seed[q.id]) s = mergeSeed(q, s, seed[q.id]);
+        next[q.id] = s;
+      }
+      return next;
+    });
+  }, [allQuestions, storageKey, seed]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -263,6 +346,14 @@ export function Questionnaire({
   );
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"requirements" | "document">("document");
+  // When set (to a QuantCell id), the Requirements tab scrolls to and highlights
+  // that row. Driven by the blue "go to requirement" buttons next to datapoints.
+  const [requirementsTarget, setRequirementsTarget] = useState<string | null>(null);
+
+  const jumpToRequirement = useCallback((cellId: string) => {
+    setRequirementsTarget(cellId);
+    setTab("requirements");
+  }, []);
 
   const active = allQuestions.find((x) => x.q.id === activeId)!;
 
@@ -371,6 +462,8 @@ export function Questionnaire({
           sections={sections}
           answers={answers}
           assignees={assignees}
+          target={requirementsTarget}
+          onTargetConsumed={() => setRequirementsTarget(null)}
           onOpen={(id) => {
             setActiveId(id);
             setTab("document");
@@ -421,6 +514,7 @@ export function Questionnaire({
             canComplete(active.q, answers[active.q.id]) && setStatus(active.q.id, "completed")
           }
           computeCtx={computeCtx}
+          onJumpToRequirement={jumpToRequirement}
         />
         {panes.rightCollapsed ? (
           <CollapsedRail
@@ -482,16 +576,23 @@ function RequirementsView({
   sections,
   answers,
   assignees,
+  target,
+  onTargetConsumed,
   onOpen,
 }: {
   sections: Section[];
   answers: Record<string, QuestionState>;
   assignees: Assignees;
+  target?: string | null;
+  onTargetConsumed?: () => void;
   onOpen: (id: string) => void;
 }) {
   const [search, setSearch] = useState("");
   // "all" | "filled" | "empty" — filter rows by whether the cell has a value.
   const [fillFilter, setFillFilter] = useState<"all" | "filled" | "empty">("all");
+  // Briefly highlight the deep-linked row after a blue-button jump.
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
 
   const questionById = useMemo(() => {
     const m = new Map<string, Question>();
@@ -539,6 +640,25 @@ function RequirementsView({
       );
     });
   }, [rows, search, fillFilter]);
+
+  // Deep-link: when a target cell id arrives (blue-button jump), clear any
+  // filters that could hide it, then scroll it into view and flash a highlight.
+  useEffect(() => {
+    if (!target) return;
+    setSearch("");
+    setFillFilter("all");
+    setHighlightId(target);
+    const t1 = window.setTimeout(() => {
+      rowRefs.current[target]?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 0);
+    const t2 = window.setTimeout(() => setHighlightId(null), 2400);
+    onTargetConsumed?.();
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-white">
@@ -603,8 +723,15 @@ function RequirementsView({
             {filtered.map((r) => (
               <tr
                 key={r.id}
+                ref={(el) => {
+                  rowRefs.current[r.id] = el;
+                }}
                 onClick={() => onOpen(r.questionId)}
-                className="cursor-pointer border-b border-slate-100 hover:bg-slate-50/60"
+                className={`cursor-pointer border-b border-slate-100 hover:bg-slate-50/60 ${
+                  highlightId === r.id
+                    ? "bg-brand/10 ring-2 ring-inset ring-brand/50 transition-colors"
+                    : ""
+                }`}
               >
                 <td className="truncate px-4 py-3 font-mono text-[12px] text-slate-700">{r.id}</td>
                 <td className="truncate px-4 py-3 text-slate-900" title={r.label}>
@@ -746,10 +873,23 @@ function QuestionnaireHeader({
   onExport?: () => Promise<void> | void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncedAt, setSyncedAt] = useState<Date | null>(null);
-  const handleExport = async () => {
+
+  useEffect(() => {
+    if (!exportOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) setExportOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [exportOpen]);
+
+  const handleExportWord = async () => {
     if (busy || !onExport) return;
+    setExportOpen(false);
     setBusy(true);
     try {
       await onExport();
@@ -813,17 +953,62 @@ function QuestionnaireHeader({
           {syncing ? "Syncing…" : "Sync"}
         </button>
         {onExport && (
-          <button
-            onClick={handleExport}
-            disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            title="Download the filled template"
-          >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            {busy ? "Generating…" : "Export"}
-          </button>
+          <div ref={exportRef} className="relative">
+            <button
+              onClick={() => !busy && setExportOpen((o) => !o)}
+              disabled={busy}
+              aria-haspopup="menu"
+              aria-expanded={exportOpen}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              title="Download the filled report"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              {busy ? "Generating…" : "Export"}
+              {!busy && (
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </button>
+            {exportOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 top-full z-20 mt-1 w-52 rounded-md border border-slate-200 bg-white p-1 shadow-lg"
+              >
+                <button
+                  role="menuitem"
+                  onClick={handleExportWord}
+                  className="flex w-full items-center gap-2.5 rounded px-2.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4 text-blue-600" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M14 3v4a1 1 0 0 0 1 1h4" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M5 3h9l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="m8 13 1.2 4 1.3-4 1.3 4 1.2-4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  Export as Word
+                </button>
+                <button
+                  role="menuitem"
+                  disabled
+                  aria-disabled="true"
+                  title="XBRL export coming soon"
+                  className="flex w-full cursor-not-allowed items-center gap-2.5 rounded px-2.5 py-2 text-left text-sm text-slate-400"
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4 text-slate-300" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M14 3v4a1 1 0 0 0 1 1h4" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M5 3h9l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="m9 13 2 3-2 3M15 13l-2 3 2 3" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span className="flex-1">Export as XBRL</span>
+                  <span className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                    Soon
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </header>
@@ -976,6 +1161,7 @@ function QuestionPanel({
   onStatusChange,
   onComplete,
   computeCtx,
+  onJumpToRequirement,
 }: {
   section: Section;
   question: Question;
@@ -989,6 +1175,7 @@ function QuestionPanel({
   onStatusChange: (s: Status) => void;
   onComplete: () => void;
   computeCtx: ComputeContext;
+  onJumpToRequirement: (cellId: string) => void;
 }) {
   const valid = canComplete(question, state);
   return (
@@ -1037,9 +1224,21 @@ function QuestionPanel({
             onRows={onRows}
           />
           {question.kind === "fields" ? (
-            <FieldsForm q={question} values={state.values} onChange={onValues} computeCtx={computeCtx} />
+            <FieldsForm
+              q={question}
+              values={state.values}
+              onChange={onValues}
+              computeCtx={computeCtx}
+              onJumpToRequirement={onJumpToRequirement}
+            />
           ) : (
-            <TableField q={question} rows={state.rows} onChange={onRows} computeCtx={computeCtx} />
+            <TableField
+              q={question}
+              rows={state.rows}
+              onChange={onRows}
+              computeCtx={computeCtx}
+              onJumpToRequirement={onJumpToRequirement}
+            />
           )}
         </div>
 
@@ -1089,16 +1288,22 @@ function FieldsForm({
   values,
   onChange,
   computeCtx,
+  onJumpToRequirement,
 }: {
   q: FieldsQuestion;
   values: RowValues;
   onChange: (v: RowValues) => void;
   computeCtx?: ComputeContext;
+  onJumpToRequirement?: (cellId: string) => void;
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {q.fields.map((f) => {
         const wide = f.kind === "longtext";
+        // Show the blue "go to requirement" button next to a quantitative field
+        // once it holds a value (only number fields have a requirements row).
+        const cellId =
+          onJumpToRequirement && isFilled(f, values[f.id]) ? quantCellId(q, f.id) : null;
         return (
           <div key={f.id} className={wide ? "md:col-span-2" : ""}>
             <FieldLabel field={f} />
@@ -1108,6 +1313,12 @@ function FieldsForm({
               siblings={values}
               onChange={(v) => onChange({ ...values, [f.id]: v })}
               computeCtx={computeCtx}
+              valueClassName={cellId ? "text-blue-600 font-medium" : undefined}
+              trailing={
+                cellId && onJumpToRequirement ? (
+                  <RequirementLinkButton onClick={() => onJumpToRequirement(cellId)} />
+                ) : undefined
+              }
             />
             <FieldHelp field={f} />
           </div>

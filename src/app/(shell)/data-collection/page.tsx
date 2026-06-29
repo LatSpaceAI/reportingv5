@@ -57,12 +57,12 @@ export default function DataCollectionPage() {
             <h2 className="mb-3 text-[13px] font-semibold text-[#0A0A0A]">
               Choose a data entry method
             </h2>
-            <div className="grid gap-4 lg:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {METHODS.map((m) => (
                 <Link
                   key={m.href}
                   href={m.href}
-                  className="group flex flex-col border border-gray-200 p-5 transition-all hover:border-brand/50 hover:bg-brand/[0.02]"
+                  className="group flex h-full flex-col border border-gray-200 p-5 transition-all hover:border-brand/50 hover:bg-brand/[0.02]"
                 >
                   <div className="mb-4 flex h-10 w-10 items-center justify-center bg-brand/[0.06] text-brand transition-transform group-hover:scale-105">
                     {m.icon}
@@ -70,7 +70,7 @@ export default function DataCollectionPage() {
                   <h3 className="mb-1 text-[14px] font-semibold text-[#0A0A0A]">
                     {m.title}
                   </h3>
-                  <p className="text-[12px] leading-relaxed text-gray-500">
+                  <p className="mt-auto text-[12px] leading-relaxed text-gray-500">
                     {m.description}
                   </p>
                 </Link>
