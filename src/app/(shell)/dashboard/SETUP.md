@@ -60,21 +60,29 @@ the table will be reachable by the tiles routes.
 > Note: the data fetch reads pre-computed values from `esg.output_value` /
 > `esg.input_value`.
 
-## Resolver / demo data
+## Resolver
 
-`esg.output_value` and `esg.input_value` start empty, so charts render "No data"
-until populated. `scripts/resolve-esg.mjs` seeds plausible inputs for every
-plant × period and evaluates the 62-formula DAG (safe expression parser — no
-`eval`) into `esg.output_value`:
+`esg.output_value` starts empty, so charts render "No data" until the resolver
+runs. `scripts/resolve-birla.mjs` evaluates the 60-formula DAG (safe expression
+parser — no `eval`) over the entered site returns:
 
 ```
-npm run esg:resolve         # seed inputs (if empty) + compute outputs
-npm run esg:reseed          # overwrite inputs (new random demo data) + recompute
-npm run esg:test-resolver   # unit-test the expression engine (18 cases)
+npm run esg:resolve           # compute output_value from input_value
+npm run esg:resolve:dry       # compute + report, write nothing
+npm run esg:verify-resolver   # check the output against known-good figures
+npm run esg:check             # the whole suite (seed, model, engine, entry)
 ```
 
-The seed is **synthetic demo data**, but anchored to realistic per-plant clinker
-tonnage so KPIs land in believable ranges (SHC ~820 kcal/kg, SEC ~100 kWh/t,
-clinker factor ~0.67-0.76, TSR ~20%, grinding units correctly show 0 clinker).
-Replace it with real `input_value` data and re-run `esg:resolve --resolve-only`
-to compute outputs from actual inputs.
+**There is no demo seeding.** Every figure traces to a monthly site return
+entered through `/data-collection/site-return` or loaded by
+`supabase/esg/08*_input_values_seed.sql`. A site-month with no return produces
+no row at all — writing zeros would turn "nobody filed" into "a return of zero",
+which is the one thing this model must never do.
+
+That also means portfolio totals are **sums of what was filed, not estimates of
+what occurred**. FY2024-25 currently has 8 of 77 site-months evidenced (~10%),
+so every `output_value` row carries `sites_reporting` / `sites_expected` and the
+dashboard should surface it wherever a portfolio figure is shown.
+
+Re-run `esg:resolve` after entering new returns; it upserts, so it is safe to
+run repeatedly.

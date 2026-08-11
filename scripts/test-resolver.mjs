@@ -1,6 +1,7 @@
-// Unit tests for the ESG resolver's expression engine.
+// Unit tests for the ESG formula expression engine (scripts/lib/formula-eval.mjs),
+// which resolve-birla.mjs evaluates every disclosure through.
 // Run: node scripts/test-resolver.mjs
-import { tokenize, parse, evalAst } from "./resolve-esg.mjs";
+import { tokenize, parse, evalAst } from "./lib/formula-eval.mjs";
 
 const ev = (expr, ctx = {}) => evalAst(parse(tokenize(expr)), ctx);
 
