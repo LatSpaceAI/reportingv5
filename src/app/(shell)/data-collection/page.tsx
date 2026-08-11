@@ -14,6 +14,7 @@ import {
   PencilIcon,
   SparklesIcon,
   SpreadsheetIcon,
+  DownloadIcon,
 } from "./shared";
 
 const METHODS = [
@@ -35,6 +36,13 @@ const METHODS = [
     title: "Excel Upload",
     description: "Upload multiple records at once using Excel or CSV files.",
     icon: <SpreadsheetIcon className="h-5 w-5" />,
+  },
+  {
+    href: "/data-collection/export",
+    title: "Export BRSR Environment",
+    description:
+      "Fill the Real Estate BRSR template with computed values, in its own layout.",
+    icon: <DownloadIcon className="h-5 w-5" />,
   },
 ] as const;
 
