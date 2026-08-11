@@ -12,6 +12,7 @@ import {
 } from "@/lib/frameworks";
 import { formatUpdated } from "@/lib/storage";
 import { useToast } from "@/components/Toast";
+import BrsrEnvironmentExportDialog from "@/components/BrsrEnvironmentExportDialog";
 
 type CategoryFilter = "all" | "Climate" | "Sustainability" | "Regulatory";
 type StatusFilter = "all" | "active" | "coming-soon";
@@ -28,6 +29,7 @@ export default function LandingPage() {
   // dates) until after hydration, so SSR and the first client paint render the
   // same empty placeholders and React doesn't trip a hydration mismatch.
   const [mounted, setMounted] = useState(false);
+  const [envExportOpen, setEnvExportOpen] = useState(false);
   const { show } = useToast();
 
   useEffect(() => {
@@ -72,6 +74,12 @@ export default function LandingPage() {
 
   const handleExport = async (f: FrameworkSummary) => {
     try {
+      // Export-only rows have nothing to download until a year is picked, so
+      // they open a dialog rather than firing a file straight away.
+      if (f.id === "brsr-environment") {
+        setEnvExportOpen(true);
+        return;
+      }
       if (f.id === "brsr") {
         show(`Generating ${f.shortName} export…`);
         const { exportBrsrFilled } = await import("@/lib/brsrExport/export");
@@ -158,6 +166,11 @@ export default function LandingPage() {
           </div>
         )}
       </div>
+
+      <BrsrEnvironmentExportDialog
+        open={envExportOpen}
+        onClose={() => setEnvExportOpen(false)}
+      />
     </div>
   );
 }
@@ -236,6 +249,9 @@ function Row({
   const progress = mounted ? computeProgress(f) : { pct: 0, completed: 0, total: 0, lastUpdated: undefined as string | undefined };
   const { pct, lastUpdated } = progress;
   const isActive = f.status === "active";
+  // Export-only rows have no questionnaire behind them: nothing to link to, and
+  // a 0% bar would read as "unstarted" rather than "not applicable".
+  const exportOnly = f.variant === "export-only";
   return (
     <div
       className={`grid grid-cols-[2fr_3fr_1.2fr_1fr_0.8fr] items-center border-b border-slate-100 px-5 py-4 last:border-b-0 hover:bg-slate-50/60 ${
@@ -255,6 +271,12 @@ function Row({
             alt={`${f.shortName} logo`}
             className="h-10 w-10 shrink-0 rounded-md object-contain bg-white border border-slate-100"
           />
+        ) : f.logoIcon === "report" ? (
+          <div
+            className={`h-10 w-10 shrink-0 rounded-md grid place-items-center ${f.logoColor}`}
+          >
+            <ReportIcon className="h-5 w-5" />
+          </div>
         ) : (
           <div
             className={`h-10 w-10 shrink-0 rounded-md grid place-items-center text-[10px] font-bold ${f.logoColor}`}
@@ -263,12 +285,14 @@ function Row({
           </div>
         )}
         <div className="min-w-0">
-          {isActive ? (
+          {isActive && !exportOnly ? (
             <Link href={`/report/${f.id}`} className="font-medium text-slate-900 hover:underline">
               {f.shortName}
             </Link>
           ) : (
-            <span className="font-medium text-slate-700">{f.shortName}</span>
+            <span className={`font-medium ${isActive ? "text-slate-900" : "text-slate-700"}`}>
+              {f.shortName}
+            </span>
           )}
           {f.name && f.name !== f.shortName && (
             <div className="text-xs text-slate-600">{f.name}</div>
@@ -276,12 +300,17 @@ function Row({
           <div className="text-xs text-slate-500">
             {f.cadence}
             {!isActive && <span className="ml-2 text-slate-400">· Coming soon</span>}
+            {exportOnly && <span className="ml-2 text-slate-400">· Export only</span>}
           </div>
         </div>
       </div>
       <div className="pr-4 text-sm text-slate-600 line-clamp-2">{f.description}</div>
       <div>
-        {isActive ? (
+        {exportOnly ? (
+          <span className="text-sm text-slate-400" title="Coverage is shown when you export">
+            —
+          </span>
+        ) : isActive ? (
           <div>
             <div className="text-sm font-medium text-slate-900">{pct}%</div>
             <div className="mt-1 h-1 w-24 rounded-full bg-slate-100 overflow-hidden">
@@ -316,6 +345,29 @@ function Row({
         </button>
       </div>
     </div>
+  );
+}
+
+// Generic mark for reports that aren't published by a named body, so there's no
+// logo to show.
+function ReportIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <path
+        d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M14 3v5h5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9 13h6M9 17h4" strokeLinecap="round" />
+    </svg>
   );
 }
 

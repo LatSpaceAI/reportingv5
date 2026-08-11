@@ -1,20 +1,16 @@
 "use client";
 
 // Data Collection hub — ported from hindalco's /plant/data-entry landing page
-// and restyled to plato-v1's design language. Pick a reporting period, then
-// choose one of three entry methods, each on its own sub-route.
+// and restyled to plato-v1's design language. Choose an entry method; each one
+// lives on its own sub-route and picks up the period from the return itself.
 
 import Link from "next/link";
 
 import {
   PageHeader,
-  ReportingPeriodCard,
-  useReportingPeriod,
   UploadIcon,
   PencilIcon,
-  SparklesIcon,
   SpreadsheetIcon,
-  DownloadIcon,
 } from "./shared";
 
 const METHODS = [
@@ -32,41 +28,24 @@ const METHODS = [
       "Upload a month's site return as filed. Values are parsed, checked against last year, and reviewed before they are recorded.",
     icon: <SpreadsheetIcon className="h-5 w-5" />,
   },
-  {
-    href: "/data-collection/document",
-    title: "Smart Upload (AI-Powered)",
-    description: "Upload documents and let AI extract the data automatically.",
-    icon: <SparklesIcon className="h-5 w-5" />,
-  },
-  {
-    href: "/data-collection/export",
-    title: "Export BRSR Environment",
-    description:
-      "Fill the Real Estate BRSR template with computed values, in its own layout.",
-    icon: <DownloadIcon className="h-5 w-5" />,
-  },
 ] as const;
 
 export default function DataCollectionPage() {
-  const [period, setPeriod] = useReportingPeriod();
-
   return (
     <div className="min-h-screen bg-white">
       <div className="mx-auto max-w-[900px] px-6 py-6">
         <PageHeader
           icon={<UploadIcon className="h-5 w-5" />}
           title="Data Collection"
-          subtitle="Choose a method, select a reporting period, and submit your emissions data."
+          subtitle="Choose a method and submit your emissions data."
         />
 
         <div className="space-y-8">
-          <ReportingPeriodCard period={period} onChange={setPeriod} />
-
           <div>
             <h2 className="mb-3 text-[13px] font-semibold text-[#0A0A0A]">
               Choose a data entry method
             </h2>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2">
               {METHODS.map((m) => (
                 <Link
                   key={m.href}
