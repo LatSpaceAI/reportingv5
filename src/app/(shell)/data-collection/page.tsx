@@ -18,10 +18,10 @@ import {
 
 const METHODS = [
   {
-    href: "/data-collection/manual",
-    title: "Manual Data Entry",
+    href: "/data-collection/site-return",
+    title: "Monthly Site Return",
     description:
-      "Enter emissions and activity data manually through structured forms.",
+      "Enter a site's monthly ESG return. Each site's own form layout is reproduced as filed.",
     icon: <PencilIcon className="h-5 w-5" />,
   },
   {

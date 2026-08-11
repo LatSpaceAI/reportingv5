@@ -17,7 +17,11 @@
     "smoke:fill": "node scripts/smoke-runner.mjs fill",
     "esg:resolve": "node scripts/resolve-esg.mjs",
     "esg:reseed": "node scripts/resolve-esg.mjs --reseed",
-    "esg:test-resolver": "node scripts/test-resolver.mjs"
+    "esg:test-resolver": "node scripts/test-resolver.mjs",
+    "esg:validate": "node scripts/validate-esg-seed.mjs",
+    "esg:verify": "node scripts/verify-esg-model.mjs",
+    "esg:test-entry": "tsx scripts/test-parse-quantity.ts && tsx scripts/test-site-validation.ts && tsx scripts/test-entry-resolution.ts",
+    "esg:check": "npm run esg:validate && npm run esg:verify && npm run esg:test-entry"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
