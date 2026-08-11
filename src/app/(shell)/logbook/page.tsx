@@ -1,394 +1,485 @@
 "use client";
 
-// Data Logbook — ported from hindalco's /plant/logbook page and restyled to
-// plato-v1's design language. The original fetched from a mock API via React
-// Query; here the seed data lives in ./data and approve/reject mutate local
-// state. Filtered to the plant-manager's site, matching the source view.
+// Logbook — every entered site-month, in one place.
+//
+// One collapsed row per (site, period): who entered it, when, from where, and
+// how many values it holds. Expanding fetches the data points themselves.
+//
+// The two things this page exists to make visible:
+//
+//   * PROVENANCE. A figure typed by hand and one read out of a spreadsheet are
+//     both legitimate, but they are not the same evidence. Each value shows
+//     which it is, and an imported one names the file and cell it came from.
+//
+//   * SUPERSESSION. Re-uploading a month replaces its values. The replaced
+//     ones are kept and shown here under "previously recorded", because an
+//     override that left no trace would make the audit trail a claim rather
+//     than a fact.
 
-import { Fragment, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { useToast } from "@/components/Toast";
-import { ParameterDataDropdown } from "./ParameterDataDropdown";
-import { logbookEntries as seedEntries, type LogbookEntry } from "./data";
+import { initialsOf } from "@/lib/currentUser";
+import type { LogbookEntrySummary } from "@/app/api/esg/logbook/route";
+import type {
+  LogbookValue,
+  LogbookHistoryValue,
+} from "@/app/api/esg/logbook/entry/route";
 
-// hindalco's plant manager is assigned to site-1; the seed data is already
-// filtered to that site, but we keep the constant for parity.
-const PLANT_MANAGER_SITE_ID = "site-1";
+interface EntryFlag {
+  parameterKey: string | null;
+  ruleCode: string;
+  severity: "info" | "warning" | "error";
+  message: string;
+  acknowledgedAt: string | null;
+}
 
-type TabType = "approved" | "under_review_rejected";
+interface ImportRecord {
+  id: number;
+  filename: string;
+  sheet_name: string | null;
+  uploaded_by: string | null;
+  committed_at: string | null;
+  row_count: number;
+  matched_count: number;
+  unmatched_count: number;
+}
 
-const CATEGORY_OPTIONS = [
-  { value: "all", label: "All Categories" },
-  { value: "Production", label: "Production" },
-  { value: "Energy", label: "Energy" },
-  { value: "Fuel", label: "Fuel" },
-  { value: "RawMaterial", label: "Raw Material" },
-  { value: "Emissions", label: "Emissions" },
-] as const;
+interface EntryDetail {
+  values: LogbookValue[];
+  flags: EntryFlag[];
+  history: LogbookHistoryValue[];
+  imports: ImportRecord[];
+}
+
+const fmt = (n: number | null) =>
+  n == null ? "—" : Number(n).toLocaleString("en-IN", { maximumFractionDigits: 4 });
+
+function when(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
 
 export default function LogbookPage() {
-  const { show } = useToast();
-  const [entries, setEntries] = useState<LogbookEntry[]>(() =>
-    seedEntries.filter((e) => e.siteId === PLANT_MANAGER_SITE_ID),
+  const [entries, setEntries] = useState<LogbookEntrySummary[]>([]);
+  const [fiscalYears, setFiscalYears] = useState<string[]>([]);
+  const [fy, setFy] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [details, setDetails] = useState<Record<string, EntryDetail>>({});
+  const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/esg/logbook${fy ? `?fy=${encodeURIComponent(fy)}` : ""}`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) throw new Error(data.error ?? "Failed to load the logbook");
+        setEntries(data.entries ?? []);
+        if (!fy && data.fiscalYears?.length) setFiscalYears(data.fiscalYears);
+        setError(null);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fy]);
+
+  const keyOf = (e: LogbookEntrySummary) => `${e.siteId}-${e.periodId}`;
+
+  const toggle = useCallback(
+    async (e: LogbookEntrySummary) => {
+      const key = keyOf(e);
+      if (expanded === key) {
+        setExpanded(null);
+        return;
+      }
+      setExpanded(key);
+      if (details[key]) return;
+
+      setLoadingDetail(key);
+      try {
+        const res = await fetch(
+          `/api/esg/logbook/entry?siteId=${e.siteId}&periodId=${e.periodId}`
+        );
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed to load values");
+        setDetails((prev) => ({ ...prev, [key]: data }));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoadingDetail(null);
+      }
+    },
+    [expanded, details]
   );
-  const [activeTab, setActiveTab] = useState<TabType>("approved");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null);
 
-  const approveEntry = (id: string) => {
-    setEntries((prev) =>
-      prev.map((e) =>
-        e.id === id
-          ? { ...e, status: "Approved", reviewedBy: "plant_mgr", reviewedAt: new Date().toISOString() }
-          : e,
-      ),
-    );
-    show("Entry approved successfully.");
-  };
-
-  const rejectEntry = (id: string) => {
-    setEntries((prev) =>
-      prev.map((e) =>
-        e.id === id
-          ? {
-              ...e,
-              status: "Rejected",
-              reviewedBy: "plant_mgr",
-              reviewedAt: new Date().toISOString(),
-              rejectionReason: "Rejected by plant manager",
-            }
-          : e,
-      ),
-    );
-    show("Entry rejected.");
-  };
-
-  const stats = useMemo(() => {
-    const total = entries.length;
-    const submitted = entries.filter((e) => e.status === "Submitted").length;
-    const underReview = entries.filter((e) => e.status === "UnderReview").length;
-    const changesRequested = entries.filter((e) => e.status === "Rejected").length;
-    const approved = entries.filter((e) => e.status === "Approved").length;
-    const anomaliesDetected = entries.filter((e) => (e.anomalyCount || 0) > 0).length;
-    return { total, submitted, underReview, changesRequested, approved, anomaliesDetected };
-  }, [entries]);
-
-  const sortedEntries = useMemo(() => {
-    const byTab = entries.filter((e) =>
-      activeTab === "approved"
-        ? e.status === "Approved"
-        : e.status === "UnderReview" || e.status === "Submitted" || e.status === "Rejected",
-    );
-    const term = searchTerm.toLowerCase();
-    const filtered = byTab.filter((e) => {
-      const matchesSearch =
-        e.period.toLowerCase().includes(term) || e.siteName.toLowerCase().includes(term);
-      const matchesCategory = categoryFilter === "all" || e.category === categoryFilter;
-      return matchesSearch && matchesCategory;
-    });
-    return [...filtered].sort(
-      (a, b) => new Date(b.entryDate).getTime() - new Date(a.entryDate).getTime(),
-    );
-  }, [entries, activeTab, searchTerm, categoryFilter]);
+  const totals = useMemo(
+    () => ({
+      entries: entries.length,
+      values: entries.reduce((n, e) => n + e.valueCount, 0),
+      imported: entries.filter((e) => e.importBatchId != null).length,
+      flagged: entries.filter((e) => e.openFlagCount > 0).length,
+    }),
+    [entries]
+  );
 
   return (
-    <div className="min-h-screen bg-white">
-      <div className="mx-auto max-w-[1200px] px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight text-[#0A0A0A]">Data Logbook</h1>
-          <p className="mt-2 text-sm text-slate-500">
-            Review and approve data entry submissions from AI Bulk Upload.
+    <div className="mx-auto max-w-[1200px] px-8 py-10">
+      <div className="mb-8">
+        <h1 className="text-[22px] font-semibold text-[#0A0A0A]">Logbook</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Every site-month that has been entered, with the values it holds and where they came
+          from.
+        </p>
+      </div>
+
+      {/* Summary */}
+      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+        <Stat label="Entries" value={String(totals.entries)} />
+        <Stat label="Data points" value={totals.values.toLocaleString("en-IN")} />
+        <Stat label="From Excel" value={String(totals.imported)} />
+        <Stat label="With open flags" value={String(totals.flagged)} tone={totals.flagged ? "warn" : "neutral"} />
+      </div>
+
+      {/* Filter */}
+      {fiscalYears.length > 0 && (
+        <div className="mb-4 flex items-center gap-2">
+          <span className="text-[11px] uppercase tracking-[0.15em] text-gray-400">
+            Fiscal year
+          </span>
+          <button
+            type="button"
+            onClick={() => setFy("")}
+            className={`border px-3 py-1.5 text-xs transition-colors ${
+              fy === "" ? "border-brand bg-brand/[0.04] text-brand" : "border-gray-200 text-gray-600"
+            }`}
+          >
+            All
+          </button>
+          {fiscalYears.map((y) => (
+            <button
+              key={y}
+              type="button"
+              onClick={() => setFy(y)}
+              className={`border px-3 py-1.5 text-xs transition-colors ${
+                fy === y ? "border-brand bg-brand/[0.04] text-brand" : "border-gray-200 text-gray-600"
+              }`}
+            >
+              {y}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {error && (
+        <div className="mb-4 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="border border-gray-200 bg-white px-6 py-16 text-center text-sm text-gray-400">
+          Loading…
+        </div>
+      ) : entries.length === 0 ? (
+        <div className="border border-gray-200 bg-white px-6 py-16 text-center">
+          <p className="text-sm text-gray-600">Nothing has been entered yet.</p>
+          <p className="mt-2 text-xs text-gray-400">
+            Enter a return from{" "}
+            <a className="text-brand underline underline-offset-2" href="/data-collection/site-return">
+              Monthly Site Return
+            </a>{" "}
+            or upload one from{" "}
+            <a className="text-brand underline underline-offset-2" href="/data-collection/excel-entry">
+              Excel Entry
+            </a>
+            .
           </p>
         </div>
+      ) : (
+        <div className="divide-y divide-gray-100 border border-gray-200 bg-white">
+          {entries.map((e) => {
+            const key = keyOf(e);
+            const isOpen = expanded === key;
+            const detail = details[key];
+            return (
+              <div key={key}>
+                {/* ── Collapsed row ─────────────────────────────────────── */}
+                <button
+                  type="button"
+                  onClick={() => void toggle(e)}
+                  className="flex w-full items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-gray-50/60"
+                >
+                  <ChevronIcon
+                    className={`h-4 w-4 flex-shrink-0 text-gray-400 transition-transform ${
+                      isOpen ? "rotate-90" : ""
+                    }`}
+                  />
 
-        {/* Tabs */}
-        <div className="mb-6 flex">
-          <button
-            type="button"
-            onClick={() => setActiveTab("approved")}
-            className={`px-6 py-3 text-[12px] font-semibold uppercase tracking-wider transition-all ${
-              activeTab === "approved"
-                ? "bg-brand text-white"
-                : "border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            Approved Logs
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("under_review_rejected")}
-            className={`px-6 py-3 text-[12px] font-semibold uppercase tracking-wider transition-all ${
-              activeTab === "under_review_rejected"
-                ? "bg-[#0A0A0A] text-white"
-                : "border border-l-0 border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            Under Review &amp; Rejected
-          </button>
-        </div>
-
-        {/* Search + category */}
-        <div className="mb-6 flex items-center gap-4">
-          <div className="relative max-w-md flex-1">
-            <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search by site or period…"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full border border-gray-300 py-2.5 pl-10 pr-4 text-sm outline-none transition-colors hover:border-gray-400 focus:border-brand"
-            />
-          </div>
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className="w-[200px] border border-gray-300 px-3 py-2.5 text-sm outline-none transition-colors hover:border-gray-400 focus:border-brand"
-          >
-            {CATEGORY_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Stats */}
-        <div className="mb-8 border border-gray-200 bg-gray-50 p-6">
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-            <Stat label="Total Entries" value={stats.total} tone="text-[#0A0A0A]" />
-            <Stat label="Submitted" value={stats.submitted} tone="text-blue-600" />
-            <Stat label="Under Review" value={stats.underReview} tone="text-amber-600" />
-            <Stat label="Changes Requested" value={stats.changesRequested} tone="text-red-600" />
-            <Stat label="Approved" value={stats.approved} tone="text-brand" />
-            <Stat label="Anomalies Detected" value={stats.anomaliesDetected} tone="text-orange-600" />
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="overflow-hidden border border-gray-200 bg-white">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="border-b border-gray-200 bg-gray-50 text-left">
-                {["Period", "Category", "Anomalies", "Submitted By", "Submitted Date", "Status", "Reviewed By"].map(
-                  (h) => (
-                    <th
-                      key={h}
-                      className="px-4 py-4 text-[11px] font-semibold uppercase tracking-wider text-gray-600"
-                    >
-                      {h}
-                    </th>
-                  ),
-                )}
-                <th className="px-4 py-4 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-600">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedEntries.length > 0 ? (
-                sortedEntries.map((entry) => {
-                  const isExpanded = expandedEntryId === entry.id;
-                  return (
-                    <Fragment key={entry.id}>
-                      <tr className="border-b border-gray-100 hover:bg-gray-50">
-                        <td className="px-4 py-4 text-[13px] font-medium text-gray-900">{entry.period}</td>
-                        <td className="px-4 py-4">
-                          <CategoryBadge category={entry.category} />
-                        </td>
-                        <td className="px-4 py-4">
-                          <AnomalyBadge count={entry.anomalyCount} />
-                        </td>
-                        <td className="px-4 py-4 text-[13px] text-gray-600">{entry.submittedBy}</td>
-                        <td className="px-4 py-4 text-[13px] text-gray-600">
-                          {new Date(entry.submittedAt).toLocaleDateString("en-US", {
-                            year: "numeric",
-                            month: "short",
-                            day: "numeric",
-                          })}
-                        </td>
-                        <td className="px-4 py-4">
-                          <StatusBadge status={entry.status} />
-                        </td>
-                        <td className="px-4 py-4 text-[13px] text-gray-600">{entry.reviewedBy || "-"}</td>
-                        <td className="px-4 py-4">
-                          <div className="flex items-center justify-end gap-2">
-                            {entry.status === "Submitted" && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => approveEntry(entry.id)}
-                                  className="inline-flex items-center gap-1.5 bg-brand px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-white transition-colors hover:bg-brand-medium"
-                                >
-                                  <CheckIcon className="h-3.5 w-3.5" />
-                                  Approve
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => rejectEntry(entry.id)}
-                                  className="inline-flex items-center gap-1.5 bg-red-600 px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-white transition-colors hover:bg-red-700"
-                                >
-                                  <XIcon className="h-3.5 w-3.5" />
-                                  Reject
-                                </button>
-                              </>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => setExpandedEntryId(isExpanded ? null : entry.id)}
-                              className="inline-flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium uppercase tracking-wider text-gray-600 transition-colors hover:text-brand"
-                            >
-                              {isExpanded ? (
-                                <>
-                                  <ChevronDownIcon className="h-4 w-4" />
-                                  Hide Data
-                                </>
-                              ) : (
-                                <>
-                                  <ChevronRightIcon className="h-4 w-4" />
-                                  View Data
-                                </>
-                              )}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                      {isExpanded && (
-                        <tr>
-                          <td colSpan={8} className="p-0">
-                            <ParameterDataDropdown
-                              category={entry.category}
-                              entryId={entry.id}
-                              onToggle={() => setExpandedEntryId(null)}
-                            />
-                          </td>
-                        </tr>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium text-[#0A0A0A]">{e.siteName}</span>
+                      <span className="text-sm text-gray-500">
+                        {e.monthLabel} {e.fiscalYear}
+                      </span>
+                      <StatusChip status={e.status} />
+                      {e.importBatchId != null && <SourceChip label="Excel" />}
+                      {e.openFlagCount > 0 && (
+                        <span className="border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] uppercase tracking-[0.1em] text-amber-800">
+                          {e.openFlagCount} flag{e.openFlagCount === 1 ? "" : "s"}
+                        </span>
                       )}
-                    </Fragment>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={8} className="py-12 text-center text-sm text-gray-500">
-                    {entries.length === 0
-                      ? "No entries yet."
-                      : "No entries found matching your filters."}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500">
+                      {e.valueCount} data point{e.valueCount === 1 ? "" : "s"}
+                      {e.naCount > 0 && ` · ${e.naCount} marked NA`}
+                      {e.sourceDoc && (
+                        <>
+                          {" · "}
+                          <span className="font-mono text-[11px] text-gray-400">
+                            {e.sourceDoc.split("!")[0]}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-shrink-0 items-center gap-3">
+                    <div className="text-right">
+                      <div className="text-xs text-gray-700">{e.lastEnteredBy ?? "—"}</div>
+                      <div className="text-[11px] text-gray-400">{when(e.lastUpdatedAt)}</div>
+                    </div>
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand/10 text-[10px] font-medium text-brand">
+                      {initialsOf(e.lastEnteredBy ?? "?")}
+                    </div>
+                  </div>
+                </button>
+
+                {/* ── Expanded ──────────────────────────────────────────── */}
+                {isOpen && (
+                  <div className="border-t border-gray-100 bg-gray-50/40 px-5 py-4">
+                    {loadingDetail === key ? (
+                      <p className="py-6 text-center text-sm text-gray-400">Loading values…</p>
+                    ) : !detail ? (
+                      <p className="py-6 text-center text-sm text-gray-400">No values.</p>
+                    ) : (
+                      <>
+                        {detail.imports.length > 0 && (
+                          <div className="mb-4 border border-gray-200 bg-white px-4 py-3 text-xs">
+                            <div className="mb-1 text-[10px] uppercase tracking-[0.15em] text-gray-400">
+                              Imported from
+                            </div>
+                            {detail.imports.map((im) => (
+                              <div key={im.id} className="text-gray-700">
+                                <span className="font-medium">{im.filename}</span>
+                                {im.sheet_name && (
+                                  <span className="text-gray-500"> › {im.sheet_name}</span>
+                                )}
+                                <span className="text-gray-400">
+                                  {" "}
+                                  — {im.matched_count} of {im.row_count} rows matched
+                                  {im.unmatched_count > 0 && `, ${im.unmatched_count} unmatched`}
+                                  {im.uploaded_by && ` · ${im.uploaded_by}`}
+                                  {im.committed_at && ` · ${when(im.committed_at)}`}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {detail.flags.filter((f) => !f.acknowledgedAt).length > 0 && (
+                          <div className="mb-4 space-y-1.5">
+                            {detail.flags
+                              .filter((f) => !f.acknowledgedAt)
+                              .map((f, i) => (
+                                <div
+                                  key={`${f.ruleCode}-${i}`}
+                                  className={`border-l-2 px-3 py-2 text-xs ${
+                                    f.severity === "error"
+                                      ? "border-red-400 bg-red-50/70 text-red-800"
+                                      : f.severity === "warning"
+                                        ? "border-amber-400 bg-amber-50/70 text-amber-900"
+                                        : "border-gray-300 bg-white text-gray-600"
+                                  }`}
+                                >
+                                  {f.message}
+                                </div>
+                              ))}
+                          </div>
+                        )}
+
+                        <div className="overflow-x-auto border border-gray-200 bg-white">
+                          <table className="w-full min-w-[720px] text-sm">
+                            <thead>
+                              <tr className="border-b border-gray-200 bg-gray-50/80 text-[11px] uppercase tracking-[0.1em] text-gray-500">
+                                <th className="px-3 py-2 text-left font-medium">Parameter</th>
+                                <th className="px-3 py-2 text-right font-medium">Value</th>
+                                <th className="px-3 py-2 text-left font-medium">As filed</th>
+                                <th className="px-3 py-2 text-left font-medium">Source</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {detail.values.map((v) => (
+                                <tr
+                                  key={v.parameterKey}
+                                  className="border-b border-gray-100 last:border-0"
+                                >
+                                  <td className="px-3 py-2">
+                                    <div className="text-gray-800">{v.parameterLabel}</div>
+                                    <div className="font-mono text-[10px] text-gray-400">
+                                      {v.parameterKey}
+                                      {v.isMemo && " · memo"}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    {v.isNotAvailable ? (
+                                      <span className="text-xs text-gray-400">not available</span>
+                                    ) : (
+                                      <>
+                                        <span className="text-gray-800">{fmt(v.valueNum)}</span>
+                                        {v.unit && (
+                                          <span className="ml-1 text-[11px] text-gray-400">
+                                            {v.unit}
+                                          </span>
+                                        )}
+                                      </>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 text-xs text-gray-500">
+                                    {v.rawText ? `“${v.rawText}”` : "—"}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <ProvenanceChip provenance={v.provenance} />
+                                    {v.sourceDoc && (
+                                      <div className="mt-0.5 font-mono text-[10px] text-gray-400">
+                                        {v.sourceDoc}
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {detail.history.length > 0 && (
+                          <div className="mt-4">
+                            <div className="mb-2 text-[10px] uppercase tracking-[0.15em] text-gray-400">
+                              Previously recorded — replaced by a later upload
+                            </div>
+                            <div className="border border-gray-200 bg-white/60">
+                              {detail.history.map((h, i) => (
+                                <div
+                                  key={`${h.parameterKey}-${i}`}
+                                  className="flex items-center justify-between border-b border-gray-100 px-3 py-1.5 text-xs last:border-0"
+                                >
+                                  <span className="text-gray-600">{h.parameterLabel}</span>
+                                  <span className="text-gray-500">
+                                    {h.isNotAvailable ? "not available" : fmt(h.valueNum)}
+                                    <span className="ml-2 text-gray-400">
+                                      {h.enteredBy ?? "—"} · replaced {when(h.supersededAt)}
+                                    </span>
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Pieces ──────────────────────────────────────────────────────────────────
+
+function Stat({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  tone?: "neutral" | "warn";
+}) {
+  return (
+    <div className="border border-gray-200 bg-white px-4 py-3">
+      <div className="text-[10px] uppercase tracking-[0.15em] text-gray-400">{label}</div>
+      <div
+        className={`mt-1 text-[20px] font-semibold ${
+          tone === "warn" ? "text-amber-700" : "text-[#0A0A0A]"
+        }`}
+      >
+        {value}
       </div>
     </div>
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: number; tone: string }) {
+function StatusChip({ status }: { status: string }) {
+  const tone =
+    status === "approved"
+      ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+      : status === "submitted" || status === "under_review"
+        ? "border-blue-300 bg-blue-50 text-blue-800"
+        : "border-gray-300 bg-gray-50 text-gray-600";
   return (
-    <div>
-      <div className="mb-1 text-[12px] text-gray-500">{label}</div>
-      <div className={`text-3xl font-semibold ${tone}`}>{value}</div>
-    </div>
+    <span className={`border px-2 py-0.5 text-[10px] uppercase tracking-[0.1em] ${tone}`}>
+      {status.replace(/_/g, " ")}
+    </span>
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    Draft: "bg-gray-100 text-gray-700 border-gray-300",
-    Submitted: "bg-blue-50 text-blue-700 border-blue-200",
-    UnderReview: "bg-amber-50 text-amber-700 border-amber-200",
-    Approved: "bg-brand/[0.08] text-brand border-brand/20",
-    Rejected: "bg-red-50 text-red-700 border-red-200",
-  };
+function SourceChip({ label }: { label: string }) {
   return (
-    <span
-      className={`inline-block border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${styles[status] || ""}`}
+    <span className="border border-brand/30 bg-brand/[0.05] px-2 py-0.5 text-[10px] uppercase tracking-[0.1em] text-brand">
+      {label}
+    </span>
+  );
+}
+
+function ProvenanceChip({ provenance }: { provenance: string }) {
+  const label =
+    provenance === "imported"
+      ? "from Excel"
+      : provenance === "parsed"
+        ? "parsed from text"
+        : provenance === "estimated"
+          ? "estimated"
+          : "typed";
+  return <span className="text-[11px] text-gray-500">{label}</span>;
+}
+
+// lucide: chevron-right
+function ChevronIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
     >
-      {status === "UnderReview" ? "Under Review" : status}
-    </span>
-  );
-}
-
-function CategoryBadge({ category }: { category: string }) {
-  const styles: Record<string, string> = {
-    Production: "bg-blue-50 text-blue-700 border-blue-200",
-    Energy: "bg-amber-50 text-amber-700 border-amber-200",
-    Fuel: "bg-orange-50 text-orange-700 border-orange-200",
-    RawMaterial: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    Emissions: "bg-purple-50 text-purple-700 border-purple-200",
-    Other: "bg-gray-50 text-gray-700 border-gray-200",
-  };
-  return (
-    <span
-      className={`inline-block border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${styles[category] || ""}`}
-    >
-      {category === "RawMaterial" ? "Raw Material" : category}
-    </span>
-  );
-}
-
-function AnomalyBadge({ count }: { count?: number }) {
-  if (!count || count === 0) return <span className="text-[12px] text-gray-300">—</span>;
-  return (
-    <span className="inline-flex items-center gap-1 border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-red-600">
-      <AlertTriangleIcon className="h-3 w-3" />
-      {count} {count === 1 ? "Anomaly" : "Anomalies"}
-    </span>
-  );
-}
-
-// ── Inline lucide icons ─────────────────────────────────────────────────────
-
-function SearchIcon({ className = "h-4 w-4" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="8" />
-      <path d="m21 21-4.3-4.3" />
-    </svg>
-  );
-}
-
-function CheckIcon({ className = "h-4 w-4" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  );
-}
-
-function XIcon({ className = "h-4 w-4" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M18 6 6 18" />
-      <path d="m6 6 12 12" />
-    </svg>
-  );
-}
-
-function ChevronRightIcon({ className = "h-4 w-4" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="m9 18 6-6-6-6" />
-    </svg>
-  );
-}
-
-function ChevronDownIcon({ className = "h-4 w-4" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
-}
-
-function AlertTriangleIcon({ className = "h-4 w-4" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-      <path d="M12 9v4" />
-      <path d="M12 17h.01" />
     </svg>
   );
 }

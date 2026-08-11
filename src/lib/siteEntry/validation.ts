@@ -15,10 +15,40 @@ import type { DataFlag } from "./types";
 /** Canonical values for one site-month, keyed by input_parameter.key. */
 export type ParamValues = Record<string, number | null>;
 
+/**
+ * A prior figure to compare this month against, for anomaly detection.
+ *
+ * `basis` is carried with the value because WHICH comparison was made changes
+ * how a reader should weigh the flag. "20% above the same month last year" is
+ * a real signal; "20% above last month" across a monsoon boundary usually is
+ * not. The message always says which one it used.
+ */
+export interface PriorValue {
+  value: number;
+  basis: "same_month_prior_year" | "most_recent_month";
+  /** Human label for the period compared against: "Apr 2024-25". */
+  periodLabel: string;
+}
+
 export interface RuleContext {
   values: ParamValues;
   /** Parameters the site explicitly marked not-available. */
   notAvailable: Set<string>;
+  /**
+   * Prior figures keyed by parameter key. Absent for a site's first return —
+   * anomaly rules simply do not fire when there is nothing to compare against,
+   * which is the honest outcome rather than flagging everything as new.
+   */
+  priorValues?: Record<string, PriorValue>;
+  /** Fields the form marks required, for the missing-value rule. */
+  requiredKeys?: string[];
+  /** Labels for required keys, so the message names the row as printed. */
+  labelsByKey?: Record<string, string>;
+  /**
+   * Tolerance for the anomaly rule, as a fraction. Defaults to 0.2 (±20%).
+   * Sourced from esg.constant so it is tunable without a deploy.
+   */
+  anomalyTolerance?: number;
 }
 
 interface Rule {
@@ -222,7 +252,82 @@ const RULES: Rule[] = [
       return `Negative values entered for: ${negatives.join(", ")}.`;
     },
   },
+
+  // -------------------------------------------------------------------------
+  // A required row with nothing in it.
+  //
+  // Distinct from a row the site marked NA: "not applicable" is an answer, an
+  // empty cell is a gap. Only the gap is flagged, and only as a warning —
+  // blocking would stop a genuinely partial return being recorded at all.
+  // -------------------------------------------------------------------------
+  {
+    code: "REQUIRED_FIELD_MISSING",
+    severity: "warning",
+    parameterKey: null,
+    run: ({ values, notAvailable, requiredKeys, labelsByKey }) => {
+      if (!requiredKeys?.length) return null;
+      const missing = requiredKeys.filter(
+        (k) => !has(values[k]) && !notAvailable.has(k)
+      );
+      if (!missing.length) return null;
+      const named = missing.map((k) => labelsByKey?.[k] ?? k);
+      return `${missing.length} required ${
+        missing.length === 1 ? "row was" : "rows were"
+      } left empty: ${named.join(", ")}. Mark them "not available" if the site ` +
+        `genuinely has no figure, so the gap is recorded as an answer rather ` +
+        `than an omission.`;
+    },
+  },
 ];
+
+// ---------------------------------------------------------------------------
+// Anomaly detection against a prior period.
+//
+// Generated per parameter rather than written out, because the rule is the
+// same for every quantity and the flag has to hang off the specific row so the
+// preview can highlight it.
+//
+// Why this is a WARNING and never an error: a site that genuinely doubled its
+// diesel because a second DG came online is not filing bad data. The flag says
+// "look at this", and the reviewer decides. Sangamwadi's December return moved
+// several figures by far more than 20% for exactly that kind of reason.
+// ---------------------------------------------------------------------------
+export const DEFAULT_ANOMALY_TOLERANCE = 0.2;
+
+const BASIS_LABEL: Record<PriorValue["basis"], string> = {
+  same_month_prior_year: "the same month last year",
+  most_recent_month: "the most recent month filed",
+};
+
+function anomalyFlags(ctx: RuleContext): DataFlag[] {
+  const priors = ctx.priorValues;
+  if (!priors) return [];
+  const tol = ctx.anomalyTolerance ?? DEFAULT_ANOMALY_TOLERANCE;
+  const out: DataFlag[] = [];
+
+  for (const [key, prior] of Object.entries(priors)) {
+    const current = ctx.values[key];
+    if (!has(current)) continue;
+    // Nothing to compare a change against when the prior figure is zero: any
+    // non-zero value is an infinite percentage change, which is noise.
+    if (!Number.isFinite(prior.value) || prior.value === 0) continue;
+
+    const delta = (current - prior.value) / Math.abs(prior.value);
+    if (Math.abs(delta) <= tol) continue;
+
+    const pct = Math.round(Math.abs(delta) * 100);
+    const direction = delta > 0 ? "higher" : "lower";
+    out.push({
+      parameterKey: key,
+      ruleCode: "ANOMALY_VS_PRIOR",
+      severity: "warning",
+      message:
+        `${fmt(current)} is ${pct}% ${direction} than ${BASIS_LABEL[prior.basis]} ` +
+        `(${fmt(prior.value)}, ${prior.periodLabel}). Confirm the figure before submitting.`,
+    });
+  }
+  return out;
+}
 
 /** Run every rule over one site-month. Returns the flags that fired. */
 export function runValidations(ctx: RuleContext): DataFlag[] {
@@ -244,7 +349,17 @@ export function runValidations(ctx: RuleContext): DataFlag[] {
       });
     }
   }
+
+  // Anomaly flags are generated per parameter rather than declared in RULES,
+  // so they are appended here. Wrapped for the same reason as the rest: a
+  // validation failure must never cost the user their data.
+  try {
+    flags.push(...anomalyFlags(ctx));
+  } catch {
+    /* ignore */
+  }
+
   return flags;
 }
 
-export const ruleCodes = RULES.map((r) => r.code);
+export const ruleCodes = [...RULES.map((r) => r.code), "ANOMALY_VS_PRIOR"];
