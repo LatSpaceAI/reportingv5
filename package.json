@@ -19,6 +19,7 @@
     "esg:resolve:dry": "node scripts/resolve-birla.mjs --dry-run",
     "esg:verify-resolver": "node scripts/verify-resolver.mjs",
     "esg:test-charts": "node scripts/test-chart-data.mjs",
+    "esg:test-export": "node scripts/test-export.mjs",
     "esg:validate": "node scripts/validate-esg-seed.mjs",
     "esg:verify": "node scripts/verify-esg-model.mjs",
     "esg:test-entry": "tsx scripts/test-parse-quantity.ts && tsx scripts/test-site-validation.ts && tsx scripts/test-entry-resolution.ts",
