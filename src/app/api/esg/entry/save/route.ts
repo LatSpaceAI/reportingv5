@@ -14,6 +14,7 @@
 import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { runValidations, type ParamValues } from "@/lib/siteEntry/validation";
+import { parseQuantity } from "@/lib/siteEntry/parseQuantity";
 import type {
   SaveEntryRequest,
   SaveEntryResponse,
@@ -30,12 +31,28 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-/** Parse the user's typed string into a number, or null. */
-function toNumber(raw: string): number | null {
+/**
+ * Read a number out of what the user typed.
+ *
+ * A clean number is taken as-is. Anything else goes through the same parser the
+ * entry screen previews with, so "500 kg" on an MT row reaches the database as
+ * 0.5 rather than null — the UI showing one value while the server stored
+ * another would be the worst of both.
+ *
+ * Returns the number in the FORM's unit; the caller applies the field's
+ * unit_factor to reach the canonical unit.
+ */
+function toNumber(raw: string, formUnit?: string | null): { value: number | null; parsedFromText: boolean } {
   const cleaned = (raw ?? "").replace(/,/g, "").trim();
-  if (!cleaned) return null;
+  if (!cleaned) return { value: null, parsedFromText: false };
   const n = Number(cleaned);
-  return Number.isFinite(n) ? n : null;
+  if (Number.isFinite(n)) return { value: n, parsedFromText: false };
+
+  const parsed = parseQuantity(raw, formUnit);
+  if (parsed.notAvailable || parsed.value === null) {
+    return { value: null, parsedFromText: false };
+  }
+  return { value: parsed.value, parsedFromText: true };
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -106,7 +123,10 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (!entry) continue;
 
       const factor = Number(f.unit_factor ?? 1);
-      const parsed = toNumber(entry.raw);
+      const { value: parsed, parsedFromText } = toNumber(
+        entry.raw,
+        f.form_unit as string | null
+      );
       const isNa = Boolean(entry.notAvailable);
 
       const current =
@@ -123,12 +143,15 @@ export async function POST(req: NextRequest): Promise<Response> {
         current.anyValue = true;
         current.anyTouched = true;
       } else if (entry.raw?.trim()) {
-        // Unparseable text on a row that isn't marked NA — kept as raw_text.
+        // Text with no number in it. Kept verbatim as raw_text so nothing the
+        // site wrote is lost, but it contributes no figure.
         current.anyTouched = true;
       }
 
+      // Keep the original wherever the stored number was READ OUT of text, so
+      // the parse can always be audited against what the site actually wrote.
       if (entry.rawText?.trim()) current.rawTexts.push(entry.rawText.trim());
-      else if (!isNa && entry.raw?.trim() && parsed === null)
+      else if (!isNa && entry.raw?.trim() && (parsedFromText || parsed === null))
         current.rawTexts.push(entry.raw.trim());
 
       if (entry.comment?.trim()) current.comments.push(entry.comment.trim());

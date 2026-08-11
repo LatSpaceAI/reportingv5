@@ -9,19 +9,23 @@
 //
 // Run: npx tsx scripts/test-entry-resolution.ts
 import type { EntryValue } from "../src/lib/siteEntry/types";
+import { parseQuantity } from "../src/lib/siteEntry/parseQuantity";
 
 interface Field {
   id: number;
   parameterKey: string | null;
   unitFactor: number;
   label: string;
+  formUnit?: string | null;
 }
 
-function toNumber(raw: string): number | null {
+function toNumber(raw: string, formUnit?: string | null): number | null {
   const cleaned = (raw ?? "").replace(/,/g, "").trim();
   if (!cleaned) return null;
   const n = Number(cleaned);
-  return Number.isFinite(n) ? n : null;
+  if (Number.isFinite(n)) return n;
+  const parsed = parseQuantity(raw, formUnit);
+  return parsed.notAvailable ? null : parsed.value;
 }
 
 /** Mirrors the accumulation in src/app/api/esg/entry/save/route.ts. */
@@ -37,7 +41,7 @@ function resolve(
     if (!f.parameterKey) continue;
     const entry = values[String(f.id)];
     if (!entry) continue;
-    const parsed = toNumber(entry.raw);
+    const parsed = toNumber(entry.raw, f.formUnit);
     const isNa = Boolean(entry.notAvailable);
     const cur =
       acc.get(f.parameterKey) ??
@@ -238,6 +242,47 @@ expect(
     { "1": v("stored at site for disposal") }
   ),
   { "waste.scrap": { value: null, notAvailable: false } }
+);
+
+// ── The server must parse text the same way the screen previews it ─────────
+// The UI shows "500 kg reads as 0.5 MT"; if the server stored null instead,
+// the user would be shown one number and the disclosure built from another.
+expect(
+  "'500 kg' on an MT row is stored as 0.5, not null",
+  resolve(
+    [{ id: 1, parameterKey: "waste.municipal", unitFactor: 1, label: "Municipal", formUnit: "MT" }],
+    { "1": v("500 kg") }
+  ),
+  { "waste.municipal": { value: 0.5, notAvailable: false } }
+);
+
+expect(
+  "'58 kg' on an MT row is stored as 0.058",
+  resolve(
+    [{ id: 1, parameterKey: "waste.food", unitFactor: 1, label: "Food waste", formUnit: "MT" }],
+    { "1": v("58 kg") }
+  ),
+  { "waste.food": { value: 0.058, notAvailable: false } }
+);
+
+expect(
+  "a multi-part scrap row sums server-side",
+  resolve(
+    [{ id: 1, parameterKey: "waste.scrap", unitFactor: 1, label: "Scrap", formUnit: "MT" }],
+    { "1": v("Rebar - 3.5 / Steel - 0.02 / Wood - 0.15") }
+  ),
+  { "waste.scrap": { value: 3.67, notAvailable: false } }
+);
+
+// Text parsing composes with the field's unit factor: the form prints Ltrs and
+// the model stores kL, so "2000 L" must land as 2 kL, not 2000 or 0.002.
+expect(
+  "text parse composes with the field unit factor",
+  resolve(
+    [{ id: 1, parameterKey: "fuel.diesel_dg", unitFactor: 0.001, label: "DG diesel", formUnit: "Ltrs" }],
+    { "1": v("2000") }
+  ),
+  { "fuel.diesel_dg": { value: 2, notAvailable: false } }
 );
 
 console.log(`\n${pass}/${total}`);
