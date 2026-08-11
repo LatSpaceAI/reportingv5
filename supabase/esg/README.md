@@ -1,7 +1,7 @@
-# ESG Data Tool — Supabase schema
+# Birla Estates — ESG schema
 
-Four-layer database modelling the **ESG DATA TOOL 1.0 Consolidated** workbook
-(Sagar Cements multi-plant GCCA/GRI monthly carbon-accounting model).
+Four-layer database modelling the monthly ESG returns filed by Birla Estates
+(BEPL) sites, and the BRSR Environment disclosures they roll up into.
 
 ```
 CONSTANTS ──┐
@@ -9,74 +9,128 @@ CONSTANTS ──┐
 INPUT ──────┘
 ```
 
+Replaces the earlier Sagar Cements (GCCA/GRI) model. The table design carried
+over; every parameter, constant and formula is new.
+
 ## Layers
 
 | Layer | Tables | What it holds |
-|-------|--------|---------------|
-| **CONSTANTS** | `constant`, `constant_category` | Emission factors (IPCC / CSI-GCCA / CEA grid 0.716), GWPs, molecular weights, conversions. Keyed; versionable via `effective_from/to`. |
-| **INPUT** | `input_parameter`, `input_value` | Dictionary of every Input-Sheet field + the entered values (long/EAV: one row per plant × period × parameter). |
-| **OUTPUT** | `output_parameter`, `output_value` | Catalogue of every computed metric (Scope 1/2/3, energy KPIs, water, waste, biodiversity, air) + computed values. |
-| **FORMULAS** | `formula`, `formula_dependency` | Data-driven registry. Each output has one parseable expression referencing `in:`/`const:`/`out:` keys. Dependencies auto-extracted for topo-sort & validation. |
+|---|---|---|
+| **CONSTANTS** | `constant`, `constant_category` | Grid emission factor, fuel EFs, refrigerant GWPs, unit conversions. |
+| **INPUT** | `input_parameter`, `input_value`, `site_form*` | The canonical field dictionary, the entered values, and each site's own form layout. |
+| **OUTPUT** | `output_parameter`, `output_value` | Every computed BRSR Environment metric + computed values. |
+| **FORMULAS** | `formula`, `formula_dependency` | Data-driven registry; dependencies auto-extracted for topo-sort. |
 
-Dimensions: `plant` (6 sites + GROUP), `period` (fiscal Apr–Mar months + YTD + baseline), `domain`.
+Dimensions: `site` (11 assets + GROUP), `period` (fiscal Apr–Mar months + YTD +
+baseline, carrying quarter and half buckets), `domain`.
+
+## What differs from the cement model
+
+**`plant` → `site`**, with the attributes real estate reports on: `asset_type`
+(commercial vs residential-construction), `city`, and `water_stressed`. That
+last flag is load-bearing — the BRSR stressed-area lines sum exactly the flagged
+sites, via `formula.site_filter`.
+
+**Per-site form replicas.** Three form variants are in use and they genuinely
+differ: Aurora has tenant and floor-wise electricity but no C&D row; Tisya and
+Sangamwadi share a residential layout; Trimaya's F-17 variant has different row
+numbers, waste-water rows instead of STP, and no site/period header at all.
+Rather than force one superset form on every site, each form is stored as data
+(`site_form` / `site_form_field`) with its rows mapped onto shared canonical
+parameters. Labels are reproduced verbatim, typos included — site teams
+recognise their own sheet. Adding a site is an insert, not a deploy.
+
+**Provenance and data quality.** `input_value` distinguishes a reported zero from
+"not available", keeps the original text wherever a number was parsed out of it
+(`"58 kg"` → 0.058 MT), and records who entered what and when. `data_flag`
+carries validation warnings that do *not* block saving — the real returns contain
+physically impossible values, and refusing them would simply stop sites filing.
+
+**Coverage travels with every number.** `output_value` records
+`sites_reporting` / `sites_expected`; `v_period_coverage` reports it per month.
+There is no derived-balance mechanism: a total is the sum of what was filed, and
+the gap shows as a gap.
 
 ## File order (run top to bottom)
 
-1. `01_schema.sql` — all tables, indexes, FKs, `v_formula_catalogue` view
-2. `02_constants_seed.sql` — emission factors, GWPs, mol. weights, constants
-3. `03_dimensions_seed.sql` — plants + periods
-4. `04_input_parameters_seed.sql` — input dictionary
-5. `05_output_parameters_seed.sql` — output catalogue
-6. `06_formulas_seed.sql` — formula registry
-7. `07_formula_dependencies.sql` — auto-build dependency edges + validation views
+1. `01_schema.sql` — tables, indexes, FKs, views
+2. `02_constants_seed.sql` — emission factors, GWPs, conversions
+3. `03_dimensions_seed.sql` — sites + periods
+4. `04_input_parameters_seed.sql` — canonical field dictionary
+5. `05_site_forms_seed.sql` — the three form replicas + site assignments
+6. `06_output_parameters_seed.sql` — BRSR Environment metric catalogue
+7. `07_formulas_seed.sql` — formula registry + auto-built dependency edges
+8. `08_input_values_seed.sql` — the eight evidenced site-months
+9. `09_resolver_notes.md` — evaluation algorithm and the assumptions register
+10. `10_dashboard_tiles.sql` — AI Dashboard tile persistence
+
+`APPLY_THIS_IN_SQL_EDITOR.sql` handles the PostgREST grants; run it once.
 
 ## How the FORMULAS layer works
 
-Each `formula.expression` is a string using namespaced tokens:
+Each `formula.expression` uses namespaced tokens:
 
 | Token | Reads from |
-|-------|-----------|
-| `in:<key>` | `input_value` (for the current plant+period) |
+|---|---|
+| `in:<key>` | `input_value` (current site + period) |
 | `const:<key>` | `constant.value` |
-| `out:<key>` | `output_value` (an already-computed output — enables chaining) |
+| `out:<key>` | `output_value` (already-computed output — enables chaining) |
 
 Example (Scope 2):
 ```
-(in:pwr.grid_total - in:pwr.onsite_export) * const:EF.grid_2023
+out:en.electricity_nonrenew * const:EF.grid / 1000
 ```
 
-`eval_order` (ascending) gives a safe evaluation sequence so every `out:`
-reference is already computed before it is read. `formula_dependency` plus
-`v_formula_dag_edges` let you re-derive / verify the topological order.
+`eval_order` ascending gives a safe evaluation sequence. `site_filter` restricts
+which sites contribute to a GROUP rollup (`all` or `water_stressed`).
 
 Allowed in expressions: `+ - * / ( )`, `IF(cond,a,b)`, `IFERROR(expr,fallback)`,
-`MAX`, `MIN`. The evaluator lives in app/edge-function code (see
-`08_resolver_notes.md`). Postgres only stores + validates; it does not eval.
+`MAX`, `MIN`. The evaluator lives in app code; Postgres stores and validates.
 
-## Validation (must be clean)
+## Validation
 
-After loading all files:
-```sql
-select * from esg.v_formula_missing_refs;   -- expect 0 rows (every ref exists)
-select * from esg.v_formula_dag_edges;      -- inspect output->output edges; must be acyclic
-select * from esg.v_formula_catalogue;      -- browse every formula + its deps
+```bash
+node scripts/validate-esg-seed.mjs   # references resolve, DAG acyclic, eval_order sane
+node scripts/verify-esg-model.mjs    # evaluates the seeded months vs known-good figures
 ```
 
-## Scope notes / what to extend
+After loading, both of these must return zero rows:
 
-The model is **structurally complete** and the core chains are faithful to the
-workbook. Two areas are intentionally seeded with a *representative* subset and
-should be expanded to 1:1 parity before production:
+```sql
+select * from esg.v_formula_missing_refs;
+select * from esg.v_formula_dag_edges;   -- inspect; must be acyclic
+```
 
-- **Fuel lists.** The workbook enumerates ~22 fossil + ~9 alternate + ~10
-  biomass fuels for **each** of Kiln / CPP / HAG. Inputs and the fuel-energy /
-  fuel-CO₂ formulas are seeded for the fuels that actually carry data in the
-  sample month; add the remaining `fuel.<loc>.<fuel>.qty/.lhv` inputs and append
-  their terms to `en.energy_*` and `emis.fuel_*` expressions (same pattern).
-- **CPP / HAG fuel CO₂ & energy** outputs are seeded as `'0'` placeholders —
-  wire them exactly like the kiln ones once their inputs are added.
-- **Other-source GWPs** (`EF.other.*`) were **blank in the source workbook**;
-  seeded as 0 placeholders. Supply the plant's chosen GWP100 values.
+## Data coverage — read this before trusting a total
 
-See `08_resolver_notes.md` for the fuel-CO₂ unit reconciliation and a reference
-resolver algorithm.
+The seed contains **8 evidenced site-months** out of roughly 132 in FY25 (~6%).
+Four of eleven sites have ever filed a return:
+
+| Site | Months filed |
+|---|---|
+| Birla Aurora | Apr–Aug 2024 |
+| Birla Tisya | Apr 2024 |
+| Birla Sangamwadi | Dec 2024 |
+| Birla Trimaya | Feb 2025 |
+
+The published FY25 figures cover the whole portfolio. The reconstruction reached
+them by balancing against the template; this app does not, because going forward
+it *is* the source. Portfolio totals here are sums of what was filed.
+
+## Open items before assurance
+
+Both are surfaced by the model rather than resolved in it — see
+`09_resolver_notes.md`:
+
+1. **Renewable electricity deduction.** The published template books 197,838.76
+   kWh less renewable electricity than Aurora reported over Apr–Aug 24 (11–16%
+   per month), for reasons that live in a file we do not have. Modelled as an
+   explicit, signed `elec.renewable_adjustment` input so it stays visible and
+   attributable.
+2. **Groundwater classification.** Tisya's groundwater was published as
+   third-party water while Trimaya's stayed groundwater. Stored as filed and
+   flagged; picking either treatment unilaterally would move a published number.
+
+Also unresolved: four hazardous-waste lines are collected as counts or litres
+against MT-denominated disclosures and need a unit weight or density before they
+can be computed. They are seeded as explicit zeros, not fabricated tonnages.
