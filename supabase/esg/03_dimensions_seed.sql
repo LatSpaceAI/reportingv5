@@ -70,6 +70,24 @@ insert into esg.period (fiscal_year, period_kind, month_no, month_label, quarter
     ('2024-25','ytd',  null,'FY 2024-25 (YTD)', null, null, '2024-04-01','2025-03-31'),
     ('2023-24','baseline', null,'Baseline FY 2023-24', null, null, '2023-04-01','2024-03-31');
 
+-- FY2023-24 months. Aurora filed a complete twelve-month return for FY24, so
+-- these exist to carry it as prior-year comparatives. No other site has FY24
+-- data, which the coverage view will show honestly.
+insert into esg.period (fiscal_year, period_kind, month_no, month_label, quarter_no, half_no, period_start, period_end) values
+    ('2023-24','month', 1,'April',    1, 1, '2023-04-01','2023-04-30'),
+    ('2023-24','month', 2,'May',      1, 1, '2023-05-01','2023-05-31'),
+    ('2023-24','month', 3,'June',     1, 1, '2023-06-01','2023-06-30'),
+    ('2023-24','month', 4,'July',     2, 1, '2023-07-01','2023-07-31'),
+    ('2023-24','month', 5,'August',   2, 1, '2023-08-01','2023-08-31'),
+    ('2023-24','month', 6,'September',2, 1, '2023-09-01','2023-09-30'),
+    ('2023-24','month', 7,'October',  3, 2, '2023-10-01','2023-10-31'),
+    ('2023-24','month', 8,'November', 3, 2, '2023-11-01','2023-11-30'),
+    ('2023-24','month', 9,'December', 3, 2, '2023-12-01','2023-12-31'),
+    ('2023-24','month',10,'January',  4, 2, '2024-01-01','2024-01-31'),
+    ('2023-24','month',11,'February', 4, 2, '2024-02-01','2024-02-29'),
+    ('2023-24','month',12,'March',    4, 2, '2024-03-01','2024-03-31'),
+    ('2023-24','ytd',  null,'FY 2023-24 (YTD)', null, null, '2023-04-01','2024-03-31');
+
 -- FY2025-26 months, so the app can accept the current year's returns as they
 -- are filed rather than needing a migration each April.
 insert into esg.period (fiscal_year, period_kind, month_no, month_label, quarter_no, half_no, period_start, period_end) values

@@ -31,6 +31,7 @@ const files = {
   forms: strip(read("05_site_forms_seed.sql")),
   outputs: strip(read("06_output_parameters_seed.sql")),
   formulas: strip(read("07_formulas_seed.sql")),
+  values: strip(read("08_input_values_seed.sql")) + strip(read("08b_input_values_fy24_seed.sql")),
 };
 
 const errors = [];
@@ -165,6 +166,15 @@ for (const m of files.forms.matchAll(/s\.code\s+in\s*\(([^)]+)\)/g)) {
 for (const code of siteCodes) {
   if (code === "GROUP") continue;
   if (!assignedSites.has(code)) warnings.push(`site '${code}' has no form assignment`);
+}
+
+// --- check 6: seeded values reference real sites and parameters --------------
+for (const m of files.values.matchAll(
+  /seed_input\(\s*'([A-Z_]+)'\s*,\s*'([\d-]+)'\s*,\s*(\d+)::smallint\s*,\s*'([a-z0-9_.]+)'/g
+)) {
+  const [, site, , , param] = m;
+  if (!siteCodes.has(site)) errors.push(`seeded value for unknown site '${site}'`);
+  if (!inputKeys.has(param)) errors.push(`seeded value for unknown parameter '${param}'`);
 }
 
 // --- unused input parameters (informational) --------------------------------
