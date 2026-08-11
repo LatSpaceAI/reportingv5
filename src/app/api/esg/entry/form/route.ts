@@ -21,10 +21,18 @@ import type {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// `dynamic = "force-dynamic"` stops Next PRE-rendering this at build time, but
+// it does not stop a fetch layer caching the response. Without an explicit
+// no-store the entry screen re-reads a stale snapshot after every save and the
+// user sees their own values vanish. Verified against the dev server: repeat
+// GETs of the same URL were served in ~15ms without touching the database.
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+    },
   });
 }
 
