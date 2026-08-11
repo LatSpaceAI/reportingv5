@@ -305,5 +305,5 @@ where (s.code = 'AURORA'     and p.month_no in (1,2,3,4,5))
    or (s.code = 'TRIMAYA'    and p.month_no = 11)
 on conflict (site_id, period_id) do nothing;
 
--- The seeding helper is not part of the runtime surface.
-drop function esg.seed_input(text, text, smallint, text, numeric, text, text, text, boolean, text);
+-- NOTE: esg.seed_input() is deliberately left in place here — the FY24 seed
+-- (08b_input_values_fy24_seed.sql) reuses it and drops it at the end.

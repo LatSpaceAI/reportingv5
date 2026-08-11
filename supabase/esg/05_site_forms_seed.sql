@@ -33,10 +33,15 @@ set search_path = esg, public;
 -- -----------------------------------------------------------------------------
 -- Form definitions
 -- -----------------------------------------------------------------------------
+insert into esg.site_form (code, name, description, form_ref, version, effective_from, effective_to) values
+('FORM.COMMERCIAL.FY24', 'Monthly ESG Report - Commercial Asset (FY24)',
+ 'The FY24 commercial layout, superseded from February 2024. Carried a rainwater-harvesting row, a plain "Grid Electricity consumption" line (no green-energy designation), "Diesel for vehicles" rather than plant and machinery, no water end-use breakdown, no plastic-waste row and no refrigerant block.',
+ null, 1, '2023-04-01', '2024-01-31');
+
 insert into esg.site_form (code, name, description, form_ref, version, effective_from) values
 ('FORM.COMMERCIAL.V1',  'Monthly ESG Report - Commercial Asset',
- 'Operating commercial building. Tenant and floor-wise electricity, water end-use breakdown, refrigerant and extinguisher refills.',
- null, 1, '2023-04-01'),
+ 'Operating commercial building. Tenant and floor-wise electricity, water end-use breakdown, refrigerant and extinguisher refills. In use at Aurora from February 2024.',
+ null, 2, '2024-02-01'),
 ('FORM.RESIDENTIAL.V1', 'Monthly ESG Report - Residential Assets',
  'Residential project under construction. Treated water, plant and machinery diesel, C&D waste and scrap, full hazardous waste list.',
  null, 1, '2023-04-01'),
@@ -47,12 +52,24 @@ insert into esg.site_form (code, name, description, form_ref, version, effective
 -- -----------------------------------------------------------------------------
 -- Which site files which form
 -- -----------------------------------------------------------------------------
+-- Aurora filed the FY24 layout through January 2024, then the current one. The
+-- assignment is date-bounded so a historic month still renders in the layout it
+-- was actually filed under.
+insert into esg.site_form_assignment (site_id, form_id, effective_from, effective_to)
+select s.id, f.id, '2023-04-01', '2024-01-31'
+from esg.site s, esg.site_form f
+where s.code = 'AURORA' and f.code = 'FORM.COMMERCIAL.FY24';
+
+insert into esg.site_form_assignment (site_id, form_id, effective_from)
+select s.id, f.id, '2024-02-01'
+from esg.site s, esg.site_form f
+where s.code = 'AURORA' and f.code = 'FORM.COMMERCIAL.V1';
+
 insert into esg.site_form_assignment (site_id, form_id, effective_from)
 select s.id, f.id, '2023-04-01'
 from esg.site s, esg.site_form f
-where (s.code = 'AURORA'    and f.code = 'FORM.COMMERCIAL.V1')
-   or (s.code = 'CENTURION' and f.code = 'FORM.COMMERCIAL.V1')
-   or (s.code = 'CENTURY_BHAVAN' and f.code = 'FORM.COMMERCIAL.V1');
+where f.code = 'FORM.COMMERCIAL.V1'
+  and s.code in ('CENTURION','CENTURY_BHAVAN');
 
 insert into esg.site_form_assignment (site_id, form_id, effective_from)
 select s.id, f.id, '2023-04-01'
@@ -382,3 +399,107 @@ from esg.site_form f,
  (430, 'DG4 -250KVA')
 ) as v(row_order, label)
 where f.code = 'FORM.RESIDENTIAL.F17';
+
+-- =============================================================================
+-- FORM.COMMERCIAL.FY24 — Birla Aurora, April 2023 to January 2024
+-- Source layout: input/BA_ESG_Monthly_Aug_24.xlsx, tabs 'April 23'..'Jan 24'
+--
+-- Superseded by FORM.COMMERCIAL.V1 in February 2024. Kept so FY24 months render
+-- in the layout they were filed under rather than being retro-fitted to a form
+-- that did not exist yet.
+--
+-- Differences from the current commercial form:
+--   * "From rain water Harvesting" row (dropped in the revision; always NA)
+--   * "Grid Electricity consumption" — a plain grid line with NO green-energy
+--     designation, so it feeds NON-RENEWABLE electricity. The FY25 form renamed
+--     this row to "Grid Electricity consmuption ( Green Energy)" and it became
+--     the renewable feed. Same row position, opposite meaning: mapping FY24 by
+--     row number instead of by form version would silently invert the split.
+--   * "Diesel for vehicles" rather than "Diesel for plant and Machinery"
+--   * No water end-use breakdown (flushing / irrigation / car wash / cooling)
+--   * No plastic-waste row, no scrap rows, no refrigerant or extinguisher block
+--   * Waste labels unqualified ("C&D Waste" not "C&D Waste - Debris -MT")
+-- =============================================================================
+
+insert into esg.site_form_field
+    (form_id, group_label, row_order, label, form_unit, parameter_id, unit_factor, is_form_total, notes)
+select f.id, 'Water Consumption', v.row_order, v.label, 'M3',
+       (select id from esg.input_parameter where key = v.pkey), 1, v.is_total, v.notes
+from esg.site_form f,
+(values
+ (10, 'Total fresh water consumption', 'water.total_reported', true,  'Site-computed total; equals municipality + ground water each month.'),
+ (20, 'from Municipality',             'water.municipal',      false, null),
+ (30, 'From Ground Water ( onsite)',   'water.groundwater',    false, null),
+ (40, 'From Tanker ( offsite)',        'water.tanker',         false, null),
+ (50, 'From rain water Harvesting',    'water.rainwater',      false, 'Dropped in the FY25 form revision. Filed NA in every FY24 month.'),
+ (60, 'Sewage Generated',              'water.stp_inlet',      false, 'Memo. Filed NA in every FY24 month.'),
+ (70, 'Sewage Recycled',               'water.stp_outlet',     false, 'Memo. Reported without a corresponding inlet all year, so the inlet/outlet check cannot run for FY24.')
+) as v(row_order, label, pkey, is_total, notes)
+where f.code = 'FORM.COMMERCIAL.FY24';
+
+insert into esg.site_form_field
+    (form_id, group_label, row_order, label, form_unit, parameter_id, unit_factor, aggregate_key, notes)
+select f.id, 'Electricity Consumption', v.row_order, v.label, 'KWh',
+       (select id from esg.input_parameter where key = v.pkey), 1, v.agg, v.notes
+from esg.site_form f,
+(values
+ (110, 'Grid Electricity consumption',      'elec.grid',        null,
+  'NOT green energy on this form version — a plain grid draw feeding non-renewable electricity. The identically-positioned row on the FY25 form is the RENEWABLE feed.'),
+ (120, 'Tenant Electricity consumption',    'elec.tenant',      null, 'Memo. Outside the entity boundary.'),
+ (130, 'Electricity from renewables',       'elec.renewable',   null, 'Filed NA in every FY24 month.'),
+ (140, 'Level 8 Electricity consumption',   'elec.own_floor_1', 'own_floors', 'BEPL-occupied floor.'),
+ (150, 'Level 13th Electricity consumption','elec.own_floor_2', 'own_floors', 'BEPL-occupied floor. Labelled "Level 13th" on early FY24 tabs and "Level 13" later.')
+) as v(row_order, label, pkey, agg, notes)
+where f.code = 'FORM.COMMERCIAL.FY24';
+
+insert into esg.site_form_field
+    (form_id, group_label, row_order, label, form_unit, parameter_id, unit_factor)
+select f.id, 'Fuel Consumption', v.row_order, v.label, 'Ltrs',
+       (select id from esg.input_parameter where key = v.pkey), 0.001
+from esg.site_form f,
+(values
+ (160, 'DG set - Diesel',      'fuel.diesel_dg'),
+ (170, 'Diesel for vehicles',  'fuel.diesel_vehicle'),
+ (180, 'Petrol',               'fuel.petrol')
+) as v(row_order, label, pkey)
+where f.code = 'FORM.COMMERCIAL.FY24';
+
+insert into esg.site_form_field
+    (form_id, group_label, row_order, label, form_unit, parameter_id, unit_factor)
+select f.id, v.group_label, v.row_order, v.label, v.form_unit,
+       (select id from esg.input_parameter where key = v.pkey), v.factor
+from esg.site_form f,
+(values
+ ('Non Hazardous waste', 200, 'C&D Waste',                                   'MT',    'waste.cnd',           1),
+ ('Non Hazardous waste', 210, 'Municipal solid waste (Plastic, cardboard etc)','MT',  'waste.municipal',     1),
+ ('Non Hazardous waste', 220, 'food waste',                                  'MT',    'waste.food',          1),
+ ('Hazardous waste',     230, 'Used Oil',                                    'Litres','waste.used_oil',      1),
+ ('Hazardous waste',     240, 'Oil Filters',                                 'Nos',   'waste.oil_filters_no',1),
+ ('Hazardous waste',     250, 'Other Contaminated Waste',                    'kg',    'waste.contaminated',  0.001),
+ ('Hazardous waste',     260, 'Bio-Medical waste',                           'kg',    'waste.biomedical',    0.001),
+ ('Hazardous waste',     270, 'Battery Waste',                               'Nos',   'waste.battery_no',    1),
+ ('Hazardous waste',     280, 'Electronic waste',                            'kg',    'waste.ewaste',        0.001)
+) as v(group_label, row_order, label, form_unit, pkey, factor)
+where f.code = 'FORM.COMMERCIAL.FY24';
+
+insert into esg.site_form_field
+    (form_id, group_label, row_order, label, form_unit, parameter_id, unit_factor, column_kind)
+select f.id, 'Non Hazardous waste', v.row_order, v.label, 'MT',
+       (select id from esg.input_parameter where key = v.pkey), 1, 'reused_onsite'
+from esg.site_form f,
+(values
+ (210, 'Municipal solid waste (Plastic, cardboard etc)', 'waste.municipal_recycled'),
+ (220, 'food waste',                                     'waste.food_recycled')
+) as v(row_order, label, pkey)
+where f.code = 'FORM.COMMERCIAL.FY24';
+
+-- DG Details appear only from December 2023 on this form version; earlier tabs
+-- have no DG block at all.
+insert into esg.site_form_field
+    (form_id, group_label, row_order, label, form_unit, parameter_id, unit_factor, aggregate_key, notes)
+select f.id, 'DG Details', v.row_order, v.label, 'hrs',
+       (select id from esg.input_parameter where key = 'ops.dg_hours'), 1, 'dg_hours',
+       'The DG block was added to this form from December 2023; Apr-Nov 23 returns have no DG hours.'
+from esg.site_form f,
+(values (400, 'DG1 running time'), (410, 'DG2 running time')) as v(row_order, label)
+where f.code = 'FORM.COMMERCIAL.FY24';

@@ -103,8 +103,8 @@ insert into esg.formula (output_key, expression, description, source_ref, site_f
  null, 'all', 10, false),
 
 ('wtr.treated',
- 'in:water.treated_used + in:water.tanker_treated',
- 'Treated water used at construction sites, including treated STP water delivered by tanker.',
+ 'in:water.treated_used + in:water.tanker_treated + in:water.rainwater',
+ 'Treated water used at construction sites, including treated STP water delivered by tanker and harvested rainwater. Rainwater appeared only on Aurora''s FY24 form and was filed NA every month, so it contributes nothing historically — it is included so the line has a home if a site starts reporting it.',
  'Middle Link FORMULAS!C14', 'all', 10, false),
 
 ('wtr.total',
@@ -137,8 +137,8 @@ insert into esg.formula (output_key, expression, description, source_ref, site_f
  'Middle Link FORMULAS!C19', 'water_stressed', 10, true),
 
 ('wtr.ws_treated',
- 'in:water.treated_used + in:water.tanker_treated',
- 'Treated water used by sites inside the stressed area.',
+ 'in:water.treated_used + in:water.tanker_treated + in:water.rainwater',
+ 'Treated water used by sites inside the stressed area. Mirrors wtr.treated exactly — the two must stay in step or the stressed figure stops being a subset of the total.',
  'Middle Link FORMULAS!C20', 'water_stressed', 10, false),
 
 ('wtr.ws_total',

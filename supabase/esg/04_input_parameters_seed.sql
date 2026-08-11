@@ -38,6 +38,8 @@ insert into esg.input_parameter (key, domain, section, label, unit, is_memo, sor
  'Sangamwadi form only. Booked to third-party water (assumption carried from the Middle Link).'),
 ('water.surface',      'WATER','Water','Surface water',                        'KL', false, 100,
  'No site currently reports surface water; present so the BRSR line has a source.'),
+('water.rainwater',    'WATER','Water','Rain water harvesting',                'KL', false, 145,
+ 'Aurora''s FY24 form carried a rainwater-harvesting row (dropped in the FY25 revision). Every FY24 month filed NA. Feeds BRSR "Others" alongside treated water when a site does report it.'),
 ('water.seawater',     'WATER','Water','Seawater / desalinated',               'KL', false, 170,
  'No site currently reports seawater; present so the BRSR line has a source.'),
 

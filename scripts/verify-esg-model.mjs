@@ -55,19 +55,25 @@ formulas.sort((a, b) => a.evalOrder - b.evalOrder);
 
 // --- seeded input values ----------------------------------------------------
 // seed_input('SITE','FY',N::smallint,'param', value, 'source', ...)
-const inputs = new Map(); // site -> month -> param -> number
-const MONTH_NAMES = ["", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
-for (const m of read("08_input_values_seed.sql").matchAll(
-  /seed_input\(\s*'([A-Z_]+)'\s*,\s*'([\d-]+)'\s*,\s*(\d+)::smallint\s*,\s*'([a-z0-9_.]+)'\s*,\s*(null|-?[\d.]+)/g
-)) {
-  const [, site, , month, param, raw] = m;
-  if (raw === "null") continue;
-  if (!inputs.has(site)) inputs.set(site, new Map());
-  const bySite = inputs.get(site);
-  const mo = Number(month);
-  if (!bySite.has(mo)) bySite.set(mo, new Map());
-  bySite.get(mo).set(param, Number(raw));
+// site -> "fy:month" -> param -> number. FY is part of the key because Aurora
+// has both FY24 and FY25 data and the two must never blend.
+const inputs = new Map();
+const seedFiles = ["08_input_values_seed.sql", "08b_input_values_fy24_seed.sql"];
+for (const file of seedFiles) {
+  for (const m of read(file).matchAll(
+    /seed_input\(\s*'([A-Z_]+)'\s*,\s*'([\d-]+)'\s*,\s*(\d+)::smallint\s*,\s*'([a-z0-9_.]+)'\s*,\s*(null|-?[\d.]+)/g
+  )) {
+    const [, site, fy, month, param, raw] = m;
+    if (raw === "null") continue;
+    if (!inputs.has(site)) inputs.set(site, new Map());
+    const bySite = inputs.get(site);
+    const key = `${fy}:${month}`;
+    if (!bySite.has(key)) bySite.set(key, new Map());
+    bySite.get(key).set(param, Number(raw));
+  }
 }
+const FY25 = "2024-25";
+const FY24 = "2023-24";
 
 // --- site attributes --------------------------------------------------------
 const stressed = new Set();
@@ -92,9 +98,9 @@ function evaluate(expr, resolve) {
   return Function(`"use strict";return (${substituted});`)();
 }
 
-// Compute one site's outputs for one month.
-function computeSiteMonth(site, month) {
-  const inVals = inputs.get(site)?.get(month) ?? new Map();
+// Compute one site's outputs for one month of one fiscal year.
+function computeSiteMonth(site, month, fy = FY25) {
+  const inVals = inputs.get(site)?.get(`${fy}:${month}`) ?? new Map();
   const out = new Map();
   for (const f of formulas) {
     const v = evaluate(f.expr, (kind, key) =>
@@ -108,9 +114,9 @@ function computeSiteMonth(site, month) {
 }
 
 // Portfolio rollup for a month: sum over sites, honouring site_filter.
-function computeGroupMonth(month) {
+function computeGroupMonth(month, fy = FY25) {
   const perSite = new Map();
-  for (const site of inputs.keys()) perSite.set(site, computeSiteMonth(site, month));
+  for (const site of inputs.keys()) perSite.set(site, computeSiteMonth(site, month, fy));
   const out = new Map();
   for (const f of formulas) {
     let total = 0;
@@ -214,6 +220,43 @@ check(
   (aprGroup.get("en.electricity_nonrenew") * constants.get("EF.grid")) / 1000,
   0.0001
 );
+
+// -- FY24 prior-year comparatives ---------------------------------------------
+// The riskiest part of the FY24 load is that the same form row means opposite
+// things in the two years. On the FY24 form "Grid Electricity consumption" is a
+// plain grid draw (NON-renewable); on the current form the same position is
+// "Grid Electricity consmuption ( Green Energy)" and feeds RENEWABLE. If the
+// mapping were done by row number, ten months would land in the wrong bucket.
+const auroraApr23 = computeSiteMonth("AURORA", 1, FY24);
+check("Aurora Apr-23 · grid feeds NON-renewable (kWh)",
+  auroraApr23.get("en.electricity_nonrenew"), 250000 + 13287.2 + 2619.69, 0.5);
+check("Aurora Apr-23 · no renewable reported", auroraApr23.get("en.electricity_renew"), 0);
+check("Aurora Apr-23 · groundwater (KL)", auroraApr23.get("wtr.groundwater"), 925);
+check("Aurora Apr-23 · stationary diesel (kL)", auroraApr23.get("en.diesel_stationary"), 0.13);
+
+// Feb-24 is the first month on the current form, where green energy appears.
+const auroraFeb24 = computeSiteMonth("AURORA", 11, FY24);
+check("Aurora Feb-24 · green energy now feeds RENEWABLE (kWh)",
+  auroraFeb24.get("en.electricity_renew"), 219960);
+check("Aurora Feb-24 · own floors feed non-renewable (kWh)",
+  auroraFeb24.get("en.electricity_nonrenew"), 10189 + 2226);
+
+// Renewable is zero for the ten FY24-layout months and non-zero for the last
+// two. A regression that mapped by row number would break this sharply.
+let fy24RenewEarly = 0, fy24RenewLate = 0, fy24Months = 0;
+for (let mo = 1; mo <= 12; mo++) {
+  const v = computeSiteMonth("AURORA", mo, FY24);
+  if (inputs.get("AURORA")?.has(`${FY24}:${mo}`)) fy24Months++;
+  if (mo <= 10) fy24RenewEarly += v.get("en.electricity_renew");
+  else fy24RenewLate += v.get("en.electricity_renew");
+}
+check("Aurora FY24 · twelve months loaded", fy24Months, 12);
+check("Aurora FY24 · Apr-23..Jan-24 renewable is zero", fy24RenewEarly, 0);
+check("Aurora FY24 · Feb+Mar-24 renewable (kWh)", fy24RenewLate, 219960 + 238129);
+
+// FY24 and FY25 must not blend: April exists in both years with different values.
+check("April is year-scoped · FY24 groundwater differs from FY25",
+  auroraApr23.get("wtr.groundwater") === auroraApr.get("wtr.groundwater") ? 0 : 1, 1);
 
 // -- Water identity -----------------------------------------------------------
 // Consumption = withdrawal - discharge, and discharge is zero throughout. This
