@@ -10,7 +10,14 @@ import {
 
 export type FrameworkStatus = "active" | "coming-soon";
 export type FrameworkCategory = "Climate" | "Sustainability" | "Regulatory";
-export type FrameworkVariant = "questionnaire" | "qualitative";
+// "questionnaire" — structured Q&A template (e.g. CDP, BRSR).
+// "qualitative"   — narrative document with embedded requirements.
+// "export-only"   — no questions to answer here; the row exists so its Export
+//                   action can populate a template from data collected elsewhere.
+export type FrameworkVariant = "questionnaire" | "qualitative" | "export-only";
+
+// Built-in logo marks, for entries with no logo image of their own.
+export type FrameworkLogoIcon = "report";
 
 export interface FrameworkSummary {
   id: string;
@@ -20,14 +27,15 @@ export interface FrameworkSummary {
   cadence: string;
   category: FrameworkCategory;
   status: FrameworkStatus;
-  // "questionnaire" — structured Q&A template (e.g. CDP, BRSR).
-  // "qualitative" — narrative document with embedded requirements.
   variant?: FrameworkVariant;
   storageKey?: string;
   sections?: Section[];
   logoInitials: string;
   logoColor: string;
   logoSrc?: string;
+  // Built-in mark for entries that have no logo of their own — preferred over
+  // logoInitials, which renders bare letters.
+  logoIcon?: FrameworkLogoIcon;
 }
 
 export interface FrameworkGroupChild extends FrameworkSummary {}
@@ -78,6 +86,22 @@ export const frameworkEntries: FrameworkEntry[] = [
     logoInitials: "CD",
     logoColor: "bg-rose-100 text-rose-700",
     logoSrc: "/cdp-logo.png",
+  },
+  {
+    id: "brsr-environment",
+    name: "Real Estate BRSR — Environment sheet",
+    shortName: "Birla Estate BRSR Template",
+    description:
+      "Fills the client's own Real Estate BRSR template with energy, water, waste and emissions figures computed from the monthly site returns — its exact cells, layout and styling, left untouched where no return has been filed.",
+    cadence: "Annual",
+    category: "Regulatory",
+    status: "active",
+    variant: "export-only",
+    // Not a SEBI-published form — it's the client's own workbook, so it gets a
+    // generic report mark rather than a regulator's logo.
+    logoIcon: "report",
+    logoInitials: "BE",
+    logoColor: "bg-emerald-100 text-emerald-700",
   },
 ];
 
