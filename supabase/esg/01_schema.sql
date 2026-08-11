@@ -425,7 +425,7 @@ create index on esg.output_value (parameter_id);
 --
 -- Supported operators: + - * / ( ) and functions IF(cond, a, b),
 -- IFERROR(expr, fallback), MAX, MIN. Evaluated in topological order by the
--- resolver (scripts/resolve-esg.mjs); Postgres stores and validates only.
+-- resolver (scripts/resolve-birla.mjs); Postgres stores and validates only.
 --
 -- `site_filter` restricts which sites contribute to a GROUP rollup. The BRSR
 -- water-stressed lines sum only sites inside the declared stressed area, so
