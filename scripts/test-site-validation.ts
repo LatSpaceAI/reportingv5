@@ -1,14 +1,25 @@
 // Verifies the entry-time rules fire on the known-bad site-months, and stay
 // quiet on the good ones. Every case is real data from birla-estates/input/.
 // Run: npx tsx scripts/test-site-validation.ts
-import { runValidations } from "../src/lib/siteEntry/validation";
+import { runValidations, type RuleContext } from "../src/lib/siteEntry/validation";
+
+/** Extra context for the rules that need more than this month's values. */
+type Extra = Partial<Omit<RuleContext, "values" | "notAvailable">> & {
+  notAvailable?: Set<string>;
+};
 
 const check = (
   label: string,
   values: Record<string, number | null>,
-  expectCodes: string[]
+  expectCodes: string[],
+  extra: Extra = {}
 ) => {
-  const flags = runValidations({ values, notAvailable: new Set() });
+  const { notAvailable, ...rest } = extra;
+  const flags = runValidations({
+    values,
+    notAvailable: notAvailable ?? new Set(),
+    ...rest,
+  });
   const got = flags.map((f) => f.ruleCode).sort();
   const want = [...expectCodes].sort();
   const ok = JSON.stringify(got) === JSON.stringify(want);
@@ -19,8 +30,13 @@ const check = (
 };
 
 let pass = 0, total = 0;
-const t = (l: string, v: Record<string, number | null>, e: string[]) => {
-  total++; if (check(l, v, e)) pass++;
+const t = (
+  l: string,
+  v: Record<string, number | null>,
+  e: string[],
+  extra: Extra = {}
+) => {
+  total++; if (check(l, v, e, extra)) pass++;
 };
 
 // Aurora May-24: STP outlet 2,276 vs inlet 1,915 — physically impossible.
@@ -93,6 +109,82 @@ t("Aurora Apr-24 · tenant ratio within tolerance",
 t("Transposed tenant/own-floor rows are flagged",
   { "elec.tenant": 193428, "elec.own_floor_1": 500, "elec.own_floor_2": 0 },
   ["TENANT_ELEC_DOMINATES"]);
+
+// ---------------------------------------------------------------------------
+// Anomaly detection against a prior period (Excel Entry).
+// ---------------------------------------------------------------------------
+
+const prior = (value: number, basis: "same_month_prior_year" | "most_recent_month" = "same_month_prior_year") =>
+  ({ value, basis, periodLabel: "Apr 2023-24" }) as const;
+
+// Aurora's grid draw: Apr-23 250,000 kWh vs Apr-24 271,906 — +8.8%, inside the
+// band. A year-on-year move this size is ordinary and must not be flagged.
+t("Aurora Apr · +8.8% year-on-year is within tolerance",
+  { "elec.green": 271906 },
+  [],
+  { priorValues: { "elec.green": prior(250000) } });
+
+// Aurora Feb-24 DG diesel 600.9 L against Jan-24's 40 L — a 15x jump. Real,
+// and exactly the kind of thing the reviewer must see before submitting.
+t("Aurora Feb-24 · DG diesel 15x the prior month is flagged",
+  { "fuel.diesel_dg": 0.6009 },
+  ["ANOMALY_VS_PRIOR"],
+  { priorValues: { "fuel.diesel_dg": prior(0.04, "most_recent_month") } });
+
+t("a 20% move exactly on the boundary does not fire",
+  { "wtr.total": 120 },
+  [],
+  { priorValues: { "wtr.total": prior(100) } });
+
+t("a 21% move does fire",
+  { "wtr.total": 121 },
+  ["ANOMALY_VS_PRIOR"],
+  { priorValues: { "wtr.total": prior(100) } });
+
+t("a drop below tolerance is flagged as lower",
+  { "wtr.total": 50 },
+  ["ANOMALY_VS_PRIOR"],
+  { priorValues: { "wtr.total": prior(100) } });
+
+// A site's first return has nothing to compare against. Flagging everything as
+// anomalous would make the check useless noise on exactly the months that most
+// need a clean read.
+t("no prior data means no anomaly flags",
+  { "wtr.total": 999999 },
+  []);
+
+// A prior of zero makes every change an infinite percentage — meaningless.
+t("a zero prior value is not compared",
+  { "wtr.total": 500 },
+  [],
+  { priorValues: { "wtr.total": prior(0) } });
+
+// The tolerance is configurable from esg.constant.
+t("tolerance is configurable",
+  { "wtr.total": 130 },
+  [],
+  { priorValues: { "wtr.total": prior(100) }, anomalyTolerance: 0.5 });
+
+// ---------------------------------------------------------------------------
+// Missing required rows.
+// ---------------------------------------------------------------------------
+
+t("a required row left empty is flagged",
+  { "elec.grid": 1709 },
+  ["REQUIRED_FIELD_MISSING"],
+  {
+    requiredKeys: ["elec.grid", "fuel.diesel_dg"],
+    labelsByKey: { "fuel.diesel_dg": "DG set - Diesel" },
+  });
+
+// "NA" is an answer. Only a genuinely untouched row is a gap.
+t("a required row marked NA is not a gap",
+  { "elec.grid": 1709, "fuel.diesel_dg": null },
+  [],
+  {
+    requiredKeys: ["elec.grid", "fuel.diesel_dg"],
+    notAvailable: new Set(["fuel.diesel_dg"]),
+  });
 
 console.log(`\n${pass}/${total}`);
 process.exit(pass === total ? 0 : 1);

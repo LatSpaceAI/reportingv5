@@ -26,16 +26,17 @@ const METHODS = [
     icon: <PencilIcon className="h-5 w-5" />,
   },
   {
+    href: "/data-collection/excel-entry",
+    title: "Excel Entry",
+    description:
+      "Upload a month's site return as filed. Values are parsed, checked against last year, and reviewed before they are recorded.",
+    icon: <SpreadsheetIcon className="h-5 w-5" />,
+  },
+  {
     href: "/data-collection/document",
     title: "Smart Upload (AI-Powered)",
     description: "Upload documents and let AI extract the data automatically.",
     icon: <SparklesIcon className="h-5 w-5" />,
-  },
-  {
-    href: "/data-collection/bulk",
-    title: "Excel Upload",
-    description: "Upload multiple records at once using Excel or CSV files.",
-    icon: <SpreadsheetIcon className="h-5 w-5" />,
   },
   {
     href: "/data-collection/export",
