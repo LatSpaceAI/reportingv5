@@ -5,11 +5,13 @@ import { useEffect, useRef, useState } from "react";
 import { ChartMessage } from "@/components/dashboard/ChartMessage";
 import { useDashboardChat } from "@/components/dashboard/use-dashboard-chat";
 
+// Anchored to metrics that actually have filed data — suggesting a chart that
+// renders empty is a worse first impression than suggesting nothing.
 const SUGGESTIONS = [
-  "What's our total Scope 1 emissions?",
-  "Show Scope 1 through the year for Mattampally",
-  "Compare clinker factor across all plants",
-  "Thermal Substitution Ratio breakdown",
+  "What's our total Scope 2 emissions?",
+  "Show water withdrawal through the year for Birla Aurora",
+  "Compare renewable electricity across sites",
+  "Water withdrawal by source",
 ];
 
 // lucide: arrow-up

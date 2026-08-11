@@ -35,6 +35,43 @@ const PALETTE = [
   "#5B2DA0",
 ];
 
+/**
+ * How much filed evidence a figure rests on.
+ *
+ * The portfolio has no derived-balance mechanism: a total is the sum of the
+ * returns actually filed. With most site-months still uncollected, a headline
+ * number presented bare reads as "this is the company's total" when it is
+ * "this is what we have". The note is deliberately shown even at full coverage
+ * — a badge that only appears when something is wrong trains people to ignore
+ * its absence.
+ */
+function CoverageNote({
+  coverage,
+}: {
+  coverage?: { sitesReporting: number; sitesExpected: number };
+}) {
+  if (!coverage || coverage.sitesExpected <= 0) return null;
+  const { sitesReporting, sitesExpected } = coverage;
+  const pct = Math.round((sitesReporting / sitesExpected) * 100);
+  const complete = sitesReporting >= sitesExpected;
+  return (
+    <div
+      className={`mt-auto pt-2 text-[10px] ${
+        complete ? "text-[#0A0A0A]/40" : "text-amber-700"
+      }`}
+      title={
+        complete
+          ? "Every expected site return has been filed for this period."
+          : "Sums only the site returns filed so far — not an estimate of the full portfolio."
+      }
+    >
+      {complete
+        ? "All site returns filed"
+        : `${sitesReporting} of ${sitesExpected} site returns filed (${pct}%)`}
+    </div>
+  );
+}
+
 interface ChartRendererProps {
   spec: ChartSpec;
   data: ChartData;
@@ -99,9 +136,12 @@ export function ChartRenderer({ spec, data, height = 280 }: ChartRendererProps) 
     return (
       <div
         style={sizeStyle}
-        className="flex items-center justify-center text-xs text-[#0A0A0A]/40"
+        className="flex flex-col items-center justify-center gap-1 px-4 text-center"
       >
-        No data for this selection
+        <span className="text-xs text-[#0A0A0A]/40">No data for this selection</span>
+        <span className="text-[10px] text-[#0A0A0A]/30">
+          Only filed site returns are charted — nothing has been entered here yet.
+        </span>
       </div>
     );
   }
@@ -137,6 +177,7 @@ export function ChartRenderer({ spec, data, height = 280 }: ChartRendererProps) 
           {subtitle && (
             <div className="mt-1 text-[10px] text-[#0A0A0A]/45">{subtitle}</div>
           )}
+          <CoverageNote coverage={data.coverage} />
         </div>
       );
     }

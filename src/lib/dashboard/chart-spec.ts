@@ -55,9 +55,23 @@ export interface ChartSeries {
   points: ChartSeriesPoint[];
 }
 
+/**
+ * How much filed evidence a chart's figures rest on.
+ *
+ * Reported as the WEAKEST coverage of any cell in the chart — a series is only
+ * as trustworthy as its thinnest point, and averaging would hide exactly the
+ * months worth knowing about. Absent for charts built purely from raw entered
+ * inputs, where coverage is not a meaningful property.
+ */
+export interface ChartCoverage {
+  sitesReporting: number;
+  sitesExpected: number;
+}
+
 export interface ChartData {
   period_label: string;
   series: ChartSeries[];
+  coverage?: ChartCoverage;
 }
 
 /**
