@@ -7,6 +7,63 @@ and constants settings page were built and verified.
 
 ---
 
+## STATUS — updated 13 Aug 2026
+
+**Both blockers were decided as recommended, and the foundation is built.**
+
+| Piece | State |
+|---|---|
+| Blocker 1 — `s3_line` ledger table | ✅ Built (`13_scope3_schema.sql`) |
+| Blocker 2 — dedicated computation pass | ✅ Built (`scripts/resolve-scope3.mjs`) |
+| 95 factors + CONTROL + 111 mappings | ✅ Seeded (`14_scope3_constants.sql`) |
+| 11 category outputs + total | ✅ Seeded (`15_scope3_outputs.sql`) |
+| Six category methods + the traps | ✅ Built (`scripts/lib/scope3-methods.mjs`) |
+| Double-counting guard | ✅ Built, with tests |
+| Exporter changes (all three) | ✅ Done |
+| **Ledger ingestion (the input path)** | ❌ **NOT built — see below** |
+
+Verified by applying all fifteen migrations to a real Postgres 15 and running the
+methods against the seeded reference data with the workbook's own example rows.
+Cat 11 came out at 99.40% of the total, matching the workbook's ~99.5%; the
+double-counting guard caught the deliberately untagged fixture line.
+
+```bash
+npm run esg:test-scope3        # 29 seed checks + 59 method tests, no database
+npm run esg:resolve            # Scope 1 + 2 first — Scope 3 reads ghg.total
+npm run esg:resolve-scope3     # the ledger pass
+```
+
+**Two decisions were taken during the build** (both were open questions the
+workbook does not settle):
+
+1. **Grain: `(GROUP, YTD)` only.** The workbook is annual and company-wide; four
+   of the nine ledgers carry no site and three carry no month. Per-site output
+   would mean inventing an attribution nobody reported. Per-line results still
+   carry whatever site/period was filed, on `s3_line`, so a breakdown is a query.
+   `OUTPUT_GRAIN` in the resolver is the single place this lives.
+2. **The CONTROL sheet is seeded as `esg.constant` rows** (`s3.fx_inr_per_eur`,
+   `s3.price_deflator`, `s3.circuity_road`, `s3.headcount`,
+   `s3.contract_workers_in_cat7`, …), so they inherit the settings page, audit
+   trail and blast radius with no new UI.
+
+**What remains, in order:**
+
+1. **Ledger ingestion.** Nothing writes `s3_line` yet — no parser, no `s3Commit.ts`,
+   no UI. The table, its history table and its supersession columns exist and the
+   per-ledger `attrs` key contract is documented in `13_scope3_schema.sql`. This
+   is the largest remaining piece.
+2. **Confirm the 90 indicative factors** at `/settings/constants`. Until then any
+   figure is a test fixture, not a disclosure — this is unchanged.
+3. **A `SCOPE3 METHOD` sheet** in the exporter, for the GHG Protocol's
+   quantify-or-justify requirement on categories 8, 9, 10, 12, 14, 15.
+4. **Resolve `s3.contract_workers_in_cat7`.** Seeded 0 to match the workbook's
+   default; it can move Cat 7 by an order of magnitude.
+
+Everything below is the original analysis, kept because the traps and the
+verified figures are still the reference.
+
+---
+
 ## Why this document exists
 
 The four features just built (see *What already exists* below) all operate on the
