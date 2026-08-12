@@ -391,3 +391,20 @@ export function SaveIcon({ className = "h-4 w-4" }: { className?: string }) {
     </svg>
   );
 }
+
+// lucide: sliders-horizontal
+export function SlidersIcon({ className = "h-5 w-5" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="21" x2="14" y1="4" y2="4" />
+      <line x1="10" x2="3" y1="4" y2="4" />
+      <line x1="21" x2="12" y1="12" y2="12" />
+      <line x1="8" x2="3" y1="12" y2="12" />
+      <line x1="21" x2="16" y1="20" y2="20" />
+      <line x1="12" x2="3" y1="20" y2="20" />
+      <circle cx="12" cy="4" r="2" />
+      <circle cx="10" cy="12" r="2" />
+      <circle cx="14" cy="20" r="2" />
+    </svg>
+  );
+}
