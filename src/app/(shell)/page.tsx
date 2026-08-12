@@ -13,6 +13,7 @@ import {
 import { formatUpdated } from "@/lib/storage";
 import { useToast } from "@/components/Toast";
 import BrsrEnvironmentExportDialog from "@/components/BrsrEnvironmentExportDialog";
+import StandardMetricsExportDialog from "@/components/StandardMetricsExportDialog";
 
 type CategoryFilter = "all" | "Climate" | "Sustainability" | "Regulatory";
 type StatusFilter = "all" | "active" | "coming-soon";
@@ -30,6 +31,7 @@ export default function LandingPage() {
   // same empty placeholders and React doesn't trip a hydration mismatch.
   const [mounted, setMounted] = useState(false);
   const [envExportOpen, setEnvExportOpen] = useState(false);
+  const [stdExportOpen, setStdExportOpen] = useState(false);
   const { show } = useToast();
 
   useEffect(() => {
@@ -78,6 +80,10 @@ export default function LandingPage() {
       // they open a dialog rather than firing a file straight away.
       if (f.id === "brsr-environment") {
         setEnvExportOpen(true);
+        return;
+      }
+      if (f.id === "standard-output-metrics") {
+        setStdExportOpen(true);
         return;
       }
       if (f.id === "brsr") {
@@ -166,6 +172,11 @@ export default function LandingPage() {
           </div>
         )}
       </div>
+
+      <StandardMetricsExportDialog
+        open={stdExportOpen}
+        onClose={() => setStdExportOpen(false)}
+      />
 
       <BrsrEnvironmentExportDialog
         open={envExportOpen}
