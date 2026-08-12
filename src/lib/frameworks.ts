@@ -90,7 +90,7 @@ export const frameworkEntries: FrameworkEntry[] = [
   {
     id: "brsr-environment",
     name: "Real Estate BRSR — Environment sheet",
-    shortName: "Birla Estate BRSR Template",
+    shortName: "Birla Estate Custom Template",
     description:
       "Fills the client's own Real Estate BRSR template with energy, water, waste and emissions figures computed from the monthly site returns — its exact cells, layout and styling, left untouched where no return has been filed.",
     cadence: "Annual",
@@ -102,6 +102,24 @@ export const frameworkEntries: FrameworkEntry[] = [
     logoIcon: "report",
     logoInitials: "BE",
     logoColor: "bg-emerald-100 text-emerald-700",
+  },
+  {
+    id: "standard-output-metrics",
+    name: "ESG metrics — standard template",
+    shortName: "Standard Metrics Template",
+    description:
+      "Every computed metric at the grain its disclosure asks for, in a framework-neutral workbook of our own. Distinguishes a reported zero from a return nobody filed, and states its coverage on every sheet.",
+    cadence: "Annual",
+    category: "Sustainability",
+    status: "active",
+    variant: "export-only",
+    // A sibling row rather than a child of a group alongside the Birla entry:
+    // GroupRow computes its progress bar from c.sections (page.tsx:388-391), so
+    // two section-less export-only children would show a permanent 0% and read
+    // as unstarted. Worth revisiting if a third export lands.
+    logoIcon: "report",
+    logoInitials: "SM",
+    logoColor: "bg-sky-100 text-sky-700",
   },
 ];
 
