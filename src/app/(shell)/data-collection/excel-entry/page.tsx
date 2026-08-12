@@ -293,6 +293,17 @@ export default function ExcelEntryPage() {
         <p className="mt-2 text-xs text-gray-500">
           One month per file. Workbooks containing several monthly sheets are not accepted.
         </p>
+        <p className="mt-1 text-xs text-gray-500">
+          This screen reads a site&apos;s OWN form by matching its printed labels. For the
+          app&apos;s own template, which is read by parameter key,{" "}
+          <a
+            href="/data-collection/standard-return"
+            className="text-brand underline underline-offset-2"
+          >
+            use Standard Return
+          </a>
+          .
+        </p>
         {file && (
           <p className="mt-3 text-xs text-gray-600">
             {uploading ? "Reading" : "Loaded"} <span className="font-medium">{file.name}</span>
