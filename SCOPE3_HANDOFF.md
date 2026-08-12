@@ -20,7 +20,7 @@ and constants settings page were built and verified.
 | Six category methods + the traps | ✅ Built (`scripts/lib/scope3-methods.mjs`) |
 | Double-counting guard | ✅ Built, with tests |
 | Exporter changes (all three) | ✅ Done |
-| **Ledger ingestion (the input path)** | ❌ **NOT built — see below** |
+| Ledger ingestion (the input path) | ✅ Built (`src/lib/scope3Ledger/`, 3 routes, 1 screen) |
 
 Verified by applying all fifteen migrations to a real Postgres 15 and running the
 methods against the seeded reference data with the workbook's own example rows.
@@ -28,9 +28,19 @@ Cat 11 came out at 99.40% of the total, matching the workbook's ~99.5%; the
 double-counting guard caught the deliberately untagged fixture line.
 
 ```bash
-npm run esg:test-scope3        # 29 seed checks + 59 method tests, no database
-npm run esg:resolve            # Scope 1 + 2 first — Scope 3 reads ghg.total
-npm run esg:resolve-scope3     # the ledger pass
+npm run esg:test-scope3         # 29 seed checks + 59 method tests, no database
+npm run esg:test-scope3-ledger  # 58 ingestion round-trip checks, no database
+npm run esg:resolve             # Scope 1 + 2 first — Scope 3 reads ghg.total
+npm run esg:resolve-scope3      # the ledger pass
+```
+
+The loop the Scope 3 side now closes:
+
+```
+ledger workbook  →  upload + preview  →  s3_line  →  resolve-scope3  →  output_value
+ (9 sheets, one   (/data-collection/    (one row     (per-line          (11 category
+  row = one        scope3-ledgers)       per filed    emissions)         totals, GROUP
+  transaction)                           line)                           + YTD)
 ```
 
 **Two decisions were taken during the build** (both were open questions the
@@ -46,18 +56,35 @@ workbook does not settle):
    `s3.contract_workers_in_cat7`, …), so they inherit the settings page, audit
    trail and blast radius with no new UI.
 
+**Ingestion decisions worth knowing:**
+
+- **`ledgerService.ts` is a SIBLING of `commitValues.ts`, not a caller.** It
+  reuses the four guarantees — no silent overwrite, history before write, commit
+  does not compute, validation never blocks — but shares no code, because the two
+  disagree about accumulation (two purchase orders from one supplier are two
+  facts, not a sum), grain (a fiscal year, not a site-month) and supersession
+  scope. The handoff said to extract only if the second implementation wanted to
+  share code. It does not.
+- **Supersession is per (ledger, fiscal year), not per workbook.** The nine
+  ledgers are owned by five teams and arrive at different times, so a workbook
+  containing only sheet 5 must not delete the procurement lines someone filed
+  last week. A blank sheet means "nothing to add", not "delete what is there".
+- **Line IDs are pre-filled 1..300 and the parser needs BOTH an ID and data.**
+  Anchoring on the ID alone imported a 4-row return as 300 rows, 296 of them
+  empty. Caught by the round-trip test; it is the one bug in this path that would
+  have reached the database looking entirely normal.
+
 **What remains, in order:**
 
-1. **Ledger ingestion.** Nothing writes `s3_line` yet — no parser, no `s3Commit.ts`,
-   no UI. The table, its history table and its supersession columns exist and the
-   per-ledger `attrs` key contract is documented in `13_scope3_schema.sql`. This
-   is the largest remaining piece.
-2. **Confirm the 90 indicative factors** at `/settings/constants`. Until then any
+1. **Confirm the 90 indicative factors** at `/settings/constants`. Until then any
    figure is a test fixture, not a disclosure — this is unchanged.
-3. **A `SCOPE3 METHOD` sheet** in the exporter, for the GHG Protocol's
+2. **A `SCOPE3 METHOD` sheet** in the exporter, for the GHG Protocol's
    quantify-or-justify requirement on categories 8, 9, 10, 12, 14, 15.
-4. **Resolve `s3.contract_workers_in_cat7`.** Seeded 0 to match the workbook's
+3. **Resolve `s3.contract_workers_in_cat7`.** Seeded 0 to match the workbook's
    default; it can move Cat 7 by an order of magnitude.
+4. **A logbook view for ledger uploads.** `v_logbook_entries` reads `input_value`
+   and so does not see `s3_line`. The batches are recorded and the lines carry
+   `source_doc` and `import_batch_id`, so nothing is lost — it is a view away.
 
 Everything below is the original analysis, kept because the traps and the
 verified figures are still the reference.

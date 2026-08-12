@@ -36,6 +36,13 @@ const METHODS = [
       "Upload a month's site return as filed on the site's own form. Values are parsed, checked against last year, and reviewed before they are recorded.",
     icon: <UploadIcon className="h-5 w-5" />,
   },
+  {
+    href: "/data-collection/scope3-ledgers",
+    title: "Scope 3 Ledgers",
+    description:
+      "Value-chain data: purchase orders, material deliveries, freight, travel and tenant energy. One row is one transaction, not one monthly figure.",
+    icon: <SpreadsheetIcon className="h-5 w-5" />,
+  },
 ] as const;
 
 // A settings page, not an entry method. Every card above writes input_value;

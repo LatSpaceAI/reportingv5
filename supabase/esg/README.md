@@ -88,10 +88,17 @@ meet only in `output_value`.
   computes it in plain JavaScript and writes category totals into `output_value`
   directly, where they are indistinguishable from any other computed figure.
 
+Ledgers are filed through `/data-collection/scope3-ledgers`: download a workbook
+(all nine sheets, or one for the team that owns it), fill it in, upload it back.
+The preview reports what will **not** match — an unmapped material type or an
+unrecognised site still imports, but contributes zero while looking like a
+filled-in row. Committing writes `s3_line` and deliberately computes nothing.
+
 ```bash
-npm run esg:resolve            # Scope 1 + 2, the formula DAG (unchanged)
-npm run esg:resolve-scope3     # Scope 3, the ledger pass — run AFTER the above
-npm run esg:test-scope3        # seed validation + 59 method unit tests, no database
+npm run esg:resolve             # Scope 1 + 2, the formula DAG (unchanged)
+npm run esg:resolve-scope3      # Scope 3, the ledger pass — run AFTER the above
+npm run esg:test-scope3         # seed validation + 59 method unit tests, no database
+npm run esg:test-scope3-ledger  # 58 ingestion round-trip checks, no database
 ```
 
 Run order matters: `resolve-scope3.mjs` reads `ghg.total` out of `output_value` to
