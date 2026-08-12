@@ -110,11 +110,71 @@ async function upsertChunks(table, rows, onConflict) {
 
 const round4 = (n) => Math.round(n * 1e4) / 1e4;
 
+// Set by main() so the top-level catch can mark a failed run.
+let currentRunId = null;
+
+
+// =============================================================================
+// Resolver-run bookkeeping
+//
+// The constants settings page derives staleness by comparing the newest
+// constant.updated_at against the newest successful run recorded here. Without
+// these rows, "are the computed figures current?" is unanswerable.
+//
+// Additive only: no arithmetic, no formula and no value is touched by any of it.
+// A missing bookkeeping table must never stop the resolver producing figures,
+// so every failure here warns and carries on.
+// =============================================================================
+async function startResolverRun() {
+  const { data, error } = await sb
+    .from("resolver_run")
+    .insert({
+      trigger_source: "cli",
+      fiscal_year: ONLY_FY ?? null,
+      status: "running",
+      dry_run: false,
+      triggered_by: "cli",
+    })
+    .select("id")
+    .single();
+  if (error) {
+    console.warn(`  ! could not record resolver_run: ${error.message}`);
+    return null;
+  }
+  return data.id;
+}
+
+async function finishResolverRun(runId, status, extra = {}) {
+  if (runId == null) return;
+  const { error } = await sb
+    .from("resolver_run")
+    .update({ status, finished_at: new Date().toISOString(), ...extra })
+    .eq("id", runId);
+  if (error) console.warn(`  ! could not close resolver_run: ${error.message}`);
+}
+
 // =============================================================================
 // Resolve
 // =============================================================================
 async function main() {
   await initClient();
+
+  // One timestamp for the whole run, written to every row as computed_at.
+  //
+  // computed_at carries `default now()`, which fires on INSERT ONLY. Because
+  // this script upserts, a row recomputed today would otherwise keep the
+  // timestamp of its first-ever insert forever, and "when was this figure last
+  // computed?" would be unanswerable — which is what the constants settings
+  // page needs in order to tell whether an edited factor has been applied yet.
+  // Hoisted rather than per-row so max(computed_at) is exact per run instead of
+  // smeared across the run's duration.
+  const runAt = new Date().toISOString();
+
+  // Bookkeeping row so staleness can be derived. Deliberately NOT written on a
+  // dry run: a dry run computes nothing, so recording it as a successful run
+  // would falsely clear staleness for constants that were never applied.
+  const runId = DRY_RUN ? null : await startResolverRun();
+  currentRunId = runId;
 
   console.log("Loading model…");
   const [sites, periods, constants, inputParams, outputParams, formulas] =
@@ -247,6 +307,7 @@ async function main() {
           // A site-level figure rests on that one site's own return.
           sites_reporting: filedBySP.has(spKey) ? 1 : 0,
           sites_expected: 1,
+          computed_at: runAt,
         });
       }
       siteValues.set(spKey, vals);
@@ -306,6 +367,7 @@ async function main() {
           filedBySP.has(`${s.id}|${period.id}`)
         ).length,
         sites_expected: contributors.length,
+        computed_at: runAt,
       });
     }
     if (VERBOSE) {
@@ -360,6 +422,7 @@ async function main() {
           formula_id: null,
           sites_reporting: c.r,
           sites_expected: c.e,
+          computed_at: runAt,
         });
       }
     }
@@ -379,6 +442,7 @@ async function main() {
   } else {
     console.log("Upserting…");
     await upsertChunks("output_value", outRows, "site_id,period_id,parameter_id");
+    await finishResolverRun(runId, "succeeded", { rows_written: outRows.length });
     console.log("Written.\n");
   }
 
@@ -446,7 +510,8 @@ async function report(outRows, { periods, outputParams, groupSite }) {
   void periodById;
 }
 
-main().catch((e) => {
-  console.error("\nResolver failed:", e.message);
+main().catch(async (e) => {
+  await finishResolverRun(currentRunId, "failed", { error_message: String(e?.message ?? e) });
+  console.error(e);
   process.exit(1);
 });
