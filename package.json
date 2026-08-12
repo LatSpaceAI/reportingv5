@@ -26,8 +26,9 @@
     "esg:test-import": "tsx scripts/test-import.ts",
     "esg:test-commit": "node scripts/test-commit-values.mjs",
     "esg:test-engine": "node scripts/test-resolver.mjs",
-    "esg:check": "npm run esg:validate && npm run esg:verify && npm run esg:test-engine && npm run esg:test-entry && npm run esg:test-import && npm run esg:test-template",
-    "esg:test-template": "tsx scripts/test-standard-template.ts"
+    "esg:check": "npm run esg:validate && npm run esg:verify && npm run esg:test-engine && npm run esg:test-entry && npm run esg:test-import && npm run esg:test-template && npm run esg:test-constants",
+    "esg:test-template": "tsx scripts/test-standard-template.ts",
+    "esg:test-constants": "tsx scripts/test-constants.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
