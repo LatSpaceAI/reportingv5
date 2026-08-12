@@ -21,6 +21,23 @@ function createEsgClient(url: string, serviceRoleKey: string) {
   return createClient(url, serviceRoleKey, {
     db: { schema: "esg" },
     auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      // NEXT PATCHES fetch AND CACHES GET REQUESTS BY DEFAULT.
+      //
+      // PostgREST reads are GETs, so without this a repeated query returns the
+      // response Next cached the first time — and it does so INSIDE the client,
+      // where no amount of `no-store` on our own route headers can reach it.
+      //
+      // The symptom is a read that silently disagrees with the database: a
+      // constant edited a moment ago still reporting its old updated_at, so the
+      // staleness banner never appears. BIRLA_ESTATES.md records the same root
+      // cause biting the entry read routes; this is the same bug one layer down,
+      // and `dynamic = "force-dynamic"` on a route does not fix it either.
+      //
+      // Every read here is of live operational data whose whole value is being
+      // current, so there is no query in this app that wants the cache.
+      fetch: (input, init) => fetch(input, { ...init, cache: "no-store" }),
+    },
   });
 }
 
