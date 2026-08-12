@@ -22,11 +22,18 @@ const METHODS = [
     icon: <PencilIcon className="h-5 w-5" />,
   },
   {
+    href: "/data-collection/standard-return",
+    title: "Standard Return",
+    description:
+      "Download the standard template, fill it in, and upload it back. Read by parameter key, so a renamed row still imports.",
+    icon: <SpreadsheetIcon className="h-5 w-5" />,
+  },
+  {
     href: "/data-collection/excel-entry",
     title: "Excel Entry",
     description:
-      "Upload a month's site return as filed. Values are parsed, checked against last year, and reviewed before they are recorded.",
-    icon: <SpreadsheetIcon className="h-5 w-5" />,
+      "Upload a month's site return as filed on the site's own form. Values are parsed, checked against last year, and reviewed before they are recorded.",
+    icon: <UploadIcon className="h-5 w-5" />,
   },
 ] as const;
 
