@@ -24,6 +24,7 @@
     "esg:verify": "node scripts/verify-esg-model.mjs",
     "esg:test-entry": "tsx scripts/test-parse-quantity.ts && tsx scripts/test-site-validation.ts && tsx scripts/test-entry-resolution.ts",
     "esg:test-import": "tsx scripts/test-import.ts",
+    "esg:test-commit": "node scripts/test-commit-values.mjs",
     "esg:test-engine": "node scripts/test-resolver.mjs",
     "esg:check": "npm run esg:validate && npm run esg:verify && npm run esg:test-engine && npm run esg:test-entry && npm run esg:test-import"
   },
