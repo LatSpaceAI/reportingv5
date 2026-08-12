@@ -63,8 +63,49 @@ the gap shows as a gap.
 8. `08_input_values_seed.sql` — the eight evidenced site-months
 9. `09_resolver_notes.md` — evaluation algorithm and the assumptions register
 10. `10_dashboard_tiles.sql` — AI Dashboard tile persistence
+11. `11_import_batch.sql` — spreadsheet import, batches, supersession, logbook view
+12. `12_constant_revision.sql` — editable constants, audit trail, resolver runs
+13. `13_scope3_schema.sql` — Scope 3 ledgers (`s3_line`) and mappings (`s3_mapping`)
+14. `14_scope3_constants.sql` — 95 emission factors + CONTROL assumptions + 111 mappings
+15. `15_scope3_outputs.sql` — 11 Scope 3 category parameters + total + all-scopes total
 
-`APPLY_THIS_IN_SQL_EDITOR.sql` handles the PostgREST grants; run it once.
+`APPLY_THIS_IN_SQL_EDITOR.sql` handles the PostgREST grants; run it once — and
+again after 13–15, since PostgREST will not see the new tables until it does.
+
+## Scope 3 (files 13–15)
+
+Scope 3 is a **second model**, not an extension of the Scope 1/2 one, and the two
+meet only in `output_value`.
+
+- Its inputs are **ledgers**, not monthly meter readings: up to 300 purchase-order
+  lines, each carrying six correlated fields. `input_value` is unique on
+  `(site, period, parameter)` — one value per slot — so they live in `esg.s3_line`
+  instead. That uniqueness is load-bearing for how `commitValues` supersedes, and
+  relaxing it would change every read path in the app at once.
+- Its methods are **set operations** (sum over lines where tag = X), which
+  `formula-eval.mjs` cannot express — it binds three token kinds each to one
+  number. So Scope 3 has **no `formula` rows at all**. `scripts/resolve-scope3.mjs`
+  computes it in plain JavaScript and writes category totals into `output_value`
+  directly, where they are indistinguishable from any other computed figure.
+
+```bash
+npm run esg:resolve            # Scope 1 + 2, the formula DAG (unchanged)
+npm run esg:resolve-scope3     # Scope 3, the ledger pass — run AFTER the above
+npm run esg:test-scope3        # seed validation + 59 method unit tests, no database
+```
+
+Run order matters: `resolve-scope3.mjs` reads `ghg.total` out of `output_value` to
+derive `ghg.total_all_scopes`, and skips it with a warning if the first pass has
+not run.
+
+⚠ **`ghg.total` means Scope 1 + 2 and keeps meaning that.** Every dashboard tile
+and export cell reads it. The all-scopes figure is a separate key,
+`ghg.total_all_scopes`.
+
+⚠ **90 of the 95 factors are seeded `is_assumption = true`**, because the
+workbook's own README says they are placeholders of the right order of magnitude
+and not the published values. Any Scope 3 figure produced before they are
+confirmed at `/settings/constants` is a test fixture, not a disclosure.
 
 ## How the FORMULAS layer works
 

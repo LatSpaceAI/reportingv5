@@ -132,13 +132,30 @@ export async function loadOutputModel(fiscalYear: string): Promise<LoadedModel> 
 
   const parameters: OutputParameter[] = (paramRows ?? []).map((p) => {
     // An intensity output must be re-derived, not summed or column-totalled
-    // (resolve-birla.mjs:318-333 says so itself). None exists today; fail loudly
-    // rather than silently summing a ratio if one is ever seeded.
-    if (p.is_intensity) {
+    // (resolve-birla.mjs:318-333 says so itself).
+    //
+    // THIS USED TO THROW UNCONDITIONALLY, because no intensity parameter existed
+    // and summing a ratio is invalid. Scope 3 seeds one — s3.share_of_footprint
+    // — so the throw has become a RULE rather than a refusal:
+    //
+    //   frequency 'annual'  -> SAFE. resolveCell reads the YTD row directly and
+    //                          performs no aggregation at all (see its `grain
+    //                          === "annual"` branch), so the ratio is written
+    //                          exactly as the resolver derived it.
+    //
+    //   anything else       -> STILL THROWS. A monthly or quarterly ratio would
+    //                          hit the quarter/half aggregation path, which sums
+    //                          its constituent months. Summing twelve ratios
+    //                          gives a number with no meaning, and it would look
+    //                          entirely plausible in the sheet.
+    //
+    // The column-total row is guarded separately at the point it is written.
+    if (p.is_intensity && p.frequency !== "annual") {
       throw new Error(
-        `Output parameter ${p.key} is an intensity ratio. This exporter has no ` +
-          `re-derivation rule for one: column sums and quarter aggregation are both ` +
-          `invalid for a ratio. Add an explicit rule before seeding it.`
+        `Output parameter ${p.key} is an intensity ratio at ${p.frequency} frequency. ` +
+          `Quarter and half-year aggregation SUM their constituent months, which is ` +
+          `invalid for a ratio. Either seed it as 'annual' (read straight off the YTD ` +
+          `row, no aggregation) or add an explicit re-derivation rule here first.`
       );
     }
     return {

@@ -17,6 +17,9 @@
     "smoke:fill": "node scripts/smoke-runner.mjs fill",
     "esg:resolve": "node scripts/resolve-birla.mjs",
     "esg:resolve:dry": "node scripts/resolve-birla.mjs --dry-run",
+    "esg:resolve-scope3": "node scripts/resolve-scope3.mjs",
+    "esg:resolve-scope3:dry": "node scripts/resolve-scope3.mjs --dry-run",
+    "esg:test-scope3": "node scripts/validate-scope3-seed.mjs && node scripts/test-scope3.mjs",
     "esg:verify-resolver": "node scripts/verify-resolver.mjs",
     "esg:test-charts": "node scripts/test-chart-data.mjs",
     "esg:test-export": "node scripts/test-export.mjs",
@@ -26,7 +29,7 @@
     "esg:test-import": "tsx scripts/test-import.ts",
     "esg:test-commit": "node scripts/test-commit-values.mjs",
     "esg:test-engine": "node scripts/test-resolver.mjs",
-    "esg:check": "npm run esg:validate && npm run esg:verify && npm run esg:test-engine && npm run esg:test-entry && npm run esg:test-import && npm run esg:test-template && npm run esg:test-constants",
+    "esg:check": "npm run esg:validate && npm run esg:verify && npm run esg:test-engine && npm run esg:test-entry && npm run esg:test-import && npm run esg:test-template && npm run esg:test-constants && npm run esg:test-scope3",
     "esg:test-template": "tsx scripts/test-standard-template.ts",
     "esg:test-constants": "tsx scripts/test-constants.ts",
     "esg:test-standard-output": "node scripts/test-standard-output.mjs"

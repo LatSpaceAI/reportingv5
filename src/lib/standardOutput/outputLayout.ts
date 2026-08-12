@@ -62,6 +62,12 @@ export const DOMAIN_SHEET: Record<string, string> = {
   EMISSIONS: "EMISSIONS",
   AIR: "PERIODIC",
   REFRIGERANT: "PERIODIC",
+  // Scope 3 gets its own sheet rather than folding into EMISSIONS. It is
+  // annual where EMISSIONS is monthly, it is company-wide where EMISSIONS is
+  // per site, and its eleven category lines would otherwise sit in the middle
+  // of the Scope 1/2 disclosure they must be read separately from — Cat 11
+  // alone is three orders of magnitude larger than Scope 1.
+  SCOPE3: "SCOPE3",
 };
 
 /** Sheet order in the workbook. READ FIRST is the tab Excel opens on. */
@@ -72,6 +78,7 @@ export const SHEET_ORDER = [
   "WATER",
   "WASTE",
   "EMISSIONS",
+  "SCOPE3",
   "PERIODIC",
   "CONSTANTS",
   "ASSUMPTIONS",
