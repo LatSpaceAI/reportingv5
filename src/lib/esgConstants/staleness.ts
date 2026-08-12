@@ -60,14 +60,46 @@ export async function computeStaleness(): Promise<Staleness> {
 
   const live = constants ?? [];
 
+  // WHY THE REVISION TRAIL AND NOT JUST updated_at
+  //
+  // updated_at moves on ANY edit, but only a change of VALUE makes the computed
+  // figures wrong. Marking a factor "confirmed against its source" — which is
+  // the primary ESG-team workflow, and deliberately allowed without touching the
+  // number — changes no arithmetic whatsoever. Keying off updated_at alone told
+  // the user to re-run the resolver after every confirmation, which would train
+  // them to ignore the banner precisely when it matters.
+  //
+  // So a constant is stale only if a revision that ACTUALLY MOVED ITS VALUE
+  // landed after the last successful run. The trail already records old_value
+  // and new_value per revision, so this needs no new column.
+  const { data: valueChanges } = await supabaseAdmin
+    .from("constant_revision")
+    .select("constant_key, old_value, new_value, changed_at")
+    .neq("change_kind", "seed")
+    .order("changed_at", { ascending: false })
+    .limit(500);
+
+  /** Newest revision per key that changed the number, keyed by constant. */
+  const lastValueChangeByKey = new Map<string, string>();
+  for (const r of valueChanges ?? []) {
+    const key = r.constant_key as string;
+    if (lastValueChangeByKey.has(key)) continue; // ordered desc, first wins
+    if (Number(r.old_value) === Number(r.new_value)) continue; // confirm-only
+    lastValueChangeByKey.set(key, r.changed_at as string);
+  }
+
   if (!lastResolvedAt) {
     // Nothing has ever been recorded as resolved. If figures exist they were
     // computed before this bookkeeping existed, and the migration's baseline row
     // covers that case — so reaching here means output_value is genuinely empty
     // or the migration has not been applied.
+    // Nothing has ever been recorded as resolved, so every live constant is
+    // unapplied by definition — but only report the ones that feed a formula,
+    // for the same reason as below.
+    const unapplied = live.filter((c) => lastValueChangeByKey.has(c.key as string));
     return {
       isStale: live.length > 0,
-      staleKeys: live.map((c) => c.key as string),
+      staleKeys: unapplied.map((c) => c.key as string),
       lastEditedAt: (live[0]?.updated_at as string | null) ?? null,
       lastResolvedAt: null,
       lastResolvedFiscalYear: null,
@@ -76,14 +108,20 @@ export async function computeStaleness(): Promise<Staleness> {
   }
 
   const resolvedMs = new Date(lastResolvedAt).getTime();
-  const stale = live.filter(
-    (c) => new Date(c.updated_at as string).getTime() > resolvedMs
-  );
+
+  // A constant is stale when it feeds a formula AND its value moved after the
+  // last run. Both halves are required: an inert constant's value change moves
+  // nothing, and a live constant's confirmation changes no arithmetic.
+  const stale = live.filter((c) => {
+    const movedAt = lastValueChangeByKey.get(c.key as string);
+    return movedAt !== undefined && new Date(movedAt).getTime() > resolvedMs;
+  });
 
   return {
     isStale: stale.length > 0,
     staleKeys: stale.map((c) => c.key as string),
-    lastEditedAt: (stale[0]?.updated_at as string | null) ?? null,
+    lastEditedAt:
+      stale.length > 0 ? lastValueChangeByKey.get(stale[0].key as string) ?? null : null,
     lastResolvedAt,
     lastResolvedFiscalYear: (lastRun?.fiscal_year as string | null) ?? null,
     neverResolved: false,

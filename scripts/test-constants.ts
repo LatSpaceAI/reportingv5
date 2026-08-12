@@ -183,6 +183,33 @@ async function main() {
   t("a too-short reason is rejected", validateReason("ok") !== null);
   t("a real reason is accepted", validateReason("ESG team confirmed against CEA 2025") === null);
 
+  // =========================================================================
+  // STALENESS PREDICATE
+  //
+  // Regression guard for a bug found in live testing: staleness keyed off
+  // constant.updated_at alone, which moves on ANY edit. Marking a factor
+  // "confirmed against its source" — the primary ESG-team workflow, deliberately
+  // allowed without touching the number — therefore told the user to re-run the
+  // resolver when no arithmetic had changed. That trains people to ignore the
+  // banner precisely when it matters.
+  //
+  // The rule: a constant is stale only when it FEEDS A FORMULA and its VALUE
+  // moved after the last successful run. Both halves required.
+  // =========================================================================
+  const isStaleRow = (
+    r: { oldValue: number; newValue: number; directRefCount: number }
+  ) => Number(r.oldValue) !== Number(r.newValue) && r.directRefCount > 0;
+
+  t("a value change on a live constant is stale",
+    isStaleRow({ oldValue: 2.65, newValue: 2.58, directRefCount: 1 }));
+  t("a CONFIRM-ONLY edit is NOT stale (old_value === new_value)",
+    !isStaleRow({ oldValue: 2.3, newValue: 2.3, directRefCount: 1 }),
+    "the bug this guards");
+  t("a value change on an INERT constant is not stale",
+    !isStaleRow({ oldValue: 0.001, newValue: 0.002, directRefCount: 0 }));
+  t("a confirm-only edit on an inert constant is not stale",
+    !isStaleRow({ oldValue: 1810, newValue: 1810, directRefCount: 0 }));
+
   // --- report -------------------------------------------------------------
   const width = Math.max(...checks.map((c) => c.label.length)) + 2;
   console.log("\nconstants — blast radius and edit validation (no database)\n");

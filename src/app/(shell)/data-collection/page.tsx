@@ -11,6 +11,7 @@ import {
   UploadIcon,
   PencilIcon,
   SpreadsheetIcon,
+  SlidersIcon,
 } from "./shared";
 
 const METHODS = [
@@ -37,6 +38,19 @@ const METHODS = [
   },
 ] as const;
 
+// A settings page, not an entry method. Every card above writes input_value;
+// this one writes the reference values those figures are computed FROM, so it
+// belongs under its own heading rather than inside "Choose a data entry method".
+const SETTINGS = [
+  {
+    href: "/data-collection/constants",
+    title: "Emission Factors & Constants",
+    description:
+      "Emission factors, refrigerant GWPs and unit conversions. Editing one shows what it changes before it is saved.",
+    icon: <SlidersIcon className="h-5 w-5" />,
+  },
+] as const;
+
 export default function DataCollectionPage() {
   return (
     <div className="min-h-screen bg-white">
@@ -49,11 +63,34 @@ export default function DataCollectionPage() {
 
         <div className="space-y-8">
           <div>
-            <h2 className="mb-3 text-[13px] font-semibold text-[#0A0A0A]">
-              Choose a data entry method
-            </h2>
+            {/* Was "Choose a data entry method" — no longer accurate now that a
+                Settings section sits below it. */}
+            <h2 className="mb-3 text-[13px] font-semibold text-[#0A0A0A]">Data entry</h2>
             <div className="grid gap-4 sm:grid-cols-2">
               {METHODS.map((m) => (
+                <Link
+                  key={m.href}
+                  href={m.href}
+                  className="group flex h-full flex-col border border-gray-200 p-5 transition-all hover:border-brand/50 hover:bg-brand/[0.02]"
+                >
+                  <div className="mb-4 flex h-10 w-10 items-center justify-center bg-brand/[0.06] text-brand transition-transform group-hover:scale-105">
+                    {m.icon}
+                  </div>
+                  <h3 className="mb-1 text-[14px] font-semibold text-[#0A0A0A]">
+                    {m.title}
+                  </h3>
+                  <p className="mt-auto text-[12px] leading-relaxed text-gray-500">
+                    {m.description}
+                  </p>
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h2 className="mb-3 text-[13px] font-semibold text-[#0A0A0A]">Settings</h2>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {SETTINGS.map((m) => (
                 <Link
                   key={m.href}
                   href={m.href}
