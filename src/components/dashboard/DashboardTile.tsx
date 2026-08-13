@@ -9,6 +9,8 @@ interface DashboardTileProps {
   tileId: string;
   spec: ChartSpec;
   onRemove: (id: string) => void;
+  removeLabel: string;
+  onAddToPreset: (id: string, anchor: DOMRect) => void;
 }
 
 interface TileDataResponse {
@@ -30,6 +32,17 @@ function GripIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
   );
 }
 
+// lucide: folder-plus
+function FolderPlusIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 10v6" />
+      <path d="M9 13h6" />
+      <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+    </svg>
+  );
+}
+
 // lucide: x
 function XIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
   return (
@@ -40,7 +53,13 @@ function XIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
   );
 }
 
-export function DashboardTile({ tileId, spec, onRemove }: DashboardTileProps) {
+export function DashboardTile({
+  tileId,
+  spec,
+  onRemove,
+  removeLabel,
+  onAddToPreset,
+}: DashboardTileProps) {
   const q = useQuery<TileDataResponse>({
     queryKey: ["dashboard-tile-data", tileId],
     queryFn: async () => {
@@ -55,7 +74,10 @@ export function DashboardTile({ tileId, spec, onRemove }: DashboardTileProps) {
     <div className="flex h-full w-full flex-col border border-[#0A0A0A]/10 bg-white">
       <div className="flex flex-shrink-0 items-start justify-between gap-2 border-b border-[#0A0A0A]/[0.06] px-3 py-2">
         <div className="flex min-w-0 items-start gap-1.5">
-          <span className="tile-drag-handle mt-0.5 flex-shrink-0 cursor-move text-[#0A0A0A]/25">
+          <span
+            data-export-exclude
+            className="tile-drag-handle mt-0.5 flex-shrink-0 cursor-move text-[#0A0A0A]/25"
+          >
             <GripIcon />
           </span>
           <div className="min-w-0">
@@ -67,14 +89,30 @@ export function DashboardTile({ tileId, spec, onRemove }: DashboardTileProps) {
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => onRemove(tileId)}
-          aria-label="Remove tile"
-          className="flex-shrink-0 p-1 text-[#0A0A0A]/40 transition-colors hover:bg-[#0A0A0A]/[0.04] hover:text-[#0A0A0A]"
-        >
-          <XIcon />
-        </button>
+        <div className="flex flex-shrink-0 items-center">
+          <button
+            type="button"
+            data-export-exclude
+            onClick={(e) =>
+              onAddToPreset(tileId, e.currentTarget.getBoundingClientRect())
+            }
+            aria-label="Add to preset"
+            title="Add to preset"
+            className="p-1 text-[#0A0A0A]/40 transition-colors hover:bg-[#0A0A0A]/[0.04] hover:text-[#0A0A0A]"
+          >
+            <FolderPlusIcon />
+          </button>
+          <button
+            type="button"
+            data-export-exclude
+            onClick={() => onRemove(tileId)}
+            aria-label={removeLabel}
+            title={removeLabel}
+            className="p-1 text-[#0A0A0A]/40 transition-colors hover:bg-[#0A0A0A]/[0.04] hover:text-[#0A0A0A]"
+          >
+            <XIcon />
+          </button>
+        </div>
       </div>
       <div className="flex-1 overflow-hidden p-2">
         {q.isLoading ? (

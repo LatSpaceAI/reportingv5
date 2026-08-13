@@ -68,10 +68,32 @@ export interface ChartCoverage {
   sitesExpected: number;
 }
 
+/**
+ * Why a chart came back with nothing in it.
+ *
+ * An empty chart is ambiguous in exactly the way that matters: "nobody filed
+ * this yet" and "you asked for something this model cannot answer" look
+ * identical on screen, and the second is a bug the user should be able to see.
+ * The fetcher knows which it was; carrying the reason up means the tile can say
+ * so instead of rendering a blank panel.
+ */
+export interface ChartEmptyReason {
+  kind:
+    | "input_on_group" // raw inputs are per-site; GROUP has no rows by design
+    | "no_values" // parameters/periods are real, nothing filed there yet
+    | "unknown_site"
+    | "unknown_parameter";
+  message: string;
+  /** Sites that DO hold data for this request, when we can suggest them. */
+  suggested_sites?: string[];
+}
+
 export interface ChartData {
   period_label: string;
   series: ChartSeries[];
   coverage?: ChartCoverage;
+  /** Present only when every point came back null. */
+  empty_reason?: ChartEmptyReason;
 }
 
 /**

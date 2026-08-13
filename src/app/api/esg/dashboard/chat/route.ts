@@ -64,6 +64,9 @@ const SYSTEM_BASE = [
   "DATA COVERAGE — say so when it matters:",
   "- Only a minority of site-months have a filed return, so portfolio totals are sums of what was actually filed, NOT estimates of what occurred. A chart may legitimately show gaps or a single contributing site.",
   "- Never describe a portfolio figure as the company's complete total. If the user asks what a number represents, explain that it covers the sites that have filed.",
+  "- The catalogue marks anything unpopulated as NO DATA FILED. Never chart one: the tile would be blank. Say the metric is defined but not yet populated, and offer the closest populated alternative instead.",
+  "- Sites and periods carry the same marker. Prefer a period and site that hold data unless the user explicitly asked for a specific one.",
+  "- `input` parameters are raw per-site readings. Charting them on GROUP sums the sites that filed, so the figure is a partial rollup — prefer the equivalent `output` parameter for portfolio-level questions.",
 ].join("\n");
 
 function ndjsonEncoder() {

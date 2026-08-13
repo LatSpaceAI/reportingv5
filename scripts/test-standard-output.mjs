@@ -54,7 +54,10 @@ try {
   const login = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: "esg@latspace.in", password: "latspace" }),
+    body: JSON.stringify({
+      email: "esg@demo.com",
+      password: process.env.DEMO_PASSWORD || "birla-estates",
+    }),
   });
   const cookie = login.headers.get("set-cookie")?.split(";")[0] ?? "";
   const res = await fetch(`${BASE}/api/esg/export/standard?fy=${FY}`, {

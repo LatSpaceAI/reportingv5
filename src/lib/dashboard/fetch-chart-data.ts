@@ -2,6 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type {
   ChartData,
+  ChartEmptyReason,
   ChartSeries,
   ChartSeriesPoint,
   ChartSpec,
@@ -139,6 +140,63 @@ async function readValues(
   return out;
 }
 
+/**
+ * Roll raw inputs up to the portfolio.
+ *
+ * esg.input_value holds ONE row per real site — the resolver computes GROUP
+ * rollups for output parameters only, deliberately, because a portfolio figure
+ * is a property of a computed disclosure rather than of a filed reading. The
+ * dashboard did not know that: a chart of any input parameter on GROUP read
+ * site_id = GROUP, found nothing, and rendered twelve null points with no
+ * indication that the number could never have been there.
+ *
+ * Summing the filed rows is the honest reconstruction, and it mirrors what the
+ * resolver does for outputs (resolve-birla.mjs, "GROUP rollup per month"): sum
+ * over the sites that filed, and report how many did. A month where 2 of 11
+ * sites filed produces a real sum carrying 2/11 — thin, and visibly so — which
+ * is the same contract every other number on this dashboard already honours.
+ *
+ * Only sums. Intensities and ratios are not additive, so they are left to the
+ * output parameters that define them properly.
+ */
+async function readGroupInputRollup(
+  realSiteIds: number[],
+  periodIds: number[],
+  parameterIds: number[]
+): Promise<Map<string, ValueWithCoverage>> {
+  const out = new Map<string, ValueWithCoverage>();
+  if (!realSiteIds.length || !periodIds.length || !parameterIds.length) return out;
+
+  const { data, error } = await supabaseAdmin
+    .from("input_value")
+    .select("site_id, period_id, parameter_id, value_num")
+    .in("site_id", realSiteIds)
+    .in("period_id", periodIds)
+    .in("parameter_id", parameterIds);
+  if (error) throw new Error(`input_value rollup: ${error.message}`);
+
+  // period|parameter -> running sum plus the set of sites that contributed.
+  const acc = new Map<string, { sum: number; sites: Set<number> }>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of (data ?? []) as any[]) {
+    if (r.value_num == null) continue;
+    const k = `${r.period_id}|${r.parameter_id}`;
+    let a = acc.get(k);
+    if (!a) acc.set(k, (a = { sum: 0, sites: new Set() }));
+    a.sum += Number(r.value_num);
+    a.sites.add(r.site_id as number);
+  }
+  for (const [k, a] of acc) {
+    const [periodId, parameterId] = k.split("|");
+    out.set(`GROUP|${periodId}|${parameterId}`, {
+      value: a.sum,
+      sitesReporting: a.sites.size,
+      sitesExpected: realSiteIds.length,
+    });
+  }
+  return out;
+}
+
 export async function fetchChartData(
   spec: ChartSpec,
   cat: DashboardCatalogue
@@ -176,6 +234,149 @@ export async function fetchChartData(
       ? { ...data, coverage: { sitesReporting: covReporting ?? 0, sitesExpected: covExpected } }
       : data;
 
+  // Raw inputs have no GROUP row (see readGroupInputRollup). When a chart asks
+  // for one on the portfolio, sum the filed site rows instead of reading a
+  // site_id that is guaranteed to be absent. Keyed "GROUP|period|param" so the
+  // per-shape lookups below can stay uniform.
+  const groupSiteIds = sites.filter((s) => s.code === "GROUP").map((s) => s.id);
+  const readInputs = async (
+    siteIds: number[],
+    periodIds: number[]
+  ): Promise<Map<string, ValueWithCoverage>> => {
+    const direct = await readValues("input", siteIds, periodIds, inputIds);
+    if (!groupSiteIds.length || !inputIds.length) return direct;
+
+    const realSiteIds = (
+      await resolveSites(cat.plants.filter((p) => !p.is_group).map((p) => p.code))
+    ).map((s) => s.id);
+    const rolled = await readGroupInputRollup(realSiteIds, periodIds, inputIds);
+    for (const gid of groupSiteIds) {
+      for (const [k, v] of rolled) direct.set(k.replace(/^GROUP\|/, `${gid}|`), v);
+    }
+    return direct;
+  };
+
+  /**
+   * Explain an all-null chart. Called only when nothing came back, so the extra
+   * queries here never touch the hot path.
+   */
+  const diagnose = async (): Promise<ChartEmptyReason | undefined> => {
+    const askedGroupOnly = sites.length > 0 && sites.every((s) => s.code === "GROUP");
+    const inputCodes = spec.parameter_codes.filter(
+      (c) => paramIdByCode.get(c)?.kind === "input"
+    );
+
+    if (askedGroupOnly && inputCodes.length === spec.parameter_codes.length) {
+      // Every requested parameter is a raw input and the only site asked for is
+      // the portfolio. If the rollup above still produced nothing, no site filed
+      // these inputs in this period at all.
+      return {
+        kind: "no_values",
+        message:
+          `No site has filed ${inputCodes.join(", ")} for ${period.label}. ` +
+          "Raw readings are entered per site and rolled up here.",
+      };
+    }
+
+    if (inputIds.length || outputIds.length) {
+      // Which sites DO hold any of these parameters, in any period? A concrete
+      // "try these" beats a bare "no data".
+      const [outHits, inHits] = await Promise.all([
+        outputIds.length
+          ? supabaseAdmin
+              .from("output_value")
+              .select("site_id")
+              .in("parameter_id", outputIds)
+              .not("value_num", "is", null)
+          : Promise.resolve({ data: [], error: null }),
+        inputIds.length
+          ? supabaseAdmin
+              .from("input_value")
+              .select("site_id")
+              .in("parameter_id", inputIds)
+              .not("value_num", "is", null)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      const hitIds = new Set<number>([
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...(((outHits.data ?? []) as any[]).map((r) => r.site_id as number)),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...(((inHits.data ?? []) as any[]).map((r) => r.site_id as number)),
+      ]);
+      if (!hitIds.size) {
+        return {
+          kind: "no_values",
+          message:
+            `${spec.parameter_codes.join(", ")} is defined in the model but no ` +
+            "values have been computed or filed for it yet.",
+        };
+      }
+      const askedIds = new Set(sites.map((s) => s.id));
+      if (![...hitIds].some((id) => askedIds.has(id))) {
+        const codes = cat.plants
+          .filter((p) => p.has_data)
+          .map((p) => p.code)
+          .filter((c) => !spec.plant_codes.includes(c));
+        return {
+          kind: "no_values",
+          message:
+            `No data for ${spec.plant_codes.join(", ")} in ${period.label}, ` +
+            "though other sites have filed this metric.",
+          suggested_sites: codes.slice(0, 5),
+        };
+      }
+    }
+
+    // The parameter exists at one of the requested sites, just not in this
+    // period. Naming a period that DOES hold it turns a dead end into a next
+    // step, so find the most recent one.
+    const [outWhen, inWhen] = await Promise.all([
+      outputIds.length
+        ? supabaseAdmin
+            .from("output_value")
+            .select("period:period_id(fiscal_year, period_kind)")
+            .in("parameter_id", outputIds)
+            .in("site_id", sites.map((s) => s.id))
+            .not("value_num", "is", null)
+        : Promise.resolve({ data: [], error: null }),
+      inputIds.length
+        ? supabaseAdmin
+            .from("input_value")
+            .select("period:period_id(fiscal_year, period_kind)")
+            .in("parameter_id", inputIds)
+            .in("site_id", sites.map((s) => s.id))
+            .not("value_num", "is", null)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    const years = new Set<string>(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      [...((outWhen.data ?? []) as any[]), ...((inWhen.data ?? []) as any[])]
+        .map((r) => r.period?.fiscal_year as string | undefined)
+        .filter((fy): fy is string => !!fy)
+    );
+    if (years.size) {
+      const list = [...years].sort((a, b) => b.localeCompare(a));
+      return {
+        kind: "no_values",
+        message:
+          `Nothing filed for this selection in ${period.label}. ` +
+          `This metric has data in ${list.slice(0, 3).join(", ")}.`,
+      };
+    }
+
+    return {
+      kind: "no_values",
+      message: `Nothing has been filed for this selection in ${period.label}.`,
+    };
+  };
+
+  /** Attach an explanation when every point in the chart is null. */
+  const finish = async (data: ChartData): Promise<ChartData> => {
+    const hasValue = data.series.some((s) => s.points.some((p) => p.value != null));
+    if (hasValue || data.series.length === 0) return data;
+    return { ...data, empty_reason: await diagnose() };
+  };
+
   // ---- compare_by="time": months of the fiscal year for one site -----------
   if (spec.compare_by === "time" && spec.granularity === "monthly") {
     const site = sites[0];
@@ -193,7 +394,7 @@ export async function fetchChartData(
 
     const [outVals, inVals] = await Promise.all([
       readValues("output", [site.id], monthIds, outputIds),
-      readValues("input", [site.id], monthIds, inputIds),
+      readInputs([site.id], monthIds),
     ]);
 
     const series = spec.parameter_codes
@@ -214,10 +415,12 @@ export async function fetchChartData(
       })
       .filter((s): s is ChartSeries => !!s);
 
-    return withCoverage({
-      period_label: `${site.name} · ${period.fiscal_year}`,
-      series,
-    });
+    return finish(
+      withCoverage({
+        period_label: `${site.name} · ${period.fiscal_year}`,
+        series,
+      })
+    );
   }
 
   // ---- compare_by="plant": one point per site, single period ---------------
@@ -227,7 +430,7 @@ export async function fetchChartData(
 
     const [outVals, inVals] = await Promise.all([
       readValues("output", siteIds, [periodId], outputIds),
-      readValues("input", siteIds, [periodId], inputIds),
+      readInputs(siteIds, [periodId]),
     ]);
 
     const series = spec.parameter_codes
@@ -245,7 +448,7 @@ export async function fetchChartData(
       })
       .filter((s): s is ChartSeries => !!s);
 
-    return withCoverage({ period_label: period.label, series });
+    return finish(withCoverage({ period_label: period.label, series }));
   }
 
   // ---- annual (kpi / pie / single comparison): one point per series --------
@@ -255,7 +458,7 @@ export async function fetchChartData(
 
   const [outVals, inVals] = await Promise.all([
     readValues("output", [site.id], [periodId], outputIds),
-    readValues("input", [site.id], [periodId], inputIds),
+    readInputs([site.id], [periodId]),
   ]);
 
   const series = spec.parameter_codes
@@ -275,11 +478,13 @@ export async function fetchChartData(
     })
     .filter((s): s is ChartSeries => !!s);
 
-  return withCoverage({
-    period_label:
-      site.code === "GROUP" ? period.label : `${site.name} · ${period.label}`,
-    series,
-  });
+  return finish(
+    withCoverage({
+      period_label:
+        site.code === "GROUP" ? period.label : `${site.name} · ${period.label}`,
+      series,
+    })
+  );
 }
 
 /** Look up the period id for a catalogue period (which only carries a code). */

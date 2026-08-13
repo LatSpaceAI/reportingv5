@@ -18,6 +18,10 @@ build/
 # Local env files
 .env
 .env.*
+# ...except the template. It holds no real credentials — only the demo password
+# that src/lib/auth.ts already falls back to — and auth.ts points readers here
+# for the accepted accounts, so a fresh clone needs it present.
+!.env.local.example
 
 # Working checkpoint + transient logs from the indexing script (not part of
 # the runtime index — and not something we want bundled into the agent-runner

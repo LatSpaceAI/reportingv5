@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { ChartRenderer } from "@/components/dashboard/ChartRenderer";
+import { useActivePreset } from "@/components/dashboard/active-preset-context";
 import type { ChartSpec, ChartData } from "@/lib/dashboard/chart-spec";
 import { useToast } from "@/components/Toast";
 
@@ -35,13 +36,14 @@ function CheckIcon({ className = "h-3 w-3" }: { className?: string }) {
 export function ChartMessage({ spec, data, pinned, onPinned }: ChartMessageProps) {
   const qc = useQueryClient();
   const toast = useToast();
+  const { activePresetId, activePresetName } = useActivePreset();
 
   const pin = useMutation({
     mutationFn: async () => {
       const res = await fetch("/api/esg/dashboard/tiles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ spec }),
+        body: JSON.stringify({ spec, presetId: activePresetId ?? undefined }),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -50,7 +52,11 @@ export function ChartMessage({ spec, data, pinned, onPinned }: ChartMessageProps
       return res.json();
     },
     onSuccess: () => {
-      toast.show("Pinned to dashboard");
+      toast.show(
+        activePresetName
+          ? `Pinned to "${activePresetName}"`
+          : "Pinned to dashboard"
+      );
       qc.invalidateQueries({ queryKey: ["dashboard-tiles"] });
       onPinned?.();
     },

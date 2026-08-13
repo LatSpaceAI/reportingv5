@@ -9,7 +9,6 @@ import { AssistantPane } from "@/components/qualitative/AssistantPane";
 import { FillWithAI } from "@/components/FillWithAI";
 import { initials, mockUsers, readAssignees, writeAssignees, type Assignees } from "@/lib/storage";
 import { quantitativeCells } from "@/lib/quantitativeCells";
-import type { SeedAnswer } from "@/lib/brsrSeed";
 
 type Status = "not-started" | "in-progress" | "completed";
 
@@ -42,10 +41,6 @@ export interface QuestionnaireConfig {
   frameworkName: string; // shown in the header, e.g. "CDP Climate Change Questionnaire"
   version?: string; // optional version label shown in header
   onExport?: () => Promise<void> | void; // called by the header Export button; if absent, button is hidden
-  // Optional sample/seed data keyed by question id. Loaded into the structure on
-  // first visit only — when localStorage holds no saved answers for this
-  // framework. User edits persist and always win over the seed thereafter.
-  seed?: Record<string, SeedAnswer>;
 }
 
 const LEFT_MIN = 240;
@@ -81,72 +76,6 @@ function blankState(q: Question): QuestionState {
     return r;
   });
   return { values: {}, rows, status: "not-started" };
-}
-
-// Overlay seed data onto a question's state, filling only the cells that aren't
-// already filled — so saved/user-edited answers always win and blanks get the
-// sample value. `existing` is the saved/blank state to merge into. Runs on every
-// load (not just first visit), which is why it must be non-destructive.
-//
-// Status is re-derived so the sidebar + requirements tab reflect the merged
-// state, but a question the user explicitly marked "completed" stays completed.
-// Unknown seed field ids are ignored (defensive against schema drift).
-function mergeSeed(q: Question, existing: QuestionState, seed: SeedAnswer): QuestionState {
-  if (q.kind === "fields") {
-    if (!seed.values) return existing;
-    const values: RowValues = { ...existing.values };
-    let changed = false;
-    for (const f of q.fields) {
-      const seedVal = seed.values[f.id];
-      if (seedVal === undefined) continue;
-      if (!isFilled(f, values[f.id])) {
-        values[f.id] = seedVal ?? null;
-        changed = true;
-      }
-    }
-    if (!changed) return existing;
-    const next: QuestionState = { ...existing, values };
-    return { ...next, status: existing.status === "completed" ? "completed" : deriveStatus(q, next) };
-  }
-
-  // table. Treat the saved table as "empty" when no cell in any row is filled —
-  // in that case we seed it wholesale. Otherwise (user already entered data) we
-  // merge per cell for fixed-shape tables and leave open-ended tables untouched.
-  if (!seed.rows || seed.rows.length === 0) return existing;
-  const fixed = q.maxRows != null && q.minRows === q.maxRows;
-  const existingEmpty = existing.rows.every((r) => q.columns.every((c) => !isFilled(c, r[c.id])));
-
-  let rows: RowValues[];
-  if (existingEmpty) {
-    rows = seed.rows.map((seedRow) => {
-      const r: RowValues = {};
-      for (const c of q.columns) r[c.id] = seedRow[c.id] ?? null;
-      return r;
-    });
-    while (rows.length < q.minRows) {
-      const r: RowValues = {};
-      for (const c of q.columns) r[c.id] = null;
-      rows.push(r);
-    }
-  } else if (fixed) {
-    // Positional per-cell merge: fill only blanks at each matching row index.
-    rows = existing.rows.map((r, i) => {
-      const seedRow = seed.rows![i];
-      if (!seedRow) return r;
-      const merged: RowValues = { ...r };
-      for (const c of q.columns) {
-        if (seedRow[c.id] !== undefined && !isFilled(c, merged[c.id])) {
-          merged[c.id] = seedRow[c.id] ?? null;
-        }
-      }
-      return merged;
-    });
-  } else {
-    // Open-ended table the user already populated — don't touch their rows.
-    return existing;
-  }
-  const next: QuestionState = { ...existing, rows };
-  return { ...next, status: existing.status === "completed" ? "completed" : deriveStatus(q, next) };
 }
 
 function deriveStatus(q: Question, s: QuestionState): Status {
@@ -195,7 +124,7 @@ export function Questionnaire({
   config: QuestionnaireConfig;
   initialQuestionId?: string;
 }) {
-  const { sections, storageKey, frameworkId, frameworkName, version, onExport, seed } = config;
+  const { sections, storageKey, frameworkId, frameworkName, version, onExport } = config;
   const allQuestions = useMemo(
     () => sections.flatMap((s) => s.questions.map((q) => ({ section: s, q }))),
     [sections]
@@ -225,15 +154,11 @@ export function Questionnaire({
       const next = { ...prev };
       for (const { q } of allQuestions) {
         // Saved/user answers take precedence; fall back to blank base.
-        let s = saved[q.id] ?? next[q.id];
-        // Then overlay the seed into any cell still empty. Non-destructive, so
-        // it's safe to run on every load even after the user has edited cells.
-        if (seed && seed[q.id]) s = mergeSeed(q, s, seed[q.id]);
-        next[q.id] = s;
+        next[q.id] = saved[q.id] ?? next[q.id];
       }
       return next;
     });
-  }, [allQuestions, storageKey, seed]);
+  }, [allQuestions, storageKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -912,7 +837,7 @@ function QuestionnaireHeader({
     <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-3">
       <div className="flex items-center gap-4">
         <a
-          href="/"
+          href="/reporting"
           className="flex items-center gap-1 text-sm text-slate-600 hover:text-slate-900"
         >
           <span className="text-lg leading-none">‹</span> Back
