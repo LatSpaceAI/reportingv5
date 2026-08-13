@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { AI_CONTEXT_UPDATED_EVENT, readAiContext } from "@/lib/aiContext";
@@ -62,7 +62,7 @@ const ReportingIcon = (
 );
 
 const items: NavItem[] = [
-  { key: "dashboard", label: "Dashboard", href: "/dashboard", icon: DashboardIcon },
+  { key: "dashboard", label: "Dashboard", href: "/", icon: DashboardIcon },
   {
     key: "data-collection",
     label: "Data Collection",
@@ -70,7 +70,7 @@ const items: NavItem[] = [
     icon: DataCollectionIcon,
     children: [{ key: "logbook", label: "Logbook", href: "/logbook", icon: LogbookIcon }],
   },
-  { key: "reporting", label: "Reporting", href: "/", icon: ReportingIcon },
+  { key: "reporting", label: "Reporting", href: "/reporting", icon: ReportingIcon },
 ];
 
 const COLLAPSE_KEY = "sidenav:collapsed";
@@ -85,14 +85,16 @@ function itemMatchesRoute(it: NavItem, pathname: string): boolean {
   return it.href ? pathname === it.href : false;
 }
 
-// Reporting owns the landing page and its sub-routes (e.g. /table). Mark it
-// active for any of those so the highlight persists as the user drills in.
+// Reporting owns /reporting and its sub-routes (e.g. /table, /report/[id]), so
+// the highlight persists as the user drills into a framework. Note /report
+// would also prefix-match /reporting; both belong to this item either way.
 function isReportingRoute(pathname: string): boolean {
-  return pathname === "/" || pathname.startsWith("/table") || pathname.startsWith("/report");
+  return pathname.startsWith("/reporting") || pathname.startsWith("/table") || pathname.startsWith("/report");
 }
 
-export function Sidenav() {
+export function Sidenav({ userName }: { userName?: string } = {}) {
   const pathname = usePathname();
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
@@ -110,6 +112,39 @@ export function Sidenav() {
       localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0");
     } catch {}
   }, [collapsed, hydrated]);
+
+  // Sign out.
+  //
+  // The route clears the cookie on its own, but clearing it is only half the
+  // job: the App Router keeps already-rendered segments in a client-side cache,
+  // and the browser keeps the old document in its back/forward cache. A plain
+  // redirect can therefore repaint the signed-in shell even though the session
+  // is gone. So we clear the cookie, drop the router cache, and then leave via a
+  // URL the bfcache has no entry for — the `?signedout=1` query is never served
+  // from cache, which forces a real request that the middleware sees.
+  async function onLogout(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    // Grab the form now: React nulls currentTarget once the handler returns, so
+    // reading it after an await (i.e. in the catch) would throw.
+    const form = e.currentTarget;
+    try {
+      const res = await fetch("/api/auth/logout", {
+        method: "POST",
+        redirect: "manual",
+        // Without this the cookie jar isn't necessarily updated on some setups.
+        credentials: "same-origin",
+      });
+      if (!res.ok && res.type !== "opaqueredirect") throw new Error("logout failed");
+    } catch {
+      // Network or server failure — fall back to the native form POST, which
+      // performs the same logout without needing JS.
+      form.submit();
+      return;
+    }
+    // Tear down the App Router's cached segments before navigating away.
+    router.refresh();
+    window.location.href = "/login?signedout=1";
+  }
 
   function isActive(it: NavItem): boolean {
     return itemMatchesRoute(it, pathname);
@@ -365,7 +400,7 @@ export function Sidenav() {
           }`}
         >
           <div className="mb-1 whitespace-nowrap text-[12px] font-semibold tracking-[0.02em] text-[#074D47]">
-            Ishan Rahman
+            {userName || "Signed in"}
           </div>
           <div className="whitespace-nowrap text-[11px] uppercase tracking-[0.08em] text-[#0A0A0A]/70">
             {orgName || "Your Organization"}
@@ -406,26 +441,33 @@ export function Sidenav() {
         )}
 
         {/* TODO: add Settings icon here once a /settings route exists */}
-        {collapsed ? (
-          <button
-            type="button"
-            aria-label="Log out"
-            title="Log out"
-            className="flex w-full items-center justify-center rounded-[6px] p-2 text-[#0A0A0A]/80 transition-all duration-200 hover:bg-[#0A0A0A]/[0.04] hover:text-[#074D47]"
-          >
-            <LogoutIcon className="h-[18px] w-[18px]" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 overflow-hidden whitespace-nowrap border border-[#0A0A0A]/20 px-4 py-3 text-[11px] font-medium uppercase tracking-[0.1em] text-[#0A0A0A]/80 transition-all duration-200 hover:border-[#074D47]/50 hover:text-[#074D47]"
-          >
-            <div className="ml-[-4px] flex w-4 flex-shrink-0 justify-center">
-              <LogoutIcon className="h-[14px] w-[14px]" />
-            </div>
-            <span className="ml-2 max-w-[100px] overflow-hidden opacity-100">Logout</span>
-          </button>
-        )}
+        {/* The form still posts to the route so logout works without client JS.
+            With JS we intercept: the App Router keeps a client-side cache of
+            already-rendered segments, and a redirect alone can leave the signed-in
+            shell painted from that cache. Clearing the cookie and then hard-setting
+            location tears the cache down with the document. */}
+        <form action="/api/auth/logout" method="post" onSubmit={onLogout}>
+          {collapsed ? (
+            <button
+              type="submit"
+              aria-label="Log out"
+              title="Log out"
+              className="flex w-full items-center justify-center rounded-[6px] p-2 text-[#0A0A0A]/80 transition-all duration-200 hover:bg-[#0A0A0A]/[0.04] hover:text-[#074D47]"
+            >
+              <LogoutIcon className="h-[18px] w-[18px]" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              className="flex w-full items-center gap-2 overflow-hidden whitespace-nowrap border border-[#0A0A0A]/20 px-4 py-3 text-[11px] font-medium uppercase tracking-[0.1em] text-[#0A0A0A]/80 transition-all duration-200 hover:border-[#074D47]/50 hover:text-[#074D47]"
+            >
+              <div className="ml-[-4px] flex w-4 flex-shrink-0 justify-center">
+                <LogoutIcon className="h-[14px] w-[14px]" />
+              </div>
+              <span className="ml-2 max-w-[100px] overflow-hidden opacity-100">Logout</span>
+            </button>
+          )}
+        </form>
       </div>
     </aside>
   );

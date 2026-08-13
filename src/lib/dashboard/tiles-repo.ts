@@ -23,7 +23,9 @@ export interface TileRow {
   updated_at: string;
 }
 
-function defaultLayoutForKind(kind: ChartSpec["kind"]): Omit<TileLayout, "y"> {
+export function defaultLayoutForKind(
+  kind: ChartSpec["kind"]
+): Omit<TileLayout, "y"> {
   // KPI cards are short and narrow; everything else is a full-width panel.
   if (kind === "kpi") return { x: 0, w: 4, h: 3 };
   return { x: 0, w: 6, h: 6 };

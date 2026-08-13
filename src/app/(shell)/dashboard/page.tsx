@@ -1,8 +1,8 @@
-import { DashboardClient } from "@/components/dashboard/DashboardClient";
+import { redirect } from "next/navigation";
 
-// The AI Dashboard: natural-language → charts over the ESG database, with
-// pin-to-dashboard persistence. All data access happens server-side via the
-// /api/esg/dashboard/* routes.
+// The dashboard moved to the app root, which is where sign-in now lands. This
+// route stays behind as a permanent redirect so old links and bookmarks keep
+// working.
 export default function DashboardPage() {
-  return <DashboardClient />;
+  redirect("/");
 }

@@ -1,5 +1,18 @@
-export const BRSR_ANSWERS_KEY = "brsr-app/v1";
+export const BRSR_ANSWERS_KEY = "brsr-app/v2";
 export const CDP_ANSWERS_KEY = "cdp-app/v1";
+
+// v1 answers were pre-populated with Sagar Cements FY2023-24 sample data by the
+// (since removed) brsrSeed.ts, and the questionnaire persisted that merge back
+// to localStorage — so the demo values outlive the code that produced them.
+// Dropping the old key on load is the only way to clear them from browsers
+// that have already visited the report.
+if (typeof window !== "undefined") {
+  try {
+    localStorage.removeItem("brsr-app/v1");
+  } catch {
+    // localStorage unavailable (private mode etc.) — nothing to purge.
+  }
+}
 
 // Framework-agnostic prefix for per-question assignee data, namespaced by
 // framework id at write time (see readAssignees / writeAssignees).

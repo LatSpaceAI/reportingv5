@@ -116,7 +116,7 @@ export default function BrsrEnvironmentExportDialog({
               id="brsr-env-export-title"
               className="text-[15px] font-semibold text-[#0A0A0A]"
             >
-              Export Birla Estate BRSR Template
+              Export Birla Estate Custom Template
             </h2>
             <p className="mt-1 text-[12px] leading-relaxed text-gray-500">
               Populates the Real Estate BRSR template with values computed from

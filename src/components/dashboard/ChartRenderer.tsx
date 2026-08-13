@@ -133,6 +133,10 @@ export function ChartRenderer({ spec, data, height = 280 }: ChartRendererProps) 
     s.points.some((p) => p.value != null)
   );
   if (!hasData) {
+    // The server explains WHY when it can. "No data" and "this metric can never
+    // resolve for the site you picked" look identical on screen otherwise, and
+    // only one of them is something the user can act on.
+    const reason = data.empty_reason;
     return (
       <div
         style={sizeStyle}
@@ -140,8 +144,14 @@ export function ChartRenderer({ spec, data, height = 280 }: ChartRendererProps) 
       >
         <span className="text-xs text-[#0A0A0A]/40">No data for this selection</span>
         <span className="text-[10px] text-[#0A0A0A]/30">
-          Only filed site returns are charted — nothing has been entered here yet.
+          {reason?.message ??
+            "Only filed site returns are charted — nothing has been entered here yet."}
         </span>
+        {reason?.suggested_sites?.length ? (
+          <span className="text-[10px] text-[#0A0A0A]/30">
+            Sites with data: {reason.suggested_sites.join(", ")}
+          </span>
+        ) : null}
       </div>
     );
   }

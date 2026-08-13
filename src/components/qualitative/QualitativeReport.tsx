@@ -300,7 +300,7 @@ function Header({
   return (
     <header className="flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-3">
       <div className="flex min-w-0 items-center gap-2 text-sm">
-        <a href="/" className="text-slate-500 hover:text-slate-900">
+        <a href="/reporting" className="text-slate-500 hover:text-slate-900">
           Disclosures and reports
         </a>
         <span className="text-slate-300">›</span>

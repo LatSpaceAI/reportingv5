@@ -30,6 +30,17 @@ export interface CatalogueParam {
   scope: string | null;
   is_intensity: boolean;
   kind: ParamKind;
+  /**
+   * Whether any non-null value exists for this parameter anywhere.
+   *
+   * A parameter row is a DEFINITION; it says the metric exists in the model,
+   * not that anybody has filed a number for it. 14 of the 74 output parameters
+   * (every s3.*, ghg.total_all_scopes) are defined-but-unpopulated because the
+   * Scope 3 resolver has not been run. Offering those to the model as if they
+   * were chartable produces a confidently-empty chart with no explanation,
+   * which reads as a broken dashboard rather than as missing data.
+   */
+  has_data: boolean;
 }
 
 export interface CataloguePlant {
@@ -41,6 +52,8 @@ export interface CataloguePlant {
   city?: string | null;
   /** Inside the BRSR-declared water-stressed area ("Bangalore & NCR"). */
   water_stressed?: boolean;
+  /** Whether any computed value exists for this site. See CatalogueParam.has_data. */
+  has_data: boolean;
 }
 
 export interface CataloguePeriod {
@@ -50,6 +63,14 @@ export interface CataloguePeriod {
   period_kind: "month" | "ytd" | "baseline";
   month_no: number | null;
   is_current: boolean;
+  /** Whether any computed value exists in this period. See CatalogueParam.has_data. */
+  has_data: boolean;
+  /**
+   * How many distinct sites have filed data in this period's fiscal year.
+   * Drives the "current period" choice: the newest year that merely EXISTS is
+   * usually near-empty, so anchoring there makes every default chart blank.
+   */
+  sites_with_data: number;
 }
 
 export interface DashboardCatalogue {
@@ -60,6 +81,103 @@ export interface DashboardCatalogue {
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 let cache: { at: number; value: DashboardCatalogue } | null = null;
+
+/**
+ * PostgREST caps every response at a server-configured maximum (1000 rows on
+ * this project) REGARDLESS of `.limit()`. A `.limit(5000)` silently returns
+ * 1000 and reports no error, so any "scan the value table" query is quietly
+ * partial the moment the table outgrows the cap.
+ *
+ * Worse, a capped query with no ORDER BY returns an UNSPECIFIED 1000 rows.
+ * The previous current-period logic depended on such a query, so which fiscal
+ * years it discovered was down to physical row order — stable today, and able
+ * to flip to a near-empty year (blanking every default chart) as data grows.
+ *
+ * Page explicitly with a deterministic order instead.
+ */
+const PAGE = 1000;
+
+async function pageAll<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  label: string
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await build(from, from + PAGE - 1);
+    if (error) throw new Error(`${label}: ${error.message}`);
+    if (!data?.length) break;
+    rows.push(...data);
+    if (data.length < PAGE) break;
+  }
+  return rows;
+}
+
+/**
+ * A census of which (parameter, site, period) coordinates actually hold a
+ * non-null number, across BOTH value tables.
+ *
+ * This is what separates "the model defines this metric" from "somebody has
+ * filed this metric", which is the distinction the dashboard previously could
+ * not make.
+ */
+interface ValueCensus {
+  outputParamIds: Set<number>;
+  inputParamIds: Set<number>;
+  siteIds: Set<number>;
+  periodIds: Set<number>;
+  /** period_id -> distinct site_ids present in that period. */
+  sitesByPeriod: Map<number, Set<number>>;
+}
+
+async function loadValueCensus(): Promise<ValueCensus> {
+  const [outRows, inRows] = await Promise.all([
+    pageAll<{ parameter_id: number; site_id: number; period_id: number }>(
+      (from, to) =>
+        supabaseAdmin
+          .from("output_value")
+          .select("parameter_id, site_id, period_id")
+          .not("value_num", "is", null)
+          .order("id")
+          .range(from, to),
+      "census outputs"
+    ),
+    pageAll<{ parameter_id: number; site_id: number; period_id: number }>(
+      (from, to) =>
+        supabaseAdmin
+          .from("input_value")
+          .select("parameter_id, site_id, period_id")
+          .not("value_num", "is", null)
+          .order("id")
+          .range(from, to),
+      "census inputs"
+    ),
+  ]);
+
+  const census: ValueCensus = {
+    outputParamIds: new Set(),
+    inputParamIds: new Set(),
+    siteIds: new Set(),
+    periodIds: new Set(),
+    sitesByPeriod: new Map(),
+  };
+
+  const note = (r: { site_id: number; period_id: number }) => {
+    census.siteIds.add(r.site_id);
+    census.periodIds.add(r.period_id);
+    let s = census.sitesByPeriod.get(r.period_id);
+    if (!s) census.sitesByPeriod.set(r.period_id, (s = new Set()));
+    s.add(r.site_id);
+  };
+  for (const r of outRows) {
+    census.outputParamIds.add(r.parameter_id);
+    note(r);
+  }
+  for (const r of inRows) {
+    census.inputParamIds.add(r.parameter_id);
+    note(r);
+  }
+  return census;
+}
 
 /** Stable, human-meaningful period code derived from the period row. */
 export function periodCode(p: {
@@ -79,36 +197,29 @@ export async function loadCatalogue(
     return cache.value;
   }
 
-  const [outputs, inputs, plants, periods, fyWithValues] = await Promise.all([
+  const [outputs, inputs, plants, periods, census] = await Promise.all([
     supabaseAdmin
       .from("output_parameter")
-      .select("key, display:label, unit, domain, scope, is_intensity, sort_order")
+      .select("id, key, display:label, unit, domain, scope, is_intensity, sort_order")
       .order("sort_order"),
     supabaseAdmin
       .from("input_parameter")
-      .select("key, display:label, unit, domain, value_type, is_active, sort_order")
+      .select("id, key, display:label, unit, domain, value_type, is_active, sort_order")
       .eq("is_active", true)
       .eq("value_type", "number")
       .order("sort_order"),
     supabaseAdmin
       .from("site")
-      .select("code, name, is_group, asset_type, city, water_stressed")
+      .select("id, code, name, is_group, asset_type, city, water_stressed")
       .order("is_group", { ascending: false })
       .order("code"),
     supabaseAdmin
       .from("period")
-      .select("fiscal_year, period_kind, month_no, month_label")
+      .select("id, fiscal_year, period_kind, month_no, month_label")
       .order("fiscal_year", { ascending: false })
       .order("period_kind")
       .order("month_no"),
-    // Which fiscal years actually have computed values — used to pick the
-    // "current" period below. Periods are seeded a year ahead, so the newest
-    // year on the calendar is usually empty.
-    supabaseAdmin
-      .from("output_value")
-      .select("period:period_id(fiscal_year)")
-      .not("value_num", "is", null)
-      .limit(5000),
+    loadValueCensus(),
   ]);
 
   if (outputs.error) throw new Error(`catalogue outputs: ${outputs.error.message}`);
@@ -124,6 +235,7 @@ export async function loadCatalogue(
     scope: (r.scope as string | null) ?? null,
     is_intensity: Boolean(r.is_intensity),
     kind: "output" as const,
+    has_data: census.outputParamIds.has(r.id as number),
   }));
 
   // Raw inputs are useful to chart too, but the output catalogue already covers
@@ -137,6 +249,7 @@ export async function loadCatalogue(
     scope: null,
     is_intensity: false,
     kind: "input" as const,
+    has_data: census.inputParamIds.has(r.id as number),
   }));
 
   const plantRows: CataloguePlant[] = (plants.data ?? []).map((r) => ({
@@ -146,41 +259,65 @@ export async function loadCatalogue(
     asset_type: (r.asset_type as string) ?? undefined,
     city: (r.city as string | null) ?? null,
     water_stressed: Boolean(r.water_stressed),
+    has_data: census.siteIds.has(r.id as number),
   }));
 
   const periodRows = (periods.data ?? []).map((r) => ({
+    id: r.id as number,
     fiscal_year: r.fiscal_year as string,
     period_kind: r.period_kind as "month" | "ytd" | "baseline",
     month_no: (r.month_no as number | null) ?? null,
     month_label: (r.month_label as string | null) ?? null,
   }));
 
-  // Current period = the YTD row of the most recent fiscal year WITH DATA, else
-  // its latest month.
+  // How many distinct sites have filed anything in each fiscal year.
+  const sitesByFy = new Map<string, Set<number>>();
+  for (const p of periodRows) {
+    const sites = census.sitesByPeriod.get(p.id);
+    if (!sites?.size) continue;
+    let acc = sitesByFy.get(p.fiscal_year);
+    if (!acc) sitesByFy.set(p.fiscal_year, (acc = new Set()));
+    for (const s of sites) acc.add(s);
+  }
+
+  // Current period = the YTD row of the best-EVIDENCED fiscal year, else its
+  // latest month.
   //
-  // "Most recent year that exists" is the wrong rule here. Period rows are
+  // "Most recent year that exists" is the wrong rule here: period rows are
   // seeded a year ahead so returns can be filed as they arrive, so the newest
-  // fiscal year is typically empty — and the model defaults to the period
-  // flagged (current), which would make every unqualified question render a
-  // blank chart. Anchor to where the data actually is.
-  const yearsWithData = new Set(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ((fyWithValues.data ?? []) as any[])
-      .map((r) => r.period?.fiscal_year as string | undefined)
-      .filter((fy): fy is string => !!fy)
-  );
-  const candidateYears = periodRows
-    .map((p) => p.fiscal_year)
-    .filter((fy) => yearsWithData.size === 0 || yearsWithData.has(fy));
-  const latestFy = candidateYears.reduce<string | null>(
-    (acc, fy) => (acc == null || fy > acc ? fy : acc),
-    null
-  );
-  const ytdOfLatest = periodRows.find(
-    (p) => p.fiscal_year === latestFy && p.period_kind === "ytd"
-  );
-  const latestMonth = periodRows
-    .filter((p) => p.fiscal_year === latestFy && p.period_kind === "month")
+  // fiscal year is typically empty. But "most recent year with ANY row" — the
+  // previous rule — is barely better. A part-open year can hold a single site's
+  // rows and still win on recency, and the model defaults to whatever is
+  // flagged (current), so every unqualified question renders a chart built on
+  // one site while a fully-filed prior year sits ignored.
+  //
+  // Rank by how many sites actually filed, and only break ties by recency. A
+  // year must also clear a fraction of the best year's breadth to be eligible
+  // at all, so a newly-opened year does not take over the default the moment
+  // its first return lands.
+  const MIN_BREADTH_RATIO = 0.5;
+  const breadth = (fy: string) => sitesByFy.get(fy)?.size ?? 0;
+  const yearsWithData = [...sitesByFy.keys()];
+  const bestBreadth = yearsWithData.reduce((m, fy) => Math.max(m, breadth(fy)), 0);
+  const latestFy =
+    yearsWithData
+      .filter((fy) => breadth(fy) >= bestBreadth * MIN_BREADTH_RATIO)
+      .sort((a, b) => b.localeCompare(a))[0] ??
+    // No values anywhere (fresh database): fall back to the newest year that
+    // exists so the dashboard still offers a coherent set of periods.
+    periodRows.reduce<string | null>(
+      (acc, p) => (acc == null || p.fiscal_year > acc ? p.fiscal_year : acc),
+      null
+    );
+
+  // Prefer a period that actually holds data over one that merely exists.
+  const hasVals = (p: { id: number }) => (census.sitesByPeriod.get(p.id)?.size ?? 0) > 0;
+  const ofLatest = periodRows.filter((p) => p.fiscal_year === latestFy);
+  const ytdOfLatest =
+    ofLatest.find((p) => p.period_kind === "ytd" && hasVals(p)) ??
+    ofLatest.find((p) => p.period_kind === "ytd");
+  const latestMonth = ofLatest
+    .filter((p) => p.period_kind === "month" && hasVals(p))
     .sort((a, b) => (b.month_no ?? 0) - (a.month_no ?? 0))[0];
   const currentCode = ytdOfLatest
     ? periodCode(ytdOfLatest)
@@ -204,6 +341,8 @@ export async function loadCatalogue(
       period_kind: p.period_kind,
       month_no: p.month_no,
       is_current: code === currentCode,
+      has_data: (census.sitesByPeriod.get(p.id)?.size ?? 0) > 0,
+      sites_with_data: sitesByFy.get(p.fiscal_year)?.size ?? 0,
     };
   });
 
@@ -241,10 +380,18 @@ export function findPeriod(
 export function catalogueToPrompt(cat: DashboardCatalogue): string {
   const lines: string[] = [];
 
+  // Codes with no filed values are listed but explicitly marked, so the model
+  // can name the metric when asked about it and still avoid charting a
+  // guaranteed-blank tile. Hiding them outright would make the assistant claim
+  // a real disclosure doesn't exist.
   lines.push("# Available reporting periods");
   lines.push("Each line: code — label");
   for (const p of cat.periods) {
-    lines.push(`- ${p.code} — ${p.label}${p.is_current ? " (current)" : ""}`);
+    const flags = [
+      p.is_current ? "current" : null,
+      p.has_data ? null : "NO DATA FILED",
+    ].filter(Boolean);
+    lines.push(`- ${p.code} — ${p.label}${flags.length ? ` (${flags.join("; ")})` : ""}`);
   }
   lines.push("");
 
@@ -258,6 +405,7 @@ export function catalogueToPrompt(cat: DashboardCatalogue): string {
     const flags: string[] = [];
     if (p.is_group) flags.push("consolidated portfolio rollup");
     if (p.water_stressed) flags.push("water-stressed area");
+    if (!p.has_data) flags.push("NO DATA FILED");
     lines.push(
       `- ${p.code} — ${p.name}${desc}${flags.length ? ` (${flags.join("; ")})` : ""}`
     );
@@ -269,11 +417,27 @@ export function catalogueToPrompt(cat: DashboardCatalogue): string {
   lines.push("");
 
   lines.push("# Parameter catalogue");
-  lines.push("Each line: code | display_name | unit | domain | scope");
+  lines.push("Each line: code | display_name | unit | domain | scope | kind");
   for (const r of cat.parameters) {
+    const marks = [r.kind, r.has_data ? null : "NO DATA FILED"]
+      .filter(Boolean)
+      .join(", ");
     lines.push(
-      `- ${r.code} | ${r.display_name} | ${r.unit || "—"} | ${r.domain} | ${r.scope ?? "—"}`
+      `- ${r.code} | ${r.display_name} | ${r.unit || "—"} | ${r.domain} | ${r.scope ?? "—"} | ${marks}`
     );
   }
+  lines.push("");
+  lines.push(
+    "IMPORTANT — `input` parameters are RAW FILED READINGS and exist ONLY on " +
+      "individual sites. There is no GROUP row for any input parameter: the " +
+      "portfolio rollup is computed for `output` parameters only. To chart an " +
+      "input metric, name real sites; charting one on GROUP yields an empty " +
+      "chart. Prefer the equivalent `output` parameter for portfolio questions."
+  );
+  lines.push(
+    "Anything marked NO DATA FILED has no values in the database. Do not chart " +
+      "it — say the metric is defined but not yet populated, and offer the " +
+      "closest populated alternative."
+  );
   return lines.join("\n");
 }
