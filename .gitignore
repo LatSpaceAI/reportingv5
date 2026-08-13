@@ -54,6 +54,10 @@ agent-runner-*.tar.gz
 
 # Stray downloads / working files that shouldn't be tracked.
 *.xlsx
+# ...except the BRSR export template, which MUST be committed: the export route
+# reads it at runtime and Vercel only ships committed + traced files. Ignoring
+# it made /api/esg/export/environment 404 in production.
+!src/lib/brsrExport/template/*.xlsx
 Screenshot *.png
 designlanguage (1).md
 # Source report PDFs used to extract seed data (the extracted data lives in

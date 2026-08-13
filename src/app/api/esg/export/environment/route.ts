@@ -22,14 +22,42 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-// The template lives outside src/ so it is not bundled; it is the client's file,
-// versioned alongside their data rather than in the app.
-const TEMPLATE_PATH = join(
+// The template must SHIP WITH THE DEPLOYMENT. It used to be read from
+// birla-estates/output/, outside src/ — which worked locally and failed on
+// Vercel for two compounding reasons: `*.xlsx` in .gitignore meant the file was
+// never committed, and even committed it would not be traced into the lambda
+// because nothing imports it. The canonical copy now lives inside src/ and is
+// force-included via outputFileTracingIncludes in next.config.mjs.
+//
+// The old location is kept as a fallback so an existing local checkout (where
+// the client drops updated templates) keeps working without a copy step.
+const BUNDLED_TEMPLATE_PATH = join(
+  process.cwd(),
+  "src",
+  "lib",
+  "brsrExport",
+  "template",
+  "birla-estates-brsr-fy25-v1.xlsx"
+);
+
+const LEGACY_TEMPLATE_PATH = join(
   process.cwd(),
   "birla-estates",
   "output",
   "Real Estate BRSR and IR Data template FY25 V1.xlsx"
 );
+
+async function resolveTemplatePath(): Promise<string | null> {
+  for (const candidate of [BUNDLED_TEMPLATE_PATH, LEGACY_TEMPLATE_PATH]) {
+    try {
+      await access(candidate);
+      return candidate;
+    } catch {
+      // try the next candidate
+    }
+  }
+  return null;
+}
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -46,14 +74,13 @@ export async function GET(req: NextRequest): Promise<Response> {
   const fiscalYear = url.searchParams.get("fy") ?? "2024-25";
   const reportOnly = url.searchParams.get("report") === "1";
 
-  try {
-    await access(TEMPLATE_PATH);
-  } catch {
+  const templatePath = await resolveTemplatePath();
+  if (!templatePath) {
     return json(
       {
         error:
           "The BRSR template workbook was not found on the server. It is expected at " +
-          "birla-estates/output/Real Estate BRSR and IR Data template FY25 V1.xlsx.",
+          "src/lib/brsrExport/template/birla-estates-brsr-fy25-v1.xlsx.",
       },
       404
     );
@@ -61,7 +88,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   try {
     const { buffer, report, filename } = await exportEnvironmentSheet(
-      TEMPLATE_PATH,
+      templatePath,
       fiscalYear
     );
 

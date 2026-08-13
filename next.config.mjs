@@ -30,6 +30,13 @@ const nextConfig = {
         "./node_modules/pdf-parse/**/*",
         "./node_modules/pdfjs-dist/**/*",
       ],
+      // The BRSR export opens the client's real template workbook with ExcelJS
+      // at request time. Nothing imports the .xlsx, so tracing never discovers
+      // it and the route 404s on Vercel ("template workbook was not found").
+      // Force it into the lambda.
+      "/api/esg/export/environment": [
+        "./src/lib/brsrExport/template/*.xlsx",
+      ],
     },
   },
 };
