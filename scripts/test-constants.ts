@@ -162,6 +162,31 @@ async function main() {
     needsTypedConfirm(v("3.40")), "2.65 -> 3.40");
   t("an inert edit warns and demands a typed confirm",
     needsTypedConfirm(v("0.002", { key: "CONV.l_to_kl", category: "CONVERSION", currentValue: 0.001, directRefCount: 0 })));
+
+  // ---- Placeholder constants (17_brsr_gap_metrics.sql) ---------------------
+  // FIN.turnover ships as 1 so its derived intensities are obviously absurd
+  // rather than plausibly wrong. Two things must hold on its first real edit:
+  // the percentage-change warning must NOT fire (it would read as several
+  // billion percent — true, and phrased so uselessly it teaches people to click
+  // through), and a placeholder-specific warning must fire in its place.
+  const turnover = (raw: string, currentValue = 1) =>
+    v(raw, { key: "FIN.turnover", category: "FINANCIAL", currentValue, directRefCount: 3 });
+
+  t("setting a placeholder does NOT emit the billion-percent change warning",
+    !turnover("50000000000").some((i) => /% change/.test(i.message)),
+    "1 -> 5,000 crore");
+  t("setting a placeholder warns that figures were not yet disclosures",
+    turnover("50000000000").some((i) => /placeholder/i.test(i.message)));
+  t("setting a placeholder still demands a typed confirm",
+    needsTypedConfirm(turnover("50000000000")));
+  t("a real turnover is not blocked", !isBlocked(turnover("50000000000")));
+  t("turnover typed in CRORES is caught by the FINANCIAL range",
+    needsTypedConfirm(turnover("5000")), "5000 would be 5,000 rupees");
+  t("the range note warns against entering crores",
+    turnover("5000").some((i) => /crore/i.test(i.message)));
+  t("a later edit between two real turnovers DOES warn on magnitude",
+    turnover("90000000000", 50000000000).some((i) => /% change/.test(i.message)),
+    "placeholder suppression must not persist");
   t("the inert warning names unit_factor as the real location",
     v("0.002", { key: "CONV.l_to_kl", category: "CONVERSION", currentValue: 0.001, directRefCount: 0 })
       .some((i) => /unit_factor/.test(i.message)));
