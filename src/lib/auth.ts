@@ -55,6 +55,40 @@ export const SESSION_COOKIE = "latspace_session";
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 7;
 
 /**
+ * The account a visitor is signed in as when they arrive without a session.
+ * Someone who opens a shared demo link should land in the app, not on a login
+ * form they have no credentials for — so the middleware issues this session
+ * automatically. /login is still reachable for switching to another account.
+ *
+ * Set DEMO_AUTO_SIGN_IN=off to restore the gate and force everyone through the
+ * login page. When real auth arrives this whole mechanism goes away.
+ */
+export const AUTO_SIGN_IN_ACCOUNT_ID = "esg-team";
+
+export const AUTO_SIGN_IN_ENABLED = process.env.DEMO_AUTO_SIGN_IN !== "off";
+
+/**
+ * Set by logout to suppress auto sign-in. Without it, signing out would drop
+ * the session and the very next navigation would silently issue a new one —
+ * logout would look broken. The marker is cleared when someone signs in
+ * explicitly, so it only survives as long as the user stays signed out.
+ */
+export const SIGNED_OUT_COOKIE = "latspace_signed_out";
+
+/**
+ * Cookie attributes for the demo session. Shared by the login route and the
+ * middleware's auto sign-in so the two can't drift apart. httpOnly so page
+ * scripts can't read it; sameSite=lax so it survives redirects.
+ */
+export const SESSION_COOKIE_OPTIONS = {
+  httpOnly: true,
+  sameSite: "lax",
+  secure: process.env.NODE_ENV === "production",
+  path: "/",
+  maxAge: SESSION_MAX_AGE,
+} as const;
+
+/**
  * Match an email/password pair against the demo accounts. Email comparison is
  * case-insensitive and trimmed (people paste with stray whitespace); the
  * password must match DEMO_PASSWORD exactly. Returns null when nothing matches
