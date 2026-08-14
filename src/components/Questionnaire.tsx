@@ -8,12 +8,34 @@ import { quantCellId } from "@/lib/quantitativeCells";
 import { AssistantPane } from "@/components/qualitative/AssistantPane";
 import { FillWithAI } from "@/components/FillWithAI";
 import { initials, mockUsers, readAssignees, writeAssignees, type Assignees } from "@/lib/storage";
-import { quantitativeCells } from "@/lib/quantitativeCells";
+import { quantitativeCells, type QuantCell } from "@/lib/quantitativeCells";
 import { formatBoundValue, useBoundCells, type BoundCell } from "@/components/useBoundCells";
 import { normaliseFiscalYear } from "@/lib/reportBindings/normaliseFiscalYear";
 import { DrilldownPanel } from "@/components/DrilldownPanel";
 
 type Status = "not-started" | "in-progress" | "completed";
+
+/** What a Sync did, reported in full. */
+type SyncResult =
+  | { ok: false; error: string; fiscalYear: string | null }
+  | {
+      ok: true;
+      fiscalYear: string;
+      /** True when the report did not name its year and the latest was used. */
+      assumedYear?: boolean;
+      /** Cells wired to a metric. */
+      bound: number;
+      /** Cells this sync filled in. */
+      written: number;
+      /** Cells left alone because somebody had already typed a number there. */
+      keptAsTyped: number;
+      /** Bound cells with no computed figure — nobody filed a return. */
+      notComputed: number;
+      /** Bindings whose cell label no longer matches the schema. */
+      stale: number;
+      /** Questions the sync finished outright — every field valid. */
+      completed: number;
+    };
 
 interface QuestionState {
   values: RowValues;
@@ -294,6 +316,9 @@ export function Questionnaire({
   // Accepts "2024-25" and the common "FY2024-25" / "2024-2025" variants because
   // it is a free-text field. Anything else yields null and the bindings simply
   // do not load — better than resolving against a year the user did not mean.
+  // Set when a sync finishes, cleared when the dialog is dismissed.
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+
   const reportingFiscalYear = useMemo(
     () => normaliseFiscalYear(answers["A.1"]?.values?.financialYear),
     [answers]
@@ -352,7 +377,50 @@ export function Questionnaire({
   const completedCount = Object.values(answers).filter((a) => a.status === "completed").length;
   const inProgressCount = Object.values(answers).filter((a) => a.status === "in-progress").length;
   const notStartedCount = Object.values(answers).filter((a) => a.status === "not-started").length;
-  const overallPct = Math.round((completedCount / allQuestions.length) * 100);
+
+  // Progress gives PARTIAL CREDIT for partly-answered questions.
+  //
+  // Counting only `completed` made the bar nearly inert: a sync that fills 38
+  // disclosure cells across four questions completes just one of them (the
+  // others are partly unbound by design), so the bar moved under 1% for a
+  // visibly large amount of work.
+  //
+  // A completed question is worth 1. An in-progress one is worth the fraction
+  // of its fields that hold a value — weighting by real fill rather than a flat
+  // half, so a question with one cell of twelve does not read the same as one
+  // with eleven. `completed` is still respected outright: it is a human's
+  // judgement that the question is done, and a question can be complete with
+  // fields legitimately left blank.
+  const overallPct = useMemo(() => {
+    if (allQuestions.length === 0) return 0;
+    let credit = 0;
+    for (const { q } of allQuestions) {
+      const a = answers[q.id];
+      if (!a) continue;
+      if (a.status === "completed") {
+        credit += 1;
+        continue;
+      }
+      if (a.status !== "in-progress") continue;
+      let total = 0;
+      let filled = 0;
+      if (q.kind === "fields") {
+        for (const f of q.fields) {
+          total++;
+          if (isFilled(f, a.values[f.id])) filled++;
+        }
+      } else {
+        for (const r of a.rows) {
+          for (const c of q.columns) {
+            total++;
+            if (isFilled(c, r[c.id])) filled++;
+          }
+        }
+      }
+      if (total > 0) credit += filled / total;
+    }
+    return Math.round((credit / allQuestions.length) * 100);
+  }, [answers, allQuestions]);
 
   function patch(id: string, patch: Partial<QuestionState>) {
     setAnswers((prev) => {
@@ -373,6 +441,182 @@ export function Questionnaire({
       ...prev,
       [id]: { ...prev[id], status, updatedAt: new Date().toISOString() },
     }));
+  }
+
+  /**
+   * Write computed figures into the answers, each into the exact cell its
+   * binding names.
+   *
+   * A QuantCell id decomposes to (questionId, fieldId, rowIndex), which is
+   * precisely the address of a slot in QuestionState — `values[fieldId]` for a
+   * FieldsQuestion, `rows[rowIndex][fieldId]` for a fixed table. So placement
+   * needs no mapping table: the same function that generated the requirement
+   * row generates its destination.
+   *
+   * NEVER OVERWRITES A TYPED ANSWER. If someone has already entered a number,
+   * theirs stands and the cell is reported as skipped. A metric silently
+   * replacing a human's figure — perhaps one they took from an assured source —
+   * is the kind of edit nobody notices until the numbers stop matching the
+   * annual report.
+   *
+   * Rows are grown to reach rowIndex where a fixed table has not been touched
+   * yet, because a blank table starts at minRows but its row objects may not
+   * exist until rendered.
+   */
+  function applyMetrics(cells: { cell: QuantCell; value: number }[]): {
+    written: number;
+    skipped: { cellId: string; existing: unknown }[];
+    completed: number;
+  } {
+    // Computed against the CURRENT answers, synchronously, so the caller can
+    // report what happened. Deriving it inside the setAnswers callback would
+    // return before the updater ran — and React may invoke that updater twice
+    // in StrictMode, double-counting anything tallied there.
+    const next = { ...answers };
+    const skipped: { cellId: string; existing: unknown }[] = [];
+    let written = 0;
+
+    for (const { cell, value } of cells) {
+      const q = allQuestions.find((x) => x.q.id === cell.questionId)?.q;
+      if (!q) continue;
+      const state = next[cell.questionId] ?? blankState(q);
+
+      if (q.kind === "fields") {
+        const existing = state.values[cell.fieldId];
+        if (existing !== "" && existing != null) {
+          skipped.push({ cellId: cell.id, existing });
+          continue;
+        }
+        next[cell.questionId] = {
+          ...state,
+          values: { ...state.values, [cell.fieldId]: value },
+          status: state.status === "completed" ? "completed" : "in-progress",
+          updatedAt: new Date().toISOString(),
+        };
+        written++;
+        continue;
+      }
+
+      // Table question. Only fixed-shape rows have a determinate destination;
+      // an open-ended table's requirement row is the COLUMN, not a cell, so
+      // there is no single slot to write and it is left alone.
+      if (cell.rowIndex == null) {
+        skipped.push({ cellId: cell.id, existing: null });
+        continue;
+      }
+      const rows = [...state.rows];
+      while (rows.length <= cell.rowIndex) rows.push({});
+      const existing = rows[cell.rowIndex]?.[cell.fieldId];
+      if (existing !== "" && existing != null) {
+        skipped.push({ cellId: cell.id, existing });
+        continue;
+      }
+      rows[cell.rowIndex] = { ...rows[cell.rowIndex], [cell.fieldId]: value };
+      next[cell.questionId] = {
+        ...state,
+        rows,
+        status: state.status === "completed" ? "completed" : "in-progress",
+        updatedAt: new Date().toISOString(),
+      };
+      written++;
+    }
+
+    // Mark a question completed only where the sync actually finished it.
+    //
+    // NOT every question it touched. C.P6.E1 has 12 cells and the bindings fill
+    // 6 — rows 0, 2 and 5 (electricity, other sources, optional intensity) are
+    // deliberately unbound. Marking that "completed" would claim a disclosure
+    // is done while half of it is blank, and completed is the status a reviewer
+    // reads as ready.
+    //
+    // canComplete() is the same gate the manual control uses: every field valid,
+    // every row of a table filled. Reusing it means a synced question and a
+    // hand-filled one mean the same thing, which is the only way the progress
+    // count stays honest.
+    let completed = 0;
+    for (const qid of new Set(cells.map((c) => c.cell.questionId))) {
+      const q = allQuestions.find((x) => x.q.id === qid)?.q;
+      const state = next[qid];
+      if (!q || !state || state.status === "completed") continue;
+      if (canComplete(q, state)) {
+        next[qid] = { ...state, status: "completed", updatedAt: new Date().toISOString() };
+        completed++;
+      }
+    }
+
+    if (written > 0) setAnswers(next);
+    return { written, skipped, completed };
+  }
+
+  /**
+   * Sync: pull the computed figures and write them into the report.
+   *
+   * Fetches its own bindings rather than reading the Requirements tab's, so it
+   * works identically from either tab — the button is in the header, above the
+   * tab strip, and must not behave differently depending on what is below it.
+   *
+   * Returns a summary the dialog reports. Every outcome is named: written,
+   * kept-as-typed, and not-computed. Silence on the last two would let a sync
+   * that changed almost nothing read as a full success.
+   */
+  async function handleSync(): Promise<void> {
+    setSyncResult(await runSync());
+  }
+
+  async function runSync(): Promise<SyncResult> {
+    const cellIndex = new Map<string, QuantCell>();
+    for (const c of quantitativeCells(sections)) cellIndex.set(c.id, c);
+
+    let year = reportingFiscalYear;
+    let assumedYear = false;
+    if (!year) {
+      const yRes = await fetch("/api/esg/bindings/fiscalYears", { cache: "no-store" });
+      const yJson = await yRes.json();
+      year = (yJson.ok && yJson.fiscalYears?.[0]) || null;
+      assumedYear = Boolean(year);
+    }
+    if (!year) {
+      return { ok: false, error: "No fiscal year has computed figures yet.", fiscalYear: null };
+    }
+
+    const res = await fetch(
+      `/api/esg/bindings?framework=${encodeURIComponent(frameworkId)}&fy=${encodeURIComponent(year)}`,
+      { cache: "no-store" }
+    );
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      return { ok: false, error: data.error ?? "Could not reach the metrics.", fiscalYear: year };
+    }
+
+    const cells = data.cells as BoundCell[];
+    const applicable: { cell: QuantCell; value: number }[] = [];
+    let notComputed = 0;
+    let stale = 0;
+    for (const c of cells) {
+      if (c.staleLabel) {
+        stale++;
+        continue;
+      }
+      if (c.value == null) {
+        notComputed++;
+        continue;
+      }
+      const cell = cellIndex.get(c.quantCellId);
+      if (cell) applicable.push({ cell, value: c.value });
+    }
+
+    const { written, skipped, completed } = applyMetrics(applicable);
+    return {
+      ok: true,
+      fiscalYear: year,
+      assumedYear,
+      bound: cells.length,
+      written,
+      keptAsTyped: skipped.length,
+      notComputed,
+      stale,
+      completed,
+    };
   }
 
   function filteredSections() {
@@ -399,7 +643,11 @@ export function Questionnaire({
         frameworkName={frameworkName}
         version={version}
         onExport={onExport}
+        onSync={handleSync}
       />
+      {syncResult && (
+        <SyncResultDialog result={syncResult} onClose={() => setSyncResult(null)} />
+      )}
       <QuestionnaireTabs tab={tab} onChange={setTab} />
       {tab === "requirements" ? (
         <RequirementsView
@@ -541,7 +789,11 @@ function RequirementsView({
   // "all" | "filled" | "empty" | "metric" — the last shows only cells wired to
   // a computed metric, which is how someone reviewing the wiring finds them
   // among ~700 rows.
-  const [fillFilter, setFillFilter] = useState<"all" | "filled" | "empty" | "metric">("all");
+  // Defaults to the rows that actually hold a value. Of ~708 quantitative cells
+  // most are empty, and landing on "All" buries the answered ones. Falls back
+  // to "all" below when nothing is filled yet, so a fresh report is not an
+  // empty table.
+  const [fillFilter, setFillFilter] = useState<"all" | "filled" | "empty" | "metric">("filled");
 
   const bound = useBoundCells(frameworkId, fiscalYear);
   // The metric a drilldown is open for, or null. Carries the grain so the panel
@@ -589,12 +841,20 @@ function RequirementsView({
   const filledCount = useMemo(() => rows.filter((r) => r.filled).length, [rows]);
   const metricCount = useMemo(() => rows.filter((r) => r.metric).length, [rows]);
 
+  // "filled" is the default, but it must not strand the user on an empty table:
+  // a report nobody has answered or synced yet has no filled rows at all.
+  const effectiveFilter =
+    (fillFilter === "filled" && filledCount === 0) ||
+    (fillFilter === "metric" && !bound.loading && metricCount === 0)
+      ? "all"
+      : fillFilter;
+
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return rows.filter((r) => {
-      if (fillFilter === "filled" && !r.filled) return false;
-      if (fillFilter === "empty" && r.filled) return false;
-      if (fillFilter === "metric" && !r.metric) return false;
+      if (effectiveFilter === "filled" && !r.filled) return false;
+      if (effectiveFilter === "empty" && r.filled) return false;
+      if (effectiveFilter === "metric" && !r.metric) return false;
       if (!needle) return true;
       return (
         r.id.toLowerCase().includes(needle) ||
@@ -604,7 +864,7 @@ function RequirementsView({
         (r.metric?.outputKey ?? "").toLowerCase().includes(needle)
       );
     });
-  }, [rows, search, fillFilter]);
+  }, [rows, search, effectiveFilter]);
 
   // Deep-link: when a target cell id arrives (blue-button jump), clear any
   // filters that could hide it, then scroll it into view and flash a highlight.
@@ -658,7 +918,7 @@ function RequirementsView({
                 key={key}
                 onClick={() => setFillFilter(key)}
                 className={`px-2.5 py-1 font-medium ${
-                  fillFilter === key
+                  effectiveFilter === key
                     ? "bg-brand text-white"
                     : "bg-white text-slate-600 hover:bg-slate-50"
                 }`}
@@ -800,6 +1060,141 @@ function RequirementsView({
           onClose={() => setDrilldown(null)}
         />
       )}
+    </div>
+  );
+}
+
+// What the Sync did, reported in full.
+//
+// EVERY OUTCOME IS NAMED, not just the happy one. A sync that wrote 4 cells,
+// left 12 as typed and found 22 with nothing computed is a very different event
+// from one that wrote 38 — and a dialog saying only "metrics filled" would make
+// them look identical. "Not computed" in particular means nobody filed the
+// return; it is not a zero and not a failure of this feature.
+function SyncResultDialog({
+  result,
+  onClose,
+}: {
+  result: SyncResult;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/30 px-4 py-24"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 className="text-sm font-semibold text-slate-900">
+            {result.ok
+              ? result.written > 0
+                ? "Metrics filled"
+                : "Nothing to fill"
+              : "Sync failed"}
+          </h2>
+          {result.ok && (
+            <p className="mt-0.5 text-xs text-slate-500">
+              FY {result.fiscalYear}
+              {result.assumedYear && " — assumed, this report does not name its year"}
+            </p>
+          )}
+        </div>
+
+        <div className="px-5 py-4">
+          {!result.ok ? (
+            <p className="text-sm text-red-800">{result.error}</p>
+          ) : (
+            <>
+              <dl className="space-y-2 text-sm">
+                <Line
+                  label="Filled from metrics"
+                  value={result.written}
+                  tone={result.written > 0 ? "good" : "muted"}
+                />
+                {result.completed > 0 && (
+                  <Line
+                    label="Questions completed"
+                    value={result.completed}
+                    tone="good"
+                    hint="Every field in these is now filled and valid."
+                  />
+                )}
+                {result.keptAsTyped > 0 && (
+                  <Line
+                    label="Kept as typed"
+                    value={result.keptAsTyped}
+                    hint="Already had a value. Nothing was overwritten."
+                  />
+                )}
+                {result.notComputed > 0 && (
+                  <Line
+                    label="No computed figure"
+                    value={result.notComputed}
+                    hint="No return has been filed for these. Not a zero."
+                  />
+                )}
+                {result.stale > 0 && (
+                  <Line
+                    label="Stale bindings"
+                    value={result.stale}
+                    tone="warn"
+                    hint="The questionnaire's rows moved since these were wired. Re-check them."
+                  />
+                )}
+              </dl>
+              <p className="mt-4 border-t border-slate-100 pt-3 text-[11px] text-slate-500">
+                {result.written > 0
+                  ? "Values were written into the Document tab, each into the disclosure line its metric answers. Figures rest on the returns actually filed — open a value in Requirements to see what is behind it."
+                  : "Every wired cell either already held a value or has no computed figure yet."}
+              </p>
+            </>
+          )}
+        </div>
+
+        <div className="flex justify-end border-t border-slate-200 px-5 py-3">
+          <button
+            onClick={onClose}
+            className="bg-brand px-4 py-2 text-[12px] font-medium text-white hover:opacity-90"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Line({
+  label,
+  value,
+  hint,
+  tone = "muted",
+}: {
+  label: string;
+  value: number;
+  hint?: string;
+  tone?: "good" | "warn" | "muted";
+}) {
+  const colour =
+    tone === "good" ? "text-emerald-700" : tone === "warn" ? "text-amber-700" : "text-slate-700";
+  return (
+    <div className="flex items-baseline justify-between gap-4">
+      <div className="min-w-0">
+        <dt className="text-slate-700">{label}</dt>
+        {hint && <dd className="text-[11px] text-slate-400">{hint}</dd>}
+      </div>
+      <dd className={`shrink-0 tabular-nums font-medium ${colour}`}>{value}</dd>
     </div>
   );
 }
@@ -1025,12 +1420,14 @@ function QuestionnaireHeader({
   frameworkName,
   version,
   onExport,
+  onSync,
 }: {
   overallPct: number;
   activeId: string;
   frameworkName: string;
   version?: string;
   onExport?: () => Promise<void> | void;
+  onSync?: () => Promise<unknown>;
 }) {
   const [busy, setBusy] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -1060,13 +1457,19 @@ function QuestionnaireHeader({
       setBusy(false);
     }
   };
-  const handleSync = () => {
+  // Pulls the computed figures into the report. Was a 900ms placeholder that
+  // only set a timestamp; now it does the work and the parent reports it.
+  const handleSync = async () => {
     if (syncing) return;
     setSyncing(true);
-    window.setTimeout(() => {
-      setSyncing(false);
+    try {
+      await onSync?.();
       setSyncedAt(new Date());
-    }, 900);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSyncing(false);
+    }
   };
   return (
     <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-3">
@@ -1248,6 +1651,9 @@ function Sidebar(props: {
         {props.sections.map((s) => {
           const total = s.questions.length;
           const done = s.questions.filter((q) => props.answers[q.id]?.status === "completed").length;
+          const started = s.questions.filter(
+            (q) => props.answers[q.id]?.status === "in-progress"
+          ).length;
           const open = props.openSections[s.id];
           const expanded = props.search.trim() ? true : open;
           return (
@@ -1260,8 +1666,21 @@ function Sidebar(props: {
                   <span className={`inline-block transition-transform ${expanded ? "rotate-90" : ""}`}>›</span>
                   <span className="font-medium text-slate-800 text-left">{s.title}</span>
                 </span>
-                <span className="text-xs text-slate-500">
-                  {done}/{total}
+                <span
+                  className="shrink-0 text-xs text-slate-500"
+                  title={
+                    started > 0
+                      ? `${done} completed, ${started} in progress, of ${total}`
+                      : `${done} of ${total} completed`
+                  }
+                >
+                  {done}
+                  {/* Started-but-unfinished questions are shown as a separate
+                      amber count rather than folded into `done`. A section where
+                      a sync filled part of every question reads 0/22 otherwise,
+                      which looks like nothing happened. */}
+                  {started > 0 && <span className="text-amber-600">+{started}</span>}
+                  <span className="text-slate-400">/{total}</span>
                 </span>
               </button>
               {expanded && (
