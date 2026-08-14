@@ -43,6 +43,13 @@ const METHODS = [
       "Value-chain data: purchase orders, material deliveries, freight, travel and tenant energy. One row is one transaction, not one monthly figure.",
     icon: <SpreadsheetIcon className="h-5 w-5" />,
   },
+  {
+    href: "/data-collection/hr-proc-return",
+    title: "HR & Procurement Return",
+    description:
+      "Upload the monthly BRSR HR and Procurement workbooks. Figures are cumulative for the year — the latest month is the year-to-date.",
+    icon: <UploadIcon className="h-5 w-5" />,
+  },
 ] as const;
 
 export default function DataCollectionPage() {

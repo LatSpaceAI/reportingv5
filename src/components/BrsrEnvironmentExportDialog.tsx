@@ -14,10 +14,12 @@
 import { useCallback, useEffect, useState } from "react";
 
 interface ExportChange {
+  sheet: string;
   cell: string;
   label: string;
   previous: string | number | null;
-  written: number;
+  /** Numbers everywhere except the HR/Procurement tabs' qualitative answers. */
+  written: number | string;
   replacedFormula: boolean;
 }
 
@@ -247,9 +249,12 @@ export default function BrsrEnvironmentExportDialog({
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {report.changes.map((c) => (
-                        <tr key={c.cell}>
+                        <tr key={`${c.sheet}|${c.cell}`}>
                           <td className="whitespace-nowrap px-4 py-1.5 font-mono text-[10px] text-[#0A0A0A]/70">
-                            {c.cell}
+                            {/* The Environment sheet is this dialog's home; other
+                                tabs (HR, Proc) carry their name so the ref is
+                                findable in the workbook. */}
+                            {c.sheet?.startsWith("Environment") ? c.cell : `${c.sheet}!${c.cell}`}
                           </td>
                           <td className="px-4 py-1.5 text-[#0A0A0A]/80">
                             {c.label}
@@ -266,10 +271,15 @@ export default function BrsrEnvironmentExportDialog({
                               ? "(blank)"
                               : String(c.previous)}
                           </td>
-                          <td className="whitespace-nowrap px-4 py-1.5 text-right tabular-nums text-[#0A0A0A]">
-                            {c.written.toLocaleString("en-IN", {
-                              maximumFractionDigits: 4,
-                            })}
+                          <td
+                            className="max-w-[220px] truncate whitespace-nowrap px-4 py-1.5 text-right tabular-nums text-[#0A0A0A]"
+                            title={typeof c.written === "string" ? c.written : undefined}
+                          >
+                            {typeof c.written === "number"
+                              ? c.written.toLocaleString("en-IN", {
+                                  maximumFractionDigits: 4,
+                                })
+                              : c.written}
                           </td>
                         </tr>
                       ))}
