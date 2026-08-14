@@ -667,11 +667,7 @@ function RequirementsView({
               </button>
             ))}
           </div>
-          <BindingStatus
-            state={bound}
-            fiscalYear={fiscalYear}
-            metricCount={metricCount}
-          />
+          <BindingStatus state={bound} metricCount={metricCount} />
           <span className="text-xs text-slate-500">
             {filtered.length} shown
           </span>
@@ -815,23 +811,16 @@ function RequirementsView({
 // year it covers" — and only the first of those is the user's to accept.
 function BindingStatus({
   state,
-  fiscalYear,
   metricCount,
 }: {
-  state: { loading: boolean; error: string | null };
-  fiscalYear: string | null;
+  state: {
+    loading: boolean;
+    error: string | null;
+    resolvedYear: string | null;
+    usedFallbackYear: boolean;
+  };
   metricCount: number;
 }) {
-  if (!fiscalYear) {
-    return (
-      <span
-        className="text-xs text-amber-700"
-        title="Bound metrics resolve against the year this report says it covers. Set Section A item 9, 'Financial year for which reporting is being done', to e.g. 2024-25."
-      >
-        No reporting year set
-      </span>
-    );
-  }
   if (state.loading) return <span className="text-xs text-slate-400">Loading metrics…</span>;
   if (state.error) {
     return (
@@ -840,12 +829,39 @@ function BindingStatus({
       </span>
     );
   }
+  if (!state.resolvedYear) {
+    return (
+      <span
+        className="text-xs text-amber-700"
+        title="No fiscal year has computed figures yet. Run npm run esg:resolve, or set Section A item 9 to a year that does."
+      >
+        No year with data
+      </span>
+    );
+  }
   if (metricCount === 0) {
     return <span className="text-xs text-slate-400">No metrics wired</span>;
   }
+  // The fallback year is flagged rather than shown silently: the figures are
+  // real, but they are the latest year with data, not necessarily the year this
+  // report covers. Only the user can close that gap.
+  if (state.usedFallbackYear) {
+    return (
+      <span
+        className="text-xs text-amber-700"
+        title={
+          `This report does not say which year it covers, so figures are shown for FY ${state.resolvedYear} — ` +
+          `the latest year with data. Set Section A item 9, "Financial year for which reporting is being done", ` +
+          `to bind them to the year you mean.`
+        }
+      >
+        {metricCount} from metrics · FY {state.resolvedYear} (assumed)
+      </span>
+    );
+  }
   return (
     <span className="text-xs text-slate-500">
-      {metricCount} from metrics · FY {fiscalYear}
+      {metricCount} from metrics · FY {state.resolvedYear}
     </span>
   );
 }
