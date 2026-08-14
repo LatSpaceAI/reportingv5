@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { SESSION_COOKIE, SESSION_MAX_AGE, verifyCredentials } from "@/lib/auth";
+import {
+  SESSION_COOKIE,
+  SESSION_COOKIE_OPTIONS,
+  SIGNED_OUT_COOKIE,
+  verifyCredentials,
+} from "@/lib/auth";
 
 // Demo login. Verifies the email/password against the hard-coded accounts in
 // @/lib/auth and sets the session cookie. httpOnly so page scripts can't read
@@ -25,12 +30,9 @@ export async function POST(req: Request) {
   const res = NextResponse.json({
     user: { id: account.id, name: account.name, role: account.role, organization: account.organization },
   });
-  res.cookies.set(SESSION_COOKIE, account.id, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: SESSION_MAX_AGE,
-  });
+  res.cookies.set(SESSION_COOKIE, account.id, SESSION_COOKIE_OPTIONS);
+  // An explicit sign-in ends the signed-out state, re-enabling auto sign-in for
+  // any later visit that arrives without a session.
+  res.cookies.set(SIGNED_OUT_COOKIE, "", { ...SESSION_COOKIE_OPTIONS, maxAge: 0 });
   return res;
 }
