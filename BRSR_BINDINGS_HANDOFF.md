@@ -18,14 +18,20 @@ The loop this closes:
 output_value  →  report_binding  →  Requirements tab  →  drilldown
  (the metric)    (which BRSR cell    (shows the number    (shows the monthly
                   it answers)         beside the manual    inputs, formula and
-                                      answer)              constants behind it)
+                          │           answer)              constants behind it)
+                          │
+                          └─────→  Sync  →  the Document tab
+                                   (writes each figure into the
+                                    disclosure line it answers)
 ```
 
-Two commits:
+Commits:
 
 ```
 b98bc73  feat(esg): metrics the BRSR asks for and the model could not answer
 16ab2b0  feat(reporting): bind BRSR cells to computed metrics, with drilldown
+821d2fa  fix(reporting): show bound figures when the report has no year set
+750288c  feat(reporting): Sync writes computed figures into the report
 ```
 
 ### Migrations — ALL FOUR ARE ALREADY APPLIED to the live database
@@ -55,7 +61,7 @@ Both test scripts are in `npm run esg:check`.
 
 ---
 
-## The five things to understand before changing any of this
+## The six things to understand before changing any of this
 
 ### 1. "Not filed" is not zero, and the whole design turns on it
 
@@ -114,7 +120,22 @@ The drilldown parses expressions with `REF_RE` (imported, never redeclared).
 **If you add or edit a formula, re-run the regeneration block** or the blast
 radius under-reports.
 
-### 5. Scope 3 is a different shape
+### 5. The fiscal year is inferred when the report does not name one
+
+Bound metrics resolve against Section A item 9, *"Financial year for which
+reporting is being done"* — free text, and blank on any report nobody has
+filled in. When it is blank, `/api/esg/bindings/fiscalYears` supplies a
+fallback and the UI labels it **"(assumed)"** in amber.
+
+That endpoint ranks by **distinct sites filed, then site-months** — not by
+recency, and not by `sum(sites_reporting)`. Both were tried and both picked the
+wrong year: recency gives FY2025-26 (a two-month fragment, because periods are
+seeded ahead and a YTD row appears after one filed month), and site-months
+alone gives FY2023-24 (Aurora filing twelve months, alone, beating FY2024-25's
+nine across five sites). BRSR is entity-level, so breadth of sites wins. The
+endpoint returns its `evidence` so the ordering is inspectable.
+
+### 6. Scope 3 is a different shape
 
 `s3.*` outputs have **`formula_id = null`** — they are written directly by
 `resolve-scope3.mjs` from the `s3_line` ledger, not the formula DAG
@@ -196,17 +217,29 @@ deflator. Arguably the *more* valuable drilldown — it can show actual purchase
 orders. `SCOPE3_HANDOFF.md` notes Cat 11 is ~99.4% of the total.
 `checkDoubleCounting` (`scope3-methods.mjs:646`) results belong here too.
 
-### 6. The write path — "use this value"
+### 6. ~~The write path~~ — BUILT (Sync)
 
-Today bound values **display beside** manual answers; nothing populates the
-questionnaire. That was deliberate: copying a metric into a localStorage answer
-forks the number from its source.
+The header's **Sync** button now writes bound figures into the answers. It was
+a 900ms placeholder; it fetches the bindings and places each value at the
+address its QuantCell id names — `values[fieldId]`, or
+`rows[rowIndex][fieldId]` for a fixed table. No mapping table: the function
+that generates a requirement row generates its destination.
 
-Now that provenance is visible, a "use this value" action is defensible. The
-natural implementation reuses the **`computed` FieldKind** — already fully
-built and rendered (`Fields.tsx:42-68`, grey read-only cell with the formula
-shown beneath) and **used by zero questions today**. `compute` is synchronous,
-so bound values must be fetched into a cache the function reads.
+Three rules it will not break:
+
+- **Never overwrites a typed answer** — reported as "kept as typed", so a
+  human/computed disagreement surfaces instead of being settled by click order.
+- **Never writes a cell with no computed figure** — not-filed is not zero.
+- **Completed is earned**, gated on the same `canComplete()` the manual control
+  uses. Of the four questions a sync touches, only water (16/16) finishes.
+
+Still open here: the **`computed` FieldKind** remains fully built
+(`Fields.tsx:42-68` — grey read-only cell with the formula beneath) and used by
+zero questions. Sync writes plain values, so a synced figure is
+indistinguishable from a typed one once written. Rendering bound cells as
+`computed` would make provenance visible in the Document tab itself and stop
+anyone editing a figure that the next sync would not overwrite. `compute` is
+synchronous, so values must be fetched into a cache it reads.
 
 ### 7. Smaller things
 
@@ -279,3 +312,13 @@ wst.oil_filters_generated   0.003   MT     (2 filters, the only such return file
 ```
 
 All carry coverage `8/77`.
+
+UI spot-check: open the BRSR report, press **Sync**. Expect a dialog reading
+*"Metrics filled · FY 2024-25 (assumed)"* with **38 filled** and **1 question
+completed**. Then in the Document tab, C.P6.E3 should be fully populated and
+C.P6.E1 should show 338.2132 / 5925.3529 / 1.185 on rows 1, 3 and 4 with rows
+0, 2 and 5 blank. Pressing Sync a second time should write 0 and report 38
+"kept as typed" — nothing is overwritten.
+
+Overall progress reaches **2%** after a sync. That is correct, not a bug: the
+four questions metrics can answer are 3% of a 134-question report.
