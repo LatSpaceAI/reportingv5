@@ -31,9 +31,11 @@
     "esg:test-import": "tsx scripts/test-import.ts",
     "esg:test-commit": "node scripts/test-commit-values.mjs",
     "esg:test-engine": "node scripts/test-resolver.mjs",
-    "esg:check": "npm run esg:validate && npm run esg:verify && npm run esg:test-engine && npm run esg:test-entry && npm run esg:test-import && npm run esg:test-template && npm run esg:test-constants && npm run esg:test-scope3 && npm run esg:test-scope3-ledger && npm run esg:test-hr-proc",
+    "esg:check": "npm run esg:validate && npm run esg:verify && npm run esg:test-engine && npm run esg:test-entry && npm run esg:test-import && npm run esg:test-template && npm run esg:test-constants && npm run esg:test-bindings && npm run esg:test-drilldown && npm run esg:test-scope3 && npm run esg:test-scope3-ledger && npm run esg:test-hr-proc",
     "esg:test-template": "tsx scripts/test-standard-template.ts",
     "esg:test-constants": "tsx scripts/test-constants.ts",
+    "esg:test-bindings": "tsx scripts/test-bindings.ts",
+    "esg:test-drilldown": "tsx scripts/test-drilldown.ts",
     "esg:test-standard-output": "node scripts/test-standard-output.mjs"
   },
   "dependencies": {

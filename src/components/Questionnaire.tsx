@@ -9,6 +9,9 @@ import { AssistantPane } from "@/components/qualitative/AssistantPane";
 import { FillWithAI } from "@/components/FillWithAI";
 import { initials, mockUsers, readAssignees, writeAssignees, type Assignees } from "@/lib/storage";
 import { quantitativeCells } from "@/lib/quantitativeCells";
+import { formatBoundValue, useBoundCells, type BoundCell } from "@/components/useBoundCells";
+import { normaliseFiscalYear } from "@/lib/reportBindings/normaliseFiscalYear";
+import { DrilldownPanel } from "@/components/DrilldownPanel";
 
 type Status = "not-started" | "in-progress" | "completed";
 
@@ -280,6 +283,22 @@ export function Questionnaire({
     setTab("requirements");
   }, []);
 
+  // Which fiscal year the bound metrics should resolve against.
+  //
+  // Read from the report's OWN answer (Section A item 9, "Financial year for
+  // which reporting is being done") rather than a picker or today's date. The
+  // bound figures must belong to the year the document says it covers; a
+  // separate control would let those two disagree silently, which is precisely
+  // the sort of mismatch nobody notices until assurance.
+  //
+  // Accepts "2024-25" and the common "FY2024-25" / "2024-2025" variants because
+  // it is a free-text field. Anything else yields null and the bindings simply
+  // do not load — better than resolving against a year the user did not mean.
+  const reportingFiscalYear = useMemo(
+    () => normaliseFiscalYear(answers["A.1"]?.values?.financialYear),
+    [answers]
+  );
+
   const active = allQuestions.find((x) => x.q.id === activeId)!;
 
   // Compact context handed to the AI Assistant so it knows which question the
@@ -387,6 +406,8 @@ export function Questionnaire({
           sections={sections}
           answers={answers}
           assignees={assignees}
+          frameworkId={frameworkId}
+          fiscalYear={reportingFiscalYear}
           target={requirementsTarget}
           onTargetConsumed={() => setRequirementsTarget(null)}
           onOpen={(id) => {
@@ -501,6 +522,8 @@ function RequirementsView({
   sections,
   answers,
   assignees,
+  frameworkId,
+  fiscalYear,
   target,
   onTargetConsumed,
   onOpen,
@@ -508,13 +531,26 @@ function RequirementsView({
   sections: Section[];
   answers: Record<string, QuestionState>;
   assignees: Assignees;
+  frameworkId: string;
+  fiscalYear: string | null;
   target?: string | null;
   onTargetConsumed?: () => void;
   onOpen: (id: string) => void;
 }) {
   const [search, setSearch] = useState("");
-  // "all" | "filled" | "empty" — filter rows by whether the cell has a value.
-  const [fillFilter, setFillFilter] = useState<"all" | "filled" | "empty">("all");
+  // "all" | "filled" | "empty" | "metric" — the last shows only cells wired to
+  // a computed metric, which is how someone reviewing the wiring finds them
+  // among ~700 rows.
+  const [fillFilter, setFillFilter] = useState<"all" | "filled" | "empty" | "metric">("all");
+
+  const bound = useBoundCells(frameworkId, fiscalYear);
+  // The metric a drilldown is open for, or null. Carries the grain so the panel
+  // asks about the same (site, year) the row resolved against.
+  const [drilldown, setDrilldown] = useState<{
+    outputKey: string;
+    siteCode: string;
+    fiscalYear: string;
+  } | null>(null);
   // Briefly highlight the deep-linked row after a blue-button jump.
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
@@ -545,23 +581,27 @@ function RequirementsView({
         status: a?.status ?? ("not-started" as Status),
         updatedAt: a?.updatedAt,
         assignedIds: assignees[c.questionId] ?? [],
+        metric: bound.byCellId.get(c.id) ?? null,
       };
     });
-  }, [sections, answers, assignees, questionById]);
+  }, [sections, answers, assignees, questionById, bound.byCellId]);
 
   const filledCount = useMemo(() => rows.filter((r) => r.filled).length, [rows]);
+  const metricCount = useMemo(() => rows.filter((r) => r.metric).length, [rows]);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return rows.filter((r) => {
       if (fillFilter === "filled" && !r.filled) return false;
       if (fillFilter === "empty" && r.filled) return false;
+      if (fillFilter === "metric" && !r.metric) return false;
       if (!needle) return true;
       return (
         r.id.toLowerCase().includes(needle) ||
         r.label.toLowerCase().includes(needle) ||
         (r.description ?? "").toLowerCase().includes(needle) ||
-        r.sectionTitle.toLowerCase().includes(needle)
+        r.sectionTitle.toLowerCase().includes(needle) ||
+        (r.metric?.outputKey ?? "").toLowerCase().includes(needle)
       );
     });
   }, [rows, search, fillFilter]);
@@ -612,6 +652,7 @@ function RequirementsView({
               ["all", `All (${rows.length})`],
               ["filled", `Filled (${filledCount})`],
               ["empty", `Empty (${rows.length - filledCount})`],
+              ["metric", `From metrics (${metricCount})`],
             ] as const).map(([key, label]) => (
               <button
                 key={key}
@@ -626,6 +667,11 @@ function RequirementsView({
               </button>
             ))}
           </div>
+          <BindingStatus
+            state={bound}
+            fiscalYear={fiscalYear}
+            metricCount={metricCount}
+          />
           <span className="text-xs text-slate-500">
             {filtered.length} shown
           </span>
@@ -638,6 +684,7 @@ function RequirementsView({
               <th className="w-32 px-4 py-2 text-left font-medium">ID</th>
               <th className="px-4 py-2 text-left font-medium">Name</th>
               <th className="w-56 px-4 py-2 text-left font-medium">Section</th>
+              <th className="w-52 px-4 py-2 text-left font-medium">Computed value</th>
               <th className="w-24 px-4 py-2 text-left font-medium">Value</th>
               <th className="w-32 px-4 py-2 text-left font-medium">Status</th>
               <th className="w-44 px-4 py-2 text-left font-medium">Assigned</th>
@@ -667,6 +714,25 @@ function RequirementsView({
                 </td>
                 <td className="truncate px-4 py-3 text-slate-600" title={r.sectionTitle}>
                   {r.sectionTitle}
+                </td>
+                <td className="px-4 py-3">
+                  <ComputedValueCell
+                    metric={r.metric}
+                    onDrilldown={
+                      r.metric && r.metric.fiscalYear
+                        ? (e) => {
+                            // The row's own click opens the question; a
+                            // drilldown is a different intent on the same row.
+                            e.stopPropagation();
+                            setDrilldown({
+                              outputKey: r.metric!.outputKey,
+                              siteCode: r.metric!.siteCode,
+                              fiscalYear: r.metric!.fiscalYear!,
+                            });
+                          }
+                        : undefined
+                    }
+                  />
                 </td>
                 <td className="px-4 py-3">
                   {r.filled ? (
@@ -722,7 +788,7 @@ function RequirementsView({
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">
+                <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-400">
                   No requirements match your filter.
                 </td>
               </tr>
@@ -730,7 +796,160 @@ function RequirementsView({
           </tbody>
         </table>
       </div>
+      {drilldown && (
+        <DrilldownPanel
+          outputKey={drilldown.outputKey}
+          siteCode={drilldown.siteCode}
+          fiscalYear={drilldown.fiscalYear}
+          onClose={() => setDrilldown(null)}
+        />
+      )}
     </div>
+  );
+}
+
+// Why the Computed value column is empty, when it is.
+//
+// Silence here would read as "no metrics are wired", which is a different claim
+// from "we could not reach the database" or "this report does not say which
+// year it covers" — and only the first of those is the user's to accept.
+function BindingStatus({
+  state,
+  fiscalYear,
+  metricCount,
+}: {
+  state: { loading: boolean; error: string | null };
+  fiscalYear: string | null;
+  metricCount: number;
+}) {
+  if (!fiscalYear) {
+    return (
+      <span
+        className="text-xs text-amber-700"
+        title="Bound metrics resolve against the year this report says it covers. Set Section A item 9, 'Financial year for which reporting is being done', to e.g. 2024-25."
+      >
+        No reporting year set
+      </span>
+    );
+  }
+  if (state.loading) return <span className="text-xs text-slate-400">Loading metrics…</span>;
+  if (state.error) {
+    return (
+      <span className="text-xs text-red-700" title={state.error}>
+        Metrics unavailable
+      </span>
+    );
+  }
+  if (metricCount === 0) {
+    return <span className="text-xs text-slate-400">No metrics wired</span>;
+  }
+  return (
+    <span className="text-xs text-slate-500">
+      {metricCount} from metrics · FY {fiscalYear}
+    </span>
+  );
+}
+
+// One requirements row's computed value.
+//
+// FOUR STATES, AND THE DISTINCTION BETWEEN THE LAST TWO IS THE WHOLE POINT:
+//
+//   unbound       no metric wired — the cell is somebody's to type
+//   resolved      a number, with its unit and coverage
+//   not computed  the metric exists but the resolver wrote no row for this
+//                 grain. Almost always "nobody filed a return". It is NOT zero,
+//                 and rendering it as 0 would turn an absence of evidence into
+//                 a reported figure — the one lie this model is built to refuse
+//                 (resolve-birla.mjs:277-281).
+//   stale         the cell id no longer means what it meant when bound
+//
+// Coverage rides along with every resolved number because a portfolio total
+// standing on 8 of 77 site-months is arithmetically fine and evidentially thin,
+// and the person reading the row is the person who needs to know that.
+function ComputedValueCell({
+  metric,
+  onDrilldown,
+}: {
+  metric: BoundCell | null;
+  onDrilldown?: (e: React.MouseEvent) => void;
+}) {
+  if (!metric) return <span className="text-slate-300">—</span>;
+
+  if (metric.staleLabel) {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 text-amber-700"
+        title={
+          `This row was bound as "${metric.staleLabel.boundAs}" but now reads ` +
+          `"${metric.staleLabel.nowReads}". The questionnaire's rows may have moved, ` +
+          `which would point this cell at the wrong disclosure. Re-check the binding.`
+        }
+      >
+        <span className="h-2 w-2 rounded-full bg-amber-500" />
+        Binding stale
+      </span>
+    );
+  }
+
+  if (metric.value == null) {
+    // Still drillable. "Why is this not computed?" is the question a user has
+    // at exactly this moment, and the panel answers it — which months nobody
+    // filed, which sites were expected.
+    return (
+      <button
+        type="button"
+        onClick={onDrilldown}
+        disabled={!onDrilldown}
+        className="inline-flex items-center gap-1.5 text-slate-400 enabled:hover:text-slate-600 enabled:hover:underline enabled:underline-offset-2"
+        title={
+          `${metric.outputKey} is wired to this cell but has no computed value for ` +
+          `${metric.siteCode} / ${metric.fiscalYear ?? "that year"}. ` +
+          (metric.unresolvedReason === "no_period"
+            ? "That fiscal year has no periods seeded."
+            : "No return has been filed, so the resolver wrote no row. This is not a zero.")
+        }
+      >
+        <span className="h-2 w-2 rounded-full bg-slate-300" />
+        Not computed
+      </button>
+    );
+  }
+
+  const coverage =
+    metric.sitesReporting != null && metric.sitesExpected
+      ? `${metric.sitesReporting}/${metric.sitesExpected} sites`
+      : null;
+
+  return (
+    <button
+      type="button"
+      onClick={onDrilldown}
+      disabled={!onDrilldown}
+      className="inline-flex flex-col items-start gap-0.5 text-left enabled:hover:underline enabled:underline-offset-2"
+      title={
+        `${metric.outputKey} — ${metric.outputLabel}\n` +
+        `${metric.siteCode} · ${metric.fiscalYear} ${metric.periodKind.toUpperCase()}\n` +
+        (metric.formulaExpression ? `= ${metric.formulaExpression}\n` : "") +
+        (coverage ? `Coverage: ${coverage}\n` : "") +
+        (metric.isAssumption ? "Rests on an unconfirmed assumption.\n" : "") +
+        (metric.note ? `\n${metric.note}\n` : "") +
+        "\nClick to see how this was computed."
+      }
+    >
+      <span className="flex items-baseline gap-1 tabular-nums text-slate-900">
+        {formatBoundValue(metric.value, metric.isIntensity)}
+        {metric.unit && <span className="text-[11px] text-slate-400">{metric.unit}</span>}
+        {metric.isAssumption && (
+          <span
+            className="ml-0.5 rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-800"
+            title="Rests on a rule or constant the ESG team has not confirmed."
+          >
+            assumption
+          </span>
+        )}
+      </span>
+      {coverage && <span className="text-[10px] text-slate-400">{coverage}</span>}
+    </button>
   );
 }
 
