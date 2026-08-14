@@ -298,10 +298,15 @@ either way would move a published figure.
 
 - **The entry screen has never been clicked through by a human.** API verified
   end-to-end; the rendering has not been eyeballed. Worth doing first.
-- **HR / Procurement / Safety exports.** Different departments, no site-return
-  feed. Both files have their own contradictions (HR reports 0 workers while
-  Safety reports 15.59M contract man-hours; Procurement has two incompatible
-  total-input bases differing 2.5×).
+- **Safety exports.** No feed, no cell map. (HR and Procurement are DONE:
+  Data Collection → HR & Procurement Return ingests the two monthly workbooks
+  into GROUP-booked `input_value` rows — sheets are cumulative, so latest month
+  = YTD — and the template export fills the `HR` and `Proc,Supply Chain, MKt`
+  tabs from them. Layouts in `src/lib/hrProcReturn/`, seed in
+  `supabase/esg/17_hr_procurement_inputs.sql`. The files' own contradictions
+  remain the client's: HR reports 0 workers while Safety reports 15.59M
+  contract man-hours; Procurement has two incompatible total-input bases
+  differing 2.5×.)
 - **Century Bhavan sheet** (energy + water only) is not exported.
 - **Air emissions and refrigerants** come from half-yearly monitoring reports, not
   the monthly forms. The cell map handles them; no data has been entered.

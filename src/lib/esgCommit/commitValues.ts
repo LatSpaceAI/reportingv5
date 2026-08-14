@@ -66,6 +66,12 @@ export interface AccumulatedValue {
   sum: number;
   anyValue: boolean;
   anyNa: boolean;
+  /**
+   * Qualitative answer, written to value_text. Set by paths whose sheets carry
+   * prose (the HR/Procurement monthly returns); the numeric-only paths never
+   * set it and behave exactly as before.
+   */
+  text?: string | null;
   /** Every raw cell string that fed this parameter, for the audit trail. */
   rawTexts: string[];
   /** Every sheet cell reference that fed it, e.g. ["F13","F14"]. */
@@ -90,6 +96,17 @@ export interface CommitValuesInput {
   values: Map<string, AccumulatedValue>;
 
   overrideExisting?: boolean;
+
+  /**
+   * Scopes the supersession to these parameter ids. Without it, an override
+   * archives and deletes EVERY live value of the (site, period) — correct when
+   * one file owns the whole site-month (both existing import paths), fatally
+   * wrong when two files share it: the HR and Procurement returns both book
+   * against (GROUP, month), and an unscoped Procurement commit would destroy
+   * the HR figures committed an hour earlier. Absent → the historical
+   * behaviour, byte for byte.
+   */
+  restrictToParameterIds?: number[];
 
   /**
    * Parameters that must be present, by key. The client's own forms carry
@@ -145,6 +162,7 @@ export async function commitValues(
     enteredBy,
     values,
     overrideExisting,
+    restrictToParameterIds,
     requiredKeys = [],
     labelsByKey = {},
     nothingMappedError = "Nothing in this file could be mapped to a known parameter.",
@@ -164,15 +182,19 @@ export async function commitValues(
   const idByKey = new Map((params ?? []).map((p) => [p.key as string, p.id as number]));
 
   // ---- Existing data: refuse to overwrite without explicit consent ---------
-  const { data: existingData, error: exErr } = await supabaseAdmin
+  let existingQuery = supabaseAdmin
     .from("input_value")
     .select(
-      "id, parameter_id, value_num, is_not_available, provenance, raw_text, comment, " +
+      "id, parameter_id, value_num, value_text, is_not_available, provenance, raw_text, comment, " +
         "source_doc, entered_by, entered_at"
     )
     .eq("site_id", siteId)
     .eq("period_id", periodId)
     .is("superseded_at", null);
+  if (restrictToParameterIds) {
+    existingQuery = existingQuery.in("parameter_id", restrictToParameterIds);
+  }
+  const { data: existingData, error: exErr } = await existingQuery;
   if (exErr) throw exErr;
   // This project has no generated Supabase types, so rows from the newer
   // tables come back untyped. Same convention as the export module.
@@ -199,6 +221,9 @@ export async function commitValues(
         period_id: periodId,
         parameter_id: e.parameter_id,
         value_num: e.value_num,
+        // Only carried when set: on a database that predates migration 17
+        // (which adds the column to history) the numeric paths keep working.
+        ...(e.value_text != null ? { value_text: e.value_text } : {}),
         is_not_available: e.is_not_available,
         provenance: e.provenance,
         raw_text: e.raw_text,
@@ -231,17 +256,23 @@ export async function commitValues(
   for (const [key, v] of values) {
     const parameterId = idByKey.get(key);
     if (!parameterId) continue;
-    // A parameter with neither a value nor an NA marker was not filled in.
-    if (!v.anyValue && !v.anyNa) continue;
+    // A parameter with neither a value, an NA marker, nor a text answer was
+    // not filled in.
+    if (!v.anyValue && !v.anyNa && v.text == null) continue;
 
-    canonicalValues[key] = v.anyValue ? v.sum : null;
-    if (!v.anyValue && v.anyNa) notAvailable.add(key);
+    // Text answers stay out of canonicalValues: the validation rules are
+    // numeric and key-addressed, and a rule cannot fire on a key it never sees.
+    if (v.anyValue || v.anyNa) {
+      canonicalValues[key] = v.anyValue ? v.sum : null;
+      if (!v.anyValue && v.anyNa) notAvailable.add(key);
+    }
 
     toInsert.push({
       site_id: siteId,
       period_id: periodId,
       parameter_id: parameterId,
       value_num: v.anyValue ? v.sum : null,
+      value_text: v.text ?? null,
       is_not_available: !v.anyValue && v.anyNa,
       // Every figure here came out of a spreadsheet, so it is 'imported'
       // regardless of whether a number or text was read.
@@ -280,18 +311,22 @@ export async function commitValues(
     anomalyTolerance,
   });
 
-  // Replace this month's unacknowledged flags, as the manual save does.
+  // Replace this month's unacknowledged flags, as the manual save does. A
+  // scoped commit only clears flags belonging to its own parameters — another
+  // file's warnings on the same site-month are not this import's to discard.
   const { data: existingFlags } = await supabaseAdmin
     .from("data_flag")
-    .select("id, rule_code, acknowledged_at")
+    .select("id, rule_code, parameter_id, acknowledged_at")
     .eq("site_id", siteId)
     .eq("period_id", periodId);
 
+  const restrictSet = restrictToParameterIds ? new Set(restrictToParameterIds) : null;
   const acknowledged = new Set(
     (existingFlags ?? []).filter((f) => f.acknowledged_at).map((f) => f.rule_code as string)
   );
   const staleIds = (existingFlags ?? [])
     .filter((f) => !f.acknowledged_at)
+    .filter((f) => !restrictSet || (f.parameter_id != null && restrictSet.has(f.parameter_id as number)))
     .map((f) => f.id as number);
   if (staleIds.length) {
     await supabaseAdmin.from("data_flag").delete().in("id", staleIds);

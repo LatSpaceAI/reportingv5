@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 import { readFile } from "node:fs/promises";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { exportHrProcSheets } from "./exportHrProc";
 import { normalizeSharedFormulas } from "./normalizeSharedFormulas";
 import {
   AIR_ROWS,
@@ -37,7 +38,8 @@ export interface ExportCellChange {
   cell: string;
   label: string;
   previous: string | number | null;
-  written: number;
+  /** Numbers everywhere except the HR/Procurement tabs' qualitative answers. */
+  written: number | string;
   /** True where we overwrote a formula (external link or defective). */
   replacedFormula: boolean;
 }
@@ -54,6 +56,14 @@ export interface ExportReport {
   missingKeys: string[];
   coverage: { siteMonthsFiled: number; siteMonthsExpected: number } | null;
   defectsCorrected: typeof KNOWN_TEMPLATE_DEFECTS;
+  /**
+   * The HR / Proc,Supply Chain, MKt tabs, fed by the monthly returns. Those
+   * sheets are cumulative, so each figure is the latest filed month's.
+   */
+  hrProc: {
+    latestMonthBySheet: Record<string, number>;
+    unwritableListValues: { key: string; label: string }[];
+  } | null;
 }
 
 export interface ExportResult {
@@ -304,6 +314,13 @@ export async function exportEnvironmentSheet(
     if (!any) missingKeys.add(r.key);
   }
 
+  // ---- HR and Proc,Supply Chain, MKt tabs ----------------------------------
+  // Fed by the monthly HR/Procurement returns (GROUP-booked input values),
+  // written in the same pass so one download carries everything we hold.
+  const hrProc = await exportHrProcSheets(wb, fiscalYear);
+  changes.push(...hrProc.changes);
+  for (const k of hrProc.missingKeys) missingKeys.add(k);
+
   const buffer = Buffer.from(await wb.xlsx.writeBuffer());
 
   return {
@@ -314,11 +331,17 @@ export async function exportEnvironmentSheet(
       generatedAt: new Date().toISOString(),
       cellsWritten: changes.length,
       formulasReplaced: changes.filter((c) => c.replacedFormula).length,
-      sharedFormulasExpanded,
+      sharedFormulasExpanded: sharedFormulasExpanded + hrProc.sharedFormulasExpanded,
       changes,
       missingKeys: [...missingKeys].sort(),
       coverage,
       defectsCorrected: KNOWN_TEMPLATE_DEFECTS,
+      hrProc: hrProc.changes.length
+        ? {
+            latestMonthBySheet: hrProc.latestMonthBySheet,
+            unwritableListValues: hrProc.unwritableListValues,
+          }
+        : null,
     },
   };
 }
