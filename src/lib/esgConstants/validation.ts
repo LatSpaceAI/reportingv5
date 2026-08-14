@@ -69,6 +69,13 @@ export const PLAUSIBLE_RANGES: Record<string, { min: number; max: number; note: 
     max: 1,
     note: "the anomaly tolerance is a FRACTION — 0.20 means 20%",
   },
+  FINANCIAL: {
+    min: 1e7,
+    max: 1e13,
+    note:
+      "turnover is an absolute INR figure, not crores — ₹5,000 crore is 50000000000, not 5000. " +
+      "The floor deliberately rejects the 1 placeholder these constants ship with",
+  },
 };
 
 /** Fraction-valued constants, where a percentage typed as 20 would silently
@@ -77,6 +84,12 @@ const FRACTION_KEYS = new Set(["qa.anomaly_tolerance"]);
 
 /** A change larger than this demands a typed confirmation. */
 const LARGE_CHANGE = 0.25;
+
+/** The value a constant carries when it is a stand-in rather than a measurement.
+ *  17_brsr_gap_metrics.sql seeds FIN.turnover as 1 deliberately: a plausible
+ *  guess would yield a plausible-looking intensity that is wrong, whereas 1
+ *  yields an obviously absurd one nobody can mistake for a disclosure. */
+const PLACEHOLDER_VALUE = 1;
 
 export function validateConstantEdit(input: ValidateInput): ValidationIssue[] {
   const { key, category, rawValue, currentValue, directRefCount } = input;
@@ -153,7 +166,15 @@ export function validateConstantEdit(input: ValidateInput): ValidationIssue[] {
   }
 
   // ---- Magnitude of change ------------------------------------------------
-  if (currentValue > 0 && directRefCount > 0) {
+  //
+  // PLACEHOLDER_VALUE is skipped here on purpose. Constants seeded to stand in
+  // for a figure nobody has yet (FIN.turnover ships as 1) would otherwise
+  // report a change of several billion percent on their first real edit — a
+  // true number, phrased so absurdly that it teaches people to click through
+  // the warning. The range check above still runs, and the reason is still
+  // mandatory, so the edit is not unguarded; only this one message is
+  // suppressed for the transition it cannot describe usefully.
+  if (currentValue > PLACEHOLDER_VALUE && directRefCount > 0) {
     const delta = Math.abs(value - currentValue) / currentValue;
     if (delta > LARGE_CHANGE) {
       issues.push({
@@ -164,6 +185,15 @@ export function validateConstantEdit(input: ValidateInput): ValidationIssue[] {
         requiresTypedConfirm: true,
       });
     }
+  } else if (currentValue === PLACEHOLDER_VALUE && directRefCount > 0) {
+    issues.push({
+      severity: "warn",
+      message:
+        `${key} is currently a placeholder, not a measured value — every figure ` +
+        `derived from it so far is arithmetic, not a disclosure. Setting it here is ` +
+        `what makes those figures real, so make sure this number is the assured one.`,
+      requiresTypedConfirm: true,
+    });
   }
 
   if (issues.length === 0) issues.push({ severity: "ok", message: "" });
