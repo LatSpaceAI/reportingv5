@@ -51,21 +51,20 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
 
 export const SESSION_COOKIE = "latspace_session";
 
-/** How long a demo session lasts, in seconds (7 days). */
-export const SESSION_MAX_AGE = 60 * 60 * 24 * 7;
-
 /**
- * The account a visitor is signed in as when they arrive without a session.
- * Someone who opens a shared demo link should land in the app, not on a login
- * form they have no credentials for — so the middleware issues this session
- * automatically. /login is still reachable for switching to another account.
+ * The account auto sign-in uses, when it is switched on.
  *
- * Set DEMO_AUTO_SIGN_IN=off to restore the gate and force everyone through the
- * login page. When real auth arrives this whole mechanism goes away.
+ * Auto sign-in exists so a shared demo link lands the visitor in the app rather
+ * than on a login form they have no credentials for. It is OFF by default: with
+ * it on, signing out and returning — or simply reopening the app — silently
+ * mints a new session, which reads as "logout is broken". Set
+ * DEMO_AUTO_SIGN_IN=on to opt a demo deployment back into it.
+ *
+ * When real auth arrives this whole mechanism goes away.
  */
 export const AUTO_SIGN_IN_ACCOUNT_ID = "esg-team";
 
-export const AUTO_SIGN_IN_ENABLED = process.env.DEMO_AUTO_SIGN_IN !== "off";
+export const AUTO_SIGN_IN_ENABLED = process.env.DEMO_AUTO_SIGN_IN === "on";
 
 /**
  * Set by logout to suppress auto sign-in. Without it, signing out would drop
@@ -79,13 +78,27 @@ export const SIGNED_OUT_COOKIE = "latspace_signed_out";
  * Cookie attributes for the demo session. Shared by the login route and the
  * middleware's auto sign-in so the two can't drift apart. httpOnly so page
  * scripts can't read it; sameSite=lax so it survives redirects.
+ *
+ * Deliberately NO maxAge/expires: that makes it a session cookie, so closing
+ * the browser ends the session and the next visit has to sign in again. A
+ * dated cookie kept people signed in for days and made the app look like it
+ * never logs anyone out.
  */
 export const SESSION_COOKIE_OPTIONS = {
   httpOnly: true,
   sameSite: "lax",
   secure: process.env.NODE_ENV === "production",
   path: "/",
-  maxAge: SESSION_MAX_AGE,
+} as const;
+
+/**
+ * Attributes for cookies that must outlive the browser session — currently only
+ * the signed-out marker, which has to survive a restart or auto sign-in (when
+ * enabled) would undo an explicit logout. 7 days.
+ */
+export const PERSISTENT_COOKIE_OPTIONS = {
+  ...SESSION_COOKIE_OPTIONS,
+  maxAge: 60 * 60 * 24 * 7,
 } as const;
 
 /**
