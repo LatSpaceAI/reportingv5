@@ -314,11 +314,34 @@ either way would move a published figure.
   the central-team entry model, but it means no per-site access control.
 - **Legacy pages still exist:** `/data-collection/manual`, `/bulk`, `/document`,
   `/logbook` are cement-era and untouched. `plantTemplate.ts` and `logbook/data.ts`
-  still contain cement vocabulary.
+  still contain cement vocabulary (`plantTemplate.ts` is generated from the
+  Mattampally input sheet and its rows are clinker/OPC/PPC/GGBS — regenerating
+  or retiring it is still open).
+- **The Sagar site dropdown is gone.** `shared.tsx` hard-coded the seven Sagar
+  Cements plants in a `SITES` const that fed the `ReportingPeriodCard` picker on
+  those three legacy pages. `SITES`, the `Site` type and the `<select>` were
+  removed; the card is now month/year only and `TemplateMeta` no longer carries
+  a site (the generated workbook titles and filenames dropped it too). Real
+  sites live in `esg.site` and are read per request — never hard-coded.
+- **Auth is a real gate now.** Auto sign-in used to default ON, so any visit
+  without a session silently minted one and the app appeared never to log
+  anyone out. `AUTO_SIGN_IN_ENABLED` now requires an explicit
+  `DEMO_AUTO_SIGN_IN=on`, and the session cookie carries no `maxAge`, making it
+  a browser-session cookie that ends when the browser closes. The signed-out
+  marker uses the new `PERSISTENT_COOKIE_OPTIONS` (7 days) so it survives a
+  restart and an explicit logout still beats auto sign-in when that is on.
 - The sandbox had **no network access** during Phase 1–2, so schema application
-  and live verification happened later. `agent-runner/`'s `esgTool.ts` still
-  queries `plant` / `plant_id` — the fill agent's ESG tool is **broken** against
-  the new schema and needs the same rename treatment.
+  and live verification happened later. `agent-runner/`'s `esgTool.ts` has since
+  been repointed at `site` / `site_id` (`esg_list_plants` → `esg_list_sites`,
+  `plantCode` → `siteCode`) and verified against the live database. Before that
+  fix every ESG-database call from "Fill with AI" failed with *"Could not find
+  the table 'esg.plant'"*, and the agent — left with only web search and a
+  stale `'MATTAMPALLY'` example in its own tool description — filled BRSR
+  fields from **Sagar Cements'** published report instead.
+- The dashboard chart tool (`src/lib/ai/tools.ts`) still names its argument
+  `plant_codes`. That is a wire contract shared with `chart-spec.ts`,
+  `validate-spec.ts`, `fetch-chart-data.ts` and the dashboard chat route, so
+  only the misleading cement example was replaced; the rename is still open.
 
 ---
 
