@@ -57,7 +57,7 @@ export const RENDER_CHART_TOOL: OpenAI.Responses.FunctionTool = {
         minItems: 1,
         maxItems: 7,
         description:
-          "1-7 plant codes from the catalogue (e.g. 'GROUP', 'MATTAMPALLY'). " +
+          "1-7 site codes from the catalogue (e.g. 'GROUP', 'AURORA', 'TISYA'). " +
           "Use ['GROUP'] (the consolidated rollup) when the user doesn't name " +
           "specific plants. For compare_by='time' pass exactly one plant; for " +
           "compare_by='plant' pass the plants to compare.",

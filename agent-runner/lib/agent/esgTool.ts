@@ -4,12 +4,12 @@
 // supabase/esg/README.md): CONSTANTS, INPUT, FORMULAS, and OUTPUT. For
 // "Fill with AI" the agent only ever needs the OUTPUT layer — the already
 // computed metrics (Scope 1/2/3, energy, water, waste, KPIs) keyed by
-// output_parameter.key and valued per (plant, period) in output_value.
+// output_parameter.key and valued per (site, period) in output_value.
 //
 // We deliberately expose a SMALL set of read-only, whitelisted query shapes
 // instead of raw SQL. The agent cannot run arbitrary statements; it can only
 // (a) browse the metric catalogue, (b) read computed values for specific
-// metric keys filtered by plant/fiscal-year/period, and (c) list the plant
+// metric keys filtered by site/fiscal-year/period, and (c) list the site
 // and period dimensions. Every query is a parameterised supabase-js select,
 // capped in row count. The service-role key reaches the sandbox via env
 // (NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY) — never via the job.
@@ -122,23 +122,23 @@ export function createEsgTools(hooks: EsgToolHooks = {}) {
     },
   });
 
-  const listPlants = tool({
-    name: "esg_list_plants",
+  const listSites = tool({
+    name: "esg_list_sites",
     description:
-      "List the plants/sites in the ESG database, including the GROUP rollup. Use the returned `code` values (e.g. 'GROUP', 'MATTAMPALLY') as the plantCode filter in esg_get_metric_values.",
+      "List the sites in the ESG database, including the GROUP rollup. Use the returned `code` values (e.g. 'GROUP', 'AURORA', 'TISYA') as the siteCode filter in esg_get_metric_values. Each site carries its asset_type ('commercial', 'residential', or 'group'), city, region, and whether it sits in a water-stressed area.",
     parameters: z.object({}),
     async execute() {
       try {
         const { data, error } = await getClient()
-          .from("plant")
-          .select("code,name,plant_type,is_group")
+          .from("site")
+          .select("code,name,asset_type,city,region,water_stressed,is_group")
           .order("is_group", { ascending: false })
           .limit(MAX_ROWS);
         if (error) throw error;
-        note(`Listed ESG plants: ${data?.length ?? 0}`);
-        return JSON.stringify({ plants: data ?? [] });
+        note(`Listed ESG sites: ${data?.length ?? 0}`);
+        return JSON.stringify({ sites: data ?? [] });
       } catch (err) {
-        return `esg_list_plants failed: ${errText(err)}`;
+        return `esg_list_sites failed: ${errText(err)}`;
       }
     },
   });
@@ -174,7 +174,7 @@ export function createEsgTools(hooks: EsgToolHooks = {}) {
   const getMetricValues = tool({
     name: "esg_get_metric_values",
     description:
-      "Read computed values for one or more ESG metric keys (from esg_list_metrics), optionally filtered by plant code, fiscal year, and period kind. Returns rows of { metricKey, label, unit, plant, fiscalYear, periodKind, monthLabel, value }. For an annual company-wide BRSR number, query plantCode='GROUP' and periodKind='ytd'. Always cite the metric label + plant + period when you use a value.",
+      "Read computed values for one or more ESG metric keys (from esg_list_metrics), optionally filtered by site code, fiscal year, and period kind. Returns rows of { metricKey, label, unit, site, fiscalYear, periodKind, monthLabel, value }. For an annual company-wide BRSR number, query siteCode='GROUP' and periodKind='ytd'. Always cite the metric label + site + period when you use a value.",
     parameters: z.object({
       metricKeys: z
         .array(z.string())
@@ -183,10 +183,10 @@ export function createEsgTools(hooks: EsgToolHooks = {}) {
         .describe(
           "Output metric keys to fetch, e.g. ['emis.scope1_total','emis.scope2_total']."
         ),
-      plantCode: z
+      siteCode: z
         .string()
         .nullable()
-        .describe("Plant code from esg_list_plants, or null for all plants."),
+        .describe("Site code from esg_list_sites, or null for all sites."),
       fiscalYear: z
         .string()
         .nullable()
@@ -216,12 +216,12 @@ export function createEsgTools(hooks: EsgToolHooks = {}) {
         }
         const byId = new Map(params.map((p) => [p.id as number, p]));
 
-        // Build the value query, joining the plant + period dimensions so the
+        // Build the value query, joining the site + period dimensions so the
         // agent gets human-readable labels back (PostgREST embedded selects).
         let q = supabase
           .from("output_value")
           .select(
-            "value_num,parameter_id,plant:plant_id(code),period:period_id(fiscal_year,period_kind,month_label)"
+            "value_num,parameter_id,site:site_id(code),period:period_id(fiscal_year,period_kind,month_label)"
           )
           .in(
             "parameter_id",
@@ -229,8 +229,8 @@ export function createEsgTools(hooks: EsgToolHooks = {}) {
           )
           .limit(MAX_ROWS);
 
-        if (args.plantCode) {
-          q = q.eq("plant.code", args.plantCode).not("plant", "is", null);
+        if (args.siteCode) {
+          q = q.eq("site.code", args.siteCode).not("site", "is", null);
         }
         if (args.fiscalYear) {
           q = q.eq("period.fiscal_year", args.fiscalYear).not("period", "is", null);
@@ -249,7 +249,7 @@ export function createEsgTools(hooks: EsgToolHooks = {}) {
             metricKey: p?.key,
             label: p?.label,
             unit: p?.unit,
-            plant: r.plant?.code ?? null,
+            site: r.site?.code ?? null,
             fiscalYear: r.period?.fiscal_year ?? null,
             periodKind: r.period?.period_kind ?? null,
             monthLabel: r.period?.month_label ?? null,
@@ -258,7 +258,7 @@ export function createEsgTools(hooks: EsgToolHooks = {}) {
         });
         note(
           `Read ESG values for ${args.metricKeys.join(", ")}${
-            args.plantCode ? ` @ ${args.plantCode}` : ""
+            args.siteCode ? ` @ ${args.siteCode}` : ""
           }${args.fiscalYear ? ` ${args.fiscalYear}` : ""}: ${rows.length} rows`
         );
         return JSON.stringify({ rows });
@@ -268,5 +268,5 @@ export function createEsgTools(hooks: EsgToolHooks = {}) {
     },
   });
 
-  return [listMetrics, listPlants, listPeriods, getMetricValues];
+  return [listMetrics, listSites, listPeriods, getMetricValues];
 }
