@@ -88,7 +88,7 @@ function buildInstructions(job: FillJob): string {
       ? "- search_user_docs(query): the company's own uploaded PDFs (policies, prior BRSR/annual reports, internal data). Your PRIMARY source for company-specific facts and figures."
       : "- (No uploaded documents are available for this run.)",
     hasEsg
-      ? "- esg_list_metrics / esg_list_plants / esg_list_periods / esg_get_metric_values: the company's carbon-accounting database. Use it for QUANTITATIVE environmental fields (energy, water, waste, GHG Scope 1/2/3). For an annual company-wide figure, query plantCode='GROUP' and periodKind='ytd' for the reporting fiscal year."
+      ? "- esg_list_metrics / esg_list_sites / esg_list_periods / esg_get_metric_values: the company's carbon-accounting database. Use it for QUANTITATIVE environmental fields (energy, water, waste, GHG Scope 1/2/3). For an annual company-wide figure, query siteCode='GROUP' and periodKind='ytd' for the reporting fiscal year."
       : "- (The ESG database is not available for this run.)",
     "- web_search(query): the public web. Use for verifiable public facts (CIN, listing/exchange details, registered address) when the documents don't have them. Prefer official/regulator sources.",
   ].join("\n");

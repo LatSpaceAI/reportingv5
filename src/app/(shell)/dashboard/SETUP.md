@@ -53,7 +53,7 @@ the table will be reachable by the tiles routes.
 
 1. `npm run dev`, open `/dashboard`.
 2. Ask: "What's our total Scope 1 emissions?" → KPI card (GROUP, YTD).
-3. "Show Scope 1 through the year for Mattampally" → 12-month line.
+3. "Show Scope 1 through the year for Birla Aurora" → 12-month line.
 4. "Compare clinker factor across all plants" → bar across plants.
 5. Pin a chart → reload → it persists and reloads live data; drag/resize → layout persists.
 

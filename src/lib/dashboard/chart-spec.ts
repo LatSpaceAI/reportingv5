@@ -44,7 +44,7 @@ export const ChartSpecSchema = z
 export type ChartSpec = z.infer<typeof ChartSpecSchema>;
 
 export interface ChartSeriesPoint {
-  label: string; // "Apr", "Mattampally", "YTD", etc.
+  label: string; // "Apr", "Aurora", "YTD", etc.
   value: number | null;
 }
 
