@@ -8,6 +8,10 @@ export const metadata = {
   title: "Sign in — LatSpace",
 };
 
+// Never serve this from a cache: after signing out the browser must re-run the
+// middleware rather than repaint a stored copy of the app shell.
+export const dynamic = "force-dynamic";
+
 export default function LoginPage() {
   return (
     <Suspense fallback={null}>
