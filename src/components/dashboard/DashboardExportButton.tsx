@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { useToast } from "@/components/Toast";
+import { downloadNodeAsJpg } from "@/lib/dashboard/export-jpg";
 
 interface DashboardExportButtonProps {
   targetRef: React.MutableRefObject<HTMLDivElement | null>;
@@ -21,10 +22,6 @@ function DownloadIcon({ className = "h-3 w-3" }: { className?: string }) {
   );
 }
 
-function sanitizeFilename(name: string): string {
-  return name.replace(/[/\\:*?"<>|]/g, "-").trim() || "dashboard";
-}
-
 /** Downloads the current dashboard grid as a JPG. */
 export function DashboardExportButton({
   targetRef,
@@ -39,19 +36,7 @@ export function DashboardExportButton({
     if (!node || exporting) return;
     setExporting(true);
     try {
-      // Dynamic import keeps html-to-image off the initial bundle.
-      const { toJpeg } = await import("html-to-image");
-      const dataUrl = await toJpeg(node, {
-        backgroundColor: "#ffffff",
-        pixelRatio: 2,
-        quality: 0.95,
-        filter: (n) =>
-          !(n instanceof HTMLElement && n.dataset.exportExclude !== undefined),
-      });
-      const a = document.createElement("a");
-      a.download = `${sanitizeFilename(presetName ?? "All pins")}.jpg`;
-      a.href = dataUrl;
-      a.click();
+      await downloadNodeAsJpg(node, presetName ?? "All pins");
     } catch (err) {
       toast.show(`Export failed: ${(err as Error).message}`);
     } finally {

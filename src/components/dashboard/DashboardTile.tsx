@@ -1,9 +1,12 @@
 "use client";
 
+import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { ChartRenderer } from "@/components/dashboard/ChartRenderer";
+import { useToast } from "@/components/Toast";
 import type { ChartSpec, ChartData } from "@/lib/dashboard/chart-spec";
+import { downloadNodeAsJpg } from "@/lib/dashboard/export-jpg";
 
 interface DashboardTileProps {
   tileId: string;
@@ -43,6 +46,17 @@ function FolderPlusIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
   );
 }
 
+// lucide: download
+function DownloadIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M12 15V3" />
+    </svg>
+  );
+}
+
 // lucide: x
 function XIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
   return (
@@ -60,6 +74,10 @@ export function DashboardTile({
   removeLabel,
   onAddToPreset,
 }: DashboardTileProps) {
+  const toast = useToast();
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const [exporting, setExporting] = useState(false);
+
   const q = useQuery<TileDataResponse>({
     queryKey: ["dashboard-tile-data", tileId],
     queryFn: async () => {
@@ -70,8 +88,24 @@ export function DashboardTile({
     staleTime: 60_000,
   });
 
+  async function downloadTile() {
+    const node = cardRef.current;
+    if (!node || exporting) return;
+    setExporting(true);
+    try {
+      await downloadNodeAsJpg(node, spec.title);
+    } catch (err) {
+      toast.show(`Export failed: ${(err as Error).message}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
-    <div className="flex h-full w-full flex-col border border-[#0A0A0A]/10 bg-white">
+    <div
+      ref={cardRef}
+      className="flex h-full w-full flex-col border border-[#0A0A0A]/10 bg-white"
+    >
       <div className="flex flex-shrink-0 items-start justify-between gap-2 border-b border-[#0A0A0A]/[0.06] px-3 py-2">
         <div className="flex min-w-0 items-start gap-1.5">
           <span
@@ -90,6 +124,17 @@ export function DashboardTile({
           </div>
         </div>
         <div className="flex flex-shrink-0 items-center">
+          <button
+            type="button"
+            data-export-exclude
+            onClick={downloadTile}
+            disabled={exporting || !q.data}
+            aria-label="Download chart as JPG"
+            title="Download chart as JPG"
+            className="p-1 text-[#0A0A0A]/40 transition-colors hover:bg-[#0A0A0A]/[0.04] hover:text-[#0A0A0A] disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[#0A0A0A]/40"
+          >
+            <DownloadIcon />
+          </button>
           <button
             type="button"
             data-export-exclude
