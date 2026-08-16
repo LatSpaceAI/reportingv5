@@ -229,8 +229,8 @@ export default function BulkUploadPage() {
   const removeFile = (fileId: string) => setFiles((prev) => prev.filter((f) => f.id !== fileId));
 
   const downloadTemplate = async (id: (typeof TEMPLATES)[number]["id"], name: string) => {
-    const meta = { site: period.site, month: monthLabel(period.month), year: period.year };
-    show(`Generating ${name} for ${period.site}…`);
+    const meta = { month: monthLabel(period.month), year: period.year };
+    show(`Generating ${name}…`);
     try {
       if (id === "plant") await downloadPlantInputTemplate(meta);
       else await downloadHrDataTemplate(meta);
@@ -338,7 +338,7 @@ export default function BulkUploadPage() {
                         <div>
                           <div className="text-[14px] font-semibold text-[#0A0A0A]">{file.name}</div>
                           <p className="mt-0.5 text-[11px] text-gray-500">
-                            {formatFileSize(file.size)} • {period.site} • {monthLabel(period.month)} {period.year}
+                            {formatFileSize(file.size)} • {monthLabel(period.month)} {period.year}
                           </p>
                         </div>
                       </div>
