@@ -27,24 +27,15 @@ export const MONTHS = [
   { value: 12, label: "December" },
 ] as const;
 
-// The 7 sites covered by the standardized input sheet (order matches the
-// master ESG workbook's "Input Sheet - *" tabs).
-export const SITES = [
-  "Group",
-  "Mattampally",
-  "Gudipadu",
-  "Bayyavaram",
-  "Dachepalli",
-  "Jeerabad",
-  "Jajpur",
-] as const;
-
-export type Site = (typeof SITES)[number];
+// Sites are NOT listed here. They live in esg.site and are read from the API —
+// see /data-collection/site-return, which resolves them per request. This module
+// once hard-coded the seven Sagar Cements plants the app was originally built
+// around; that list outlived the cement model and had no place in a Birla
+// Estates build, so the picker below is month/year only.
 
 export interface ReportingPeriod {
   month: number;
   year: number;
-  site: Site;
 }
 
 export function monthLabel(month: number): string {
@@ -53,25 +44,24 @@ export function monthLabel(month: number): string {
 
 /** Reactive reporting-period state backed by localStorage. */
 export function useReportingPeriod(): [ReportingPeriod, (p: ReportingPeriod) => void] {
-  const [period, setPeriodState] = useState<ReportingPeriod>({ month: 1, year: 2025, site: SITES[0] });
+  const [period, setPeriodState] = useState<ReportingPeriod>({ month: 1, year: 2025 });
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(PERIOD_KEY);
       if (raw) {
+        // Older blobs carry a `site` key from the cement-era picker; reading
+        // only month/year drops it silently.
         const parsed = JSON.parse(raw) as Partial<ReportingPeriod>;
         if (typeof parsed.month === "number" && typeof parsed.year === "number") {
-          const site = (SITES as readonly string[]).includes(parsed.site as string)
-            ? (parsed.site as Site)
-            : SITES[0];
-          setPeriodState({ month: parsed.month, year: parsed.year, site });
+          setPeriodState({ month: parsed.month, year: parsed.year });
           return;
         }
       }
     } catch {}
     // Default to the current month/year only on the client (avoids SSR drift).
     const now = new Date();
-    setPeriodState({ month: now.getMonth() + 1, year: now.getFullYear(), site: SITES[0] });
+    setPeriodState({ month: now.getMonth() + 1, year: now.getFullYear() });
   }, []);
 
   const setPeriod = (p: ReportingPeriod) => {
@@ -110,25 +100,10 @@ export function ReportingPeriodCard({
           <h3 className="text-[13px] font-semibold text-[#0A0A0A]">Reporting Period</h3>
         </div>
         <span className="bg-brand/[0.06] px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-brand">
-          {period.site} • {monthLabel(period.month)} {period.year}
+          {monthLabel(period.month)} {period.year}
         </span>
       </div>
-      <div className="grid gap-3 p-5 sm:grid-cols-3">
-        <div>
-          <label className={labelClass}>Site</label>
-          <select
-            value={period.site}
-            onChange={(e) => onChange({ ...period, site: e.target.value as Site })}
-            disabled={disabled}
-            className={`${inputClass} w-full`}
-          >
-            {SITES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </div>
+      <div className="grid gap-3 p-5 sm:grid-cols-2">
         <div>
           <label className={labelClass}>Month</label>
           <select

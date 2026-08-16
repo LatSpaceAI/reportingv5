@@ -32,7 +32,6 @@ function triggerDownload(buffer: ArrayBuffer, filename: string) {
 }
 
 interface TemplateMeta {
-  site: string;
   month: string;
   year: number;
 }
@@ -61,7 +60,7 @@ export async function downloadPlantInputTemplate(meta: TemplateMeta) {
   const VALUE_COL = 4;
 
   // ── Title banner ──────────────────────────────────────────────────────────
-  const titleRow = ws.addRow([`PLANT INPUT SHEET — ${meta.site.toUpperCase()}`]);
+  const titleRow = ws.addRow(["PLANT INPUT SHEET"]);
   ws.mergeCells(titleRow.number, 1, titleRow.number, lastCol);
   const titleCell = titleRow.getCell(1);
   titleCell.font = { bold: true, size: 14, color: { argb: HEADER_TXT } };
@@ -126,7 +125,7 @@ export async function downloadPlantInputTemplate(meta: TemplateMeta) {
   const buf = await wb.xlsx.writeBuffer();
   triggerDownload(
     buf as ArrayBuffer,
-    `Plant Input Sheet - ${meta.site} - ${meta.month} ${meta.year}.xlsx`,
+    `Plant Input Sheet - ${meta.month} ${meta.year}.xlsx`,
   );
 }
 
@@ -146,7 +145,7 @@ export async function downloadHrDataTemplate(meta: TemplateMeta) {
   ws.columns = [{ width: 8 }, { width: 52 }, { width: 16 }, { width: 18 }];
   const lastCol = 4; // S.No, Parameter, Units, Value
 
-  const titleRow = ws.addRow([`HR DATA — ${meta.site.toUpperCase()}`]);
+  const titleRow = ws.addRow(["HR DATA"]);
   ws.mergeCells(titleRow.number, 1, titleRow.number, lastCol);
   const tc = titleRow.getCell(1);
   tc.font = { bold: true, size: 14, color: { argb: HEADER_TXT } };
@@ -180,5 +179,5 @@ export async function downloadHrDataTemplate(meta: TemplateMeta) {
   }
 
   const buf = await wb.xlsx.writeBuffer();
-  triggerDownload(buf as ArrayBuffer, `HR Data - ${meta.site} - ${meta.month} ${meta.year}.xlsx`);
+  triggerDownload(buf as ArrayBuffer, `HR Data - ${meta.month} ${meta.year}.xlsx`);
 }
