@@ -2,17 +2,19 @@
 
 // AI Context — the structured profile that grounds the AI assistant in the org's
 // reporting situation (company, reporting year, business context). Editable
-// here; saved to localStorage. Ported from vsmev1's AI Context page, minus the
-// Sculptor web-research feature and the server-side VSME checklist (plato-v1 has
-// no auth/DB and no in-process LLM client).
+// here; saved against the signed-in account via /api/ai-context, so the company
+// name and logo follow the login rather than the browser. Ported from vsmev1's
+// AI Context page, minus the Sculptor web-research feature and the server-side
+// VSME checklist.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/components/Toast";
 import {
   emptyAiContextProfile,
+  loadAiContext,
   readAiContext,
-  writeAiContext,
+  saveAiContext,
   BUSINESS_CONTEXT_MAX,
   LOGO_ACCEPT,
   LOGO_MAX_BYTES,
@@ -87,10 +89,33 @@ export default function AiContextPage() {
   const [saving, setSaving] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
+  // Paint the cached profile immediately, then replace it with the account's
+  // saved one. If the server read fails we keep the cache rather than wiping
+  // the form — but the editor is then holding possibly-stale values, so the
+  // banner below warns before the user saves over the stored profile.
+  const [loadFailed, setLoadFailed] = useState(false);
   useEffect(() => {
-    const p = readAiContext() ?? emptyAiContextProfile();
-    setProfile(p);
-    setOriginal(p);
+    let cancelled = false;
+    const cached = readAiContext();
+    if (cached) {
+      setProfile(cached);
+      setOriginal(cached);
+    }
+    void loadAiContext().then((server) => {
+      if (cancelled) return;
+      if (server) {
+        setProfile(server);
+        setOriginal(server);
+      } else {
+        setLoadFailed(true);
+        // Nothing cached either — start from an empty form.
+        setProfile((p) => p ?? emptyAiContextProfile());
+        setOriginal((p) => p ?? emptyAiContextProfile());
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const update = (patch: Partial<AiContextProfile>) =>
@@ -117,7 +142,7 @@ export default function AiContextPage() {
     [profile, original],
   );
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!profile || saving) return;
     if (!profile.companyName.trim()) {
       show("Company name is required.");
@@ -125,17 +150,19 @@ export default function AiContextPage() {
     }
     setSaving(true);
     try {
-      const saved: AiContextProfile = {
+      const saved = await saveAiContext({
         ...profile,
         companyName: profile.companyName.trim(),
         websiteUrl: profile.websiteUrl.trim(),
         businessContext: profile.businessContext.trim(),
         updatedAt: new Date().toISOString(),
-      };
-      writeAiContext(saved);
+      });
       setProfile(saved);
       setOriginal(saved);
+      setLoadFailed(false);
       show("AI context saved.");
+    } catch (err) {
+      show((err as Error).message);
     } finally {
       setSaving(false);
     }
@@ -168,6 +195,14 @@ export default function AiContextPage() {
             </p>
           </div>
         </header>
+
+        {loadFailed && (
+          <div className="mb-6 border border-amber-300 bg-amber-50 px-4 py-3 text-[12px] leading-relaxed text-amber-900">
+            Could not load the saved profile for your account. You are looking
+            at this browser&rsquo;s last-known copy — saving will overwrite what
+            is stored. Reload once you are back online to check first.
+          </div>
+        )}
 
         <div className="space-y-8">
           {/* Company */}
@@ -336,7 +371,7 @@ export default function AiContextPage() {
           </span>
           <button
             type="button"
-            onClick={handleSave}
+            onClick={() => void handleSave()}
             disabled={saving || !dirty}
             className="flex items-center justify-center gap-2 bg-brand px-6 py-3 text-[13px] font-medium uppercase tracking-wider text-white transition-colors hover:bg-brand-medium disabled:cursor-not-allowed disabled:bg-gray-300"
           >

@@ -5,7 +5,12 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { AI_CONTEXT_UPDATED_EVENT, readAiContext } from "@/lib/aiContext";
+import {
+  AI_CONTEXT_UPDATED_EVENT,
+  clearAiContextCache,
+  loadAiContext,
+  readAiContext,
+} from "@/lib/aiContext";
 
 // A nav item is either a real route (`href`) or a placeholder that isn't wired
 // up yet (`href` omitted). Placeholders render as disabled buttons so the chrome
@@ -92,7 +97,10 @@ function isReportingRoute(pathname: string): boolean {
   return pathname.startsWith("/reporting") || pathname.startsWith("/table") || pathname.startsWith("/report");
 }
 
-export function Sidenav({ userName }: { userName?: string } = {}) {
+export function Sidenav({
+  userName,
+  orgName: initialOrgName,
+}: { userName?: string; orgName?: string } = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
@@ -127,6 +135,11 @@ export function Sidenav({ userName }: { userName?: string } = {}) {
     // Grab the form now: React nulls currentTarget once the handler returns, so
     // reading it after an await (i.e. in the catch) would throw.
     const form = e.currentTarget;
+    // Drop the cached company identity before anything can navigate away: the
+    // profile is per-account, and the next person to sign in on this browser
+    // must not see the last one's branding while their own profile loads. Done
+    // up front so the native-form fallback below clears it too.
+    clearAiContextCache();
     try {
       const res = await fetch("/api/auth/logout", {
         method: "POST",
@@ -196,16 +209,31 @@ export function Sidenav({ userName }: { userName?: string } = {}) {
 
   const aiActive = pathname === "/ai-context" || pathname.startsWith("/ai-context/");
 
-  // The org label below reflects the company name saved on the AI Context page.
-  // We read it on mount, on every route change (e.g. navigating away from the
-  // editor), and when the page dispatches AI_CONTEXT_UPDATED_EVENT on save.
-  const [orgName, setOrgName] = useState<string>("");
+  // The org label below reflects the company name saved against the signed-in
+  // account. The server renders it into `initialOrgName` so it's correct on the
+  // first paint; from there we keep it in sync with edits made on the AI
+  // Context page, which fire AI_CONTEXT_UPDATED_EVENT after writing the cache.
+  //
+  // A cached name only wins when it isn't empty: a fresh browser has no cache,
+  // and blanking a correct server-rendered label back to "Your Organization"
+  // is exactly the bug this is here to avoid.
+  const [orgName, setOrgName] = useState<string>(initialOrgName ?? "");
   useEffect(() => {
-    const sync = () => setOrgName(readAiContext()?.companyName?.trim() ?? "");
+    const sync = () => {
+      const cached = readAiContext()?.companyName?.trim();
+      if (cached) setOrgName(cached);
+    };
     sync();
     window.addEventListener(AI_CONTEXT_UPDATED_EVENT, sync);
     return () => window.removeEventListener(AI_CONTEXT_UPDATED_EVENT, sync);
   }, [pathname]);
+
+  // Warm the cache from the server once per mount, so a browser that has never
+  // seen this account (or whose storage was cleared) still gets the company
+  // identity — and so the dashboard banner has it before it renders.
+  useEffect(() => {
+    void loadAiContext();
+  }, []);
 
   return (
     <aside

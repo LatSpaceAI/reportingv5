@@ -4,6 +4,8 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
+import { clearAiContextCache } from "@/lib/aiContext";
+
 // Demo sign-in. The credentials this accepts are documented in
 // .env.local.example rather than shown on the page. See [[auth]].
 
@@ -36,6 +38,11 @@ export function LoginForm() {
         setSubmitting(false);
         return;
       }
+      // The AI Context cache belongs to whoever was signed in last — which may
+      // not be the account that just signed in (a closed browser ends the
+      // session without ever running logout). Drop it so the shell loads this
+      // account's own company name and logo instead of the previous one's.
+      clearAiContextCache();
       // Full navigation rather than router.push: the middleware needs to see
       // the new cookie, and a refresh guarantees the shell mounts signed in.
       router.replace(from);

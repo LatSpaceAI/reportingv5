@@ -2,10 +2,21 @@
 // org's reporting situation (company, reports, VSME scope, reporting year, and a
 // free-text business-context narrative).
 //
-// Ported from vsmev1's onboarding profile. plato-v1 has no auth/DB, so this is
-// persisted client-side in localStorage (the same pattern as lib/storage.ts)
-// rather than to an organizations row. The server-side VSME checklist and the
-// Sculptor web-research feature are intentionally omitted here.
+// Ported from vsmev1's onboarding profile. The server-side VSME checklist and
+// the Sculptor web-research feature are intentionally omitted here.
+//
+// WHERE THIS LIVES
+//   Source of truth: esg.ai_context_profile, one row per signed-in account,
+//   reached through /api/ai-context (see lib/aiContextRepo.ts). Scoping it to
+//   the account is what makes the company name and logo follow the LOGIN.
+//   Cache: localStorage, written on every successful read/save. It exists so
+//   the sidebar and dashboard banner can paint the company identity on the
+//   first frame instead of flashing "Your Organization" while the fetch is in
+//   flight, and so a dropped network doesn't blank the branding. It is never
+//   authoritative — a server read always overwrites it.
+//
+// Callers that need the saved profile should use `loadAiContext()`, which does
+// both. `readAiContext()` is the synchronous cache read, for the initial paint.
 
 export const AI_CONTEXT_KEY = "reporting-app/ai-context/v1";
 
@@ -232,7 +243,12 @@ export function parseAiContextProfile(
   };
 }
 
-/** Read the saved AI Context profile from localStorage (null if none saved). */
+/**
+ * Read the cached profile from localStorage (null if nothing cached).
+ *
+ * Synchronous, so it's what the sidebar and banner paint with before the
+ * server read lands. It can be stale — for the saved truth use loadAiContext().
+ */
 export function readAiContext(): AiContextProfile | null {
   if (typeof window === "undefined") return null;
   try {
@@ -244,12 +260,81 @@ export function readAiContext(): AiContextProfile | null {
   }
 }
 
-/** Persist the AI Context profile to localStorage. */
+/** Write the local cache and tell same-tab listeners the profile changed. */
 export function writeAiContext(profile: AiContextProfile): void {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(AI_CONTEXT_KEY, JSON.stringify(profile));
   } catch {}
-  // Notify same-tab listeners (the sidebar) that the profile changed.
+  // The native `storage` event only fires in OTHER tabs, so the writer's own
+  // sidebar/banner need this one.
   window.dispatchEvent(new Event(AI_CONTEXT_UPDATED_EVENT));
+}
+
+/** Drop the cached profile — used on sign-out so the next login starts clean. */
+export function clearAiContextCache(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(AI_CONTEXT_KEY);
+  } catch {}
+  window.dispatchEvent(new Event(AI_CONTEXT_UPDATED_EVENT));
+}
+
+/**
+ * Fetch the signed-in account's saved profile from the server and refresh the
+ * local cache with it.
+ *
+ * Returns null when the profile could not be fetched (offline, 401, server
+ * error). Callers should keep showing whatever `readAiContext()` gave them in
+ * that case rather than blanking the branding — a failed refresh is not
+ * evidence that the profile is empty.
+ */
+export async function loadAiContext(): Promise<AiContextProfile | null> {
+  if (typeof window === "undefined") return null;
+  try {
+    const res = await fetch("/api/ai-context", { cache: "no-store" });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { profile?: Partial<AiContextProfile> };
+    if (!body?.profile) return null;
+    const profile = normalizeStoredProfile(body.profile);
+    writeAiContext(profile);
+    return profile;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persist the profile for the signed-in account. The cache is updated only
+ * after the server accepts the write, so a failed save can't leave the browser
+ * showing a company name the account doesn't actually have.
+ *
+ * Throws with a human-readable message on failure.
+ */
+export async function saveAiContext(
+  profile: AiContextProfile,
+): Promise<AiContextProfile> {
+  const res = await fetch("/api/ai-context", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profile }),
+  });
+
+  const body = (await res.json().catch(() => null)) as
+    | { profile?: Partial<AiContextProfile>; error?: string }
+    | null;
+
+  if (!res.ok) {
+    throw new Error(body?.error || `Could not save AI context (${res.status}).`);
+  }
+  // A signed-out PUT is redirected to the login page, which answers 200 with
+  // HTML. Without this the save would look like it succeeded and the cache
+  // would be updated with a profile the server never stored.
+  if (!body?.profile) {
+    throw new Error("Could not save AI context — you may have been signed out.");
+  }
+
+  const saved = normalizeStoredProfile(body.profile);
+  writeAiContext(saved);
+  return saved;
 }
