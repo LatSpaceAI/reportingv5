@@ -4,13 +4,17 @@ import { useEffect, useState } from "react";
 
 import {
   AI_CONTEXT_UPDATED_EVENT,
+  loadAiContext,
   readAiContext,
 } from "@/lib/aiContext";
 
 /**
  * Banner at the top of the AI Dashboard: the company logo + "{company} ESG
- * Dashboard". Reads the company name and logo from the AI Context profile
- * (localStorage) and re-reads when the profile is saved on the AI Context page.
+ * Dashboard". The name and logo come from the AI Context profile saved against
+ * the signed-in account. The cached copy paints first (no flash of "Your
+ * Company"), then the account's stored profile replaces it; edits made on the
+ * AI Context page arrive via AI_CONTEXT_UPDATED_EVENT, edits in another tab via
+ * the native `storage` event.
  */
 export function DashboardBanner() {
   const [company, setCompany] = useState<string>("");
@@ -23,6 +27,9 @@ export function DashboardBanner() {
       setLogo(p?.logoDataUrl ?? null);
     };
     sync();
+    // Refresh from the server; loadAiContext writes the cache and fires
+    // AI_CONTEXT_UPDATED_EVENT, so `sync` picks the result up.
+    void loadAiContext();
     window.addEventListener(AI_CONTEXT_UPDATED_EVENT, sync);
     // also pick up edits made in another tab
     window.addEventListener("storage", sync);

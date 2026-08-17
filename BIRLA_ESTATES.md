@@ -122,7 +122,9 @@ INPUT ──────┘
 ```
 
 Run in order `01` → `08b`, then `10_dashboard_tiles.sql` and
-`APPLY_THIS_IN_SQL_EDITOR.sql` (grants + PostgREST reload).
+`APPLY_THIS_IN_SQL_EDITOR.sql` (grants + PostgREST reload). Later numbered
+files are applied on top in order; `21_ai_context_profile.sql` is the most
+recent and is required for the AI Context page to save (see below).
 
 Key differences from the cement model:
 
@@ -197,6 +199,25 @@ happens in `fetch-chart-data.ts`.
 "Current period" means the latest fiscal year **with data** — periods are seeded a
 year ahead, so the newest year is empty and the model would otherwise default to
 a blank chart.
+
+### AI Context (`/ai-context`)
+
+The company identity — name, logo, website, reporting year, business-context
+narrative — used by the sidebar, the dashboard banner, and the fill agents.
+
+Stored **per signed-in account** in `esg.ai_context_profile` (one row keyed by
+the account id from the session cookie), reached through `/api/ai-context`. It
+used to live only in `localStorage`, which made it per-browser: the same
+credentials on another machine showed an empty "Your Organization" shell.
+
+⚠️ `localStorage` is still written, but only as a **cache** — it exists so the
+sidebar and banner paint the branding on the first frame instead of flashing a
+placeholder, and so a dropped network doesn't blank it. A server read always
+overwrites it, and it is cleared on both login and logout so one account never
+inherits another's branding on a shared browser. Never treat it as the truth.
+
+The logo is a downscaled (256px) data URL in a text column — no bucket, and it
+arrives with the profile in one read.
 
 ### Export (`/data-collection/export`)
 

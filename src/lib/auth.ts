@@ -119,3 +119,22 @@ export function accountById(id: string | undefined): DemoAccount | null {
   if (!id) return null;
   return DEMO_ACCOUNTS.find((a) => a.id === id) ?? null;
 }
+
+/**
+ * The signed-in account for an API request, read straight off the request's
+ * cookies. Route handlers need this to scope per-account data (e.g. the AI
+ * Context profile); pages get the same thing from `cookies()` in the shell
+ * layout. Returns null when there's no usable session — the middleware already
+ * gates page routes, so a null here means an API call made without one.
+ */
+export function accountFromRequest(req: Request): DemoAccount | null {
+  const header = req.headers.get("cookie");
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() !== SESSION_COOKIE) continue;
+    return accountById(decodeURIComponent(part.slice(eq + 1).trim()));
+  }
+  return null;
+}
