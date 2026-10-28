@@ -22,6 +22,9 @@ on:
       - ".github/workflows/publish-agent-runner.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   publish:
     runs-on: ubuntu-latest
